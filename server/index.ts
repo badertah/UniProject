@@ -60,6 +60,98 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run migrations and seed
+  try {
+    const { Pool } = await import("pg");
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        xp INTEGER NOT NULL DEFAULT 0,
+        level INTEGER NOT NULL DEFAULT 1,
+        streak INTEGER NOT NULL DEFAULT 0,
+        last_login_date TEXT,
+        edu_coins INTEGER NOT NULL DEFAULT 100,
+        equipped_avatar VARCHAR,
+        equipped_frame VARCHAR,
+        equipped_theme VARCHAR,
+        is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS topics (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT 'BookOpen',
+        color TEXT NOT NULL DEFAULT 'from-blue-500 to-purple-600',
+        order_index INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS levels (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        topic_id VARCHAR NOT NULL REFERENCES topics(id),
+        level_number INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        game_type TEXT NOT NULL,
+        xp_reward INTEGER NOT NULL DEFAULT 50,
+        coin_reward INTEGER NOT NULL DEFAULT 10,
+        difficulty TEXT NOT NULL DEFAULT 'easy'
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS questions (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        level_id VARCHAR NOT NULL,
+        content TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        options JSONB,
+        hint TEXT,
+        order_index INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_progress (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR NOT NULL REFERENCES users(id),
+        level_id VARCHAR NOT NULL REFERENCES levels(id),
+        completed BOOLEAN NOT NULL DEFAULT FALSE,
+        score INTEGER NOT NULL DEFAULT 0,
+        completed_at TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cosmetics (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        price INTEGER NOT NULL,
+        icon TEXT NOT NULL,
+        description TEXT NOT NULL,
+        rarity TEXT NOT NULL DEFAULT 'common'
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_cosmetics (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR NOT NULL REFERENCES users(id),
+        cosmetic_id VARCHAR NOT NULL REFERENCES cosmetics(id),
+        unlocked_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.end();
+    log("Database schema ready", "db");
+
+    const { seedDatabase } = await import("./seed");
+    await seedDatabase();
+  } catch (e) {
+    console.error("DB setup error:", e);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
