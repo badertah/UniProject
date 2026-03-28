@@ -20,7 +20,7 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 1. **JWT Auth** — register/login without email, streak bonuses on daily login
 2. **XP/Level system** — level = floor(xp/150)+1
 3. **Tier system** — Rookie (0) → Scholar (500) → Expert (1500) → Master (3500) → Legend (7000)
-4. **6 Topics** — System Analysis, Programming, Data Structures, Database, Networks, Software Engineering
+4. **6 Topics** — all freely selectable, no locking; System Analysis, Programming, Data Structures, Database, Networks, Software Engineering
 5. **3 Mini-games per topic**:
    - Wordle-style keyword guesser (5-letter words, 6 attempts)
    - Definition Matcher (click-to-pair, shuffle mechanic)
@@ -29,6 +29,8 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 7. **Global Leaderboard** — top 20, podium display for top 3
 8. **Profile Page** — tier progression, stats, equipped cosmetics
 9. **Admin Panel** — create topics/levels/questions (admin/admin123)
+10. **Farm Tycoon** — narrative story game (`/farm`) with 12 chapters unlocked by XP; farm visual shows buildings/crops/animals earned through education
+11. **Display Settings** — (`/settings`) users can toggle visibility of: sidebar stats card, XP bar, streak, EduCoins, dashboard stats cards, leaderboard preview, quick play card, farm tab nav item. Stored in localStorage.
 
 ## Design
 - Dark futuristic cyberpunk with neon purple + electric blue
@@ -39,14 +41,16 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 
 ## Pages
 - `/auth` — Login/Register (cyberpunk terminal aesthetic)
-- `/dashboard` — Overview, stats, course preview, leaderboard preview
-- `/courses` — All 6 topic cards with progress
-- `/courses/:id` — Topic detail with 3 levels
+- `/dashboard` — Overview, stats, course preview, leaderboard preview (settings-responsive)
+- `/courses` — All 6 topic cards with progress (all freely selectable)
+- `/courses/:id` — Topic detail with 3 levels (all unlocked)
 - `/game/:id` — Game play (detects game type, renders correct mini-game)
 - `/leaderboard` — Full leaderboard with podium
 - `/shop` — Cosmetics grid with preview modal
 - `/profile` — Tier progression, stats, achievements
 - `/admin` — Admin panel (topic/level/question creation)
+- `/farm` — Farm Tycoon: narrative story with 12 XP-gated chapters + visual farm
+- `/settings` — Display settings: toggle sidebar/dashboard elements, farm tab
 
 ## API Routes
 - `POST /api/auth/register|login` — JWT auth

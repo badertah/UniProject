@@ -2,9 +2,10 @@ import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
+import { useSettings } from "@/hooks/use-settings";
 import {
   LayoutDashboard, BookOpen, Trophy, ShoppingBag, User, Settings,
-  LogOut, Zap, Flame, Coins, ChevronLeft, ChevronRight, Menu, X
+  LogOut, Zap, Flame, Coins, ChevronLeft, ChevronRight, Menu, Sprout
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -14,16 +15,9 @@ interface LayoutProps {
   children: ReactNode;
 }
 
-const navItems = [
-  { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/courses", icon: BookOpen, label: "Courses" },
-  { path: "/leaderboard", icon: Trophy, label: "Leaderboard" },
-  { path: "/shop", icon: ShoppingBag, label: "Shop" },
-  { path: "/profile", icon: User, label: "Profile" },
-];
-
 export function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuth();
+  const { settings } = useSettings();
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -32,6 +26,20 @@ export function Layout({ children }: LayoutProps) {
 
   const tierInfo = getTierInfo(user.xp);
   const xpProgress = getXpToNextLevel(user.xp);
+
+  const navItems = [
+    { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard", always: true },
+    { path: "/courses", icon: BookOpen, label: "Courses", always: true },
+    { path: "/farm", icon: Sprout, label: "Farm", always: false, settingKey: "showFarmTab" as const },
+    { path: "/leaderboard", icon: Trophy, label: "Leaderboard", always: true },
+    { path: "/shop", icon: ShoppingBag, label: "Shop", always: true },
+    { path: "/profile", icon: User, label: "Profile", always: true },
+    { path: "/settings", icon: Settings, label: "Settings", always: true },
+  ];
+
+  const visibleNavItems = navItems.filter(item =>
+    item.always || (item.settingKey && settings[item.settingKey])
+  );
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -53,7 +61,7 @@ export function Layout({ children }: LayoutProps) {
       </div>
 
       {/* User Stats Card */}
-      {!collapsed && (
+      {!collapsed && settings.showUserStatsCard && (
         <div className="p-3 m-3 rounded-lg bg-card/60 border border-border/40">
           <div className="flex items-center gap-2 mb-2">
             <div className={`w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold ${tierInfo.bgClass}`}>
@@ -64,49 +72,67 @@ export function Layout({ children }: LayoutProps) {
               <p className={`text-xs font-bold ${tierInfo.colorClass}`}>{user.tier}</p>
             </div>
           </div>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Level {user.level}</span>
-              <span className="text-muted-foreground">{xpProgress.current}/{xpProgress.required} XP</span>
+          {settings.showXpBar && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Level {user.level}</span>
+                <span className="text-muted-foreground">{xpProgress.current}/{xpProgress.required} XP</span>
+              </div>
+              <Progress value={xpProgress.percent} className="h-1.5" />
             </div>
-            <Progress value={xpProgress.percent} className="h-1.5" />
-          </div>
+          )}
           <div className="flex items-center gap-3 mt-2">
-            <div className="flex items-center gap-1 text-xs">
-              <Flame className="w-3 h-3 text-orange-400" />
-              <span className="text-muted-foreground">{user.streak}d</span>
-            </div>
-            <div className="flex items-center gap-1 text-xs">
-              <Coins className="w-3 h-3 text-yellow-400" />
-              <span className="text-muted-foreground">{user.eduCoins}</span>
-            </div>
+            {settings.showStreak && (
+              <div className="flex items-center gap-1 text-xs">
+                <Flame className="w-3 h-3 text-orange-400" />
+                <span className="text-muted-foreground">{user.streak}d</span>
+              </div>
+            )}
+            {settings.showEduCoins && (
+              <div className="flex items-center gap-1 text-xs">
+                <Coins className="w-3 h-3 text-yellow-400" />
+                <span className="text-muted-foreground">{user.eduCoins}</span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* Nav Items */}
       <nav className="flex-1 px-2 py-2 space-y-1">
-        {navItems.map(({ path, icon: Icon, label }) => {
+        {visibleNavItems.map(({ path, icon: Icon, label }) => {
           const active = location === path || (path !== "/dashboard" && location.startsWith(path));
+          const isFarm = path === "/farm";
+          const activeClass = isFarm
+            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+            : "bg-primary/15 text-primary border border-primary/30";
           return (
             <Link key={path} href={path}>
               <div
                 data-testid={`nav-${label.toLowerCase()}`}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group ${
                   active
-                    ? "bg-primary/15 text-primary border border-primary/30"
+                    ? activeClass
                     : "text-muted-foreground border border-transparent"
                 } ${collapsed ? "justify-center" : ""}`}
                 onClick={() => setMobileOpen(false)}
               >
-                <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${active ? "text-primary" : "group-hover:text-foreground"}`} />
+                <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${
+                  active
+                    ? isFarm ? "text-emerald-400" : "text-primary"
+                    : "group-hover:text-foreground"
+                }`} />
                 {!collapsed && (
-                  <span className={`text-sm font-medium transition-colors ${active ? "text-primary" : "group-hover:text-foreground"}`}>
+                  <span className={`text-sm font-medium transition-colors ${
+                    active
+                      ? isFarm ? "text-emerald-400" : "text-primary"
+                      : "group-hover:text-foreground"
+                  }`}>
                     {label}
                   </span>
                 )}
                 {active && !collapsed && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+                  <div className={`ml-auto w-1.5 h-1.5 rounded-full ${isFarm ? "bg-emerald-400" : "bg-primary"}`} />
                 )}
               </div>
             </Link>
@@ -200,10 +226,18 @@ export function Layout({ children }: LayoutProps) {
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <Flame className="w-3 h-3 text-orange-400" />
-            <span className="text-muted-foreground">{user.streak}</span>
-            <Coins className="w-3 h-3 text-yellow-400" />
-            <span className="text-muted-foreground">{user.eduCoins}</span>
+            {settings.showStreak && (
+              <>
+                <Flame className="w-3 h-3 text-orange-400" />
+                <span className="text-muted-foreground">{user.streak}</span>
+              </>
+            )}
+            {settings.showEduCoins && (
+              <>
+                <Coins className="w-3 h-3 text-yellow-400" />
+                <span className="text-muted-foreground">{user.eduCoins}</span>
+              </>
+            )}
           </div>
         </div>
 

@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { SettingsProvider } from "@/hooks/use-settings";
 import { Layout } from "@/components/layout";
 
 import AuthPage from "@/pages/auth";
@@ -15,6 +16,8 @@ import LeaderboardPage from "@/pages/leaderboard";
 import ShopPage from "@/pages/shop";
 import ProfilePage from "@/pages/profile";
 import AdminPage from "@/pages/admin";
+import FarmPage from "@/pages/farm";
+import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -93,6 +96,12 @@ function Router() {
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} />
       </Route>
+      <Route path="/farm">
+        <ProtectedRoute component={FarmPage} />
+      </Route>
+      <Route path="/settings">
+        <ProtectedRoute component={SettingsPage} />
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -102,10 +111,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <Router />
-          <Toaster />
-        </AuthProvider>
+        <SettingsProvider>
+          <AuthProvider>
+            <Router />
+            <Toaster />
+          </AuthProvider>
+        </SettingsProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
+import { useSettings } from "@/hooks/use-settings";
 import { getTierInfo, getXpToNextLevel, formatXp, getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ function getTierPosition(xp: number): number {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { settings } = useSettings();
   const { data: topics } = useQuery<any[]>({ queryKey: ["/api/topics"] });
   const { data: leaderboard } = useQuery<any[]>({ queryKey: ["/api/leaderboard"] });
   const { data: progress } = useQuery<any[]>({ queryKey: ["/api/progress"] });
@@ -158,32 +160,34 @@ export default function Dashboard() {
       </motion.div>
 
       {/* Stats Cards */}
-      <motion.div
-        className="grid grid-cols-2 md:grid-cols-4 gap-3"
-        variants={containerVariants}
-        initial="hidden"
-        animate="show"
-      >
-        {[
-          { icon: Zap, label: "Total XP", value: formatXp(user.xp), sub: `Level ${user.level}`, color: "text-primary", bg: "bg-primary/10" },
-          { icon: Flame, label: "Streak", value: `${user.streak} days`, sub: "Keep it up!", color: "text-orange-400", bg: "bg-orange-500/10" },
-          { icon: Coins, label: "EduCoins", value: user.eduCoins, sub: "Spend in shop", color: "text-yellow-400", bg: "bg-yellow-500/10" },
-          { icon: Award, label: "Score Total", value: totalScore, sub: `${completedLevels} levels done`, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-        ].map(({ icon: Icon, label, value, sub, color, bg }) => (
-          <motion.div key={label} variants={itemVariants}>
-            <Card className="border-border/40">
-              <CardContent className="p-4">
-                <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-3`}>
-                  <Icon className={`w-4 h-4 ${color}`} />
-                </div>
-                <div className={`text-xl font-bold ${color} font-mono`}>{value}</div>
-                <div className="text-xs font-medium text-foreground mt-0.5">{label}</div>
-                <div className="text-xs text-muted-foreground">{sub}</div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </motion.div>
+      {settings.showStatsCards && (
+        <motion.div
+          className="grid grid-cols-2 md:grid-cols-4 gap-3"
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+        >
+          {[
+            { icon: Zap, label: "Total XP", value: formatXp(user.xp), sub: `Level ${user.level}`, color: "text-primary", bg: "bg-primary/10" },
+            { icon: Flame, label: "Streak", value: `${user.streak} days`, sub: "Keep it up!", color: "text-orange-400", bg: "bg-orange-500/10" },
+            { icon: Coins, label: "EduCoins", value: user.eduCoins, sub: "Spend in shop", color: "text-yellow-400", bg: "bg-yellow-500/10" },
+            { icon: Award, label: "Score Total", value: totalScore, sub: `${completedLevels} levels done`, color: "text-emerald-400", bg: "bg-emerald-500/10" },
+          ].map(({ icon: Icon, label, value, sub, color, bg }) => (
+            <motion.div key={label} variants={itemVariants}>
+              <Card className="border-border/40">
+                <CardContent className="p-4">
+                  <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-3`}>
+                    <Icon className={`w-4 h-4 ${color}`} />
+                  </div>
+                  <div className={`text-xl font-bold ${color} font-mono`}>{value}</div>
+                  <div className="text-xs font-medium text-foreground mt-0.5">{label}</div>
+                  <div className="text-xs text-muted-foreground">{sub}</div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Course Cards */}
@@ -256,69 +260,77 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        {/* Leaderboard Preview */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold tracking-wide flex items-center gap-2" style={{ fontFamily: "Oxanium, sans-serif" }}>
-              <Trophy className="w-5 h-5 text-yellow-400" />
-              TOP PLAYERS
-            </h2>
-            <Link href="/leaderboard">
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
-                Full Board <ChevronRight className="w-3 h-3 ml-1" />
-              </Button>
-            </Link>
+        {/* Leaderboard Preview + Quick Play */}
+        {(settings.showLeaderboardPreview || settings.showQuickPlay) && (
+          <div className="space-y-4">
+            {settings.showLeaderboardPreview && (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold tracking-wide flex items-center gap-2" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                    <Trophy className="w-5 h-5 text-yellow-400" />
+                    TOP PLAYERS
+                  </h2>
+                  <Link href="/leaderboard">
+                    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+                      Full Board <ChevronRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+
+                <Card className="border-border/40">
+                  <CardContent className="p-3 space-y-1">
+                    {leaderboard?.slice(0, 8).map((player: any, i) => {
+                      const isMe = player.id === user.id;
+                      const medal = i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-600" : "text-muted-foreground";
+                      const playerTier = getTierInfo(player.xp);
+
+                      return (
+                        <div
+                          key={player.id}
+                          className={`flex items-center gap-2 px-2 py-2 rounded-lg transition-colors ${isMe ? "bg-primary/10 border border-primary/20" : "hover:bg-muted/30"}`}
+                          data-testid={`row-leaderboard-${i}`}
+                        >
+                          <span className={`text-xs font-bold w-5 text-center font-mono ${medal}`}>
+                            {i < 3 ? ["1st", "2nd", "3rd"][i] : `#${i + 1}`}
+                          </span>
+                          <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white ${playerTier.bgClass} flex-shrink-0`}>
+                            {player.username.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-medium truncate ${isMe ? "text-primary" : ""}`}>
+                              {player.username} {isMe && "(You)"}
+                            </p>
+                            <p className={`text-xs ${playerTier.colorClass}`}>{player.tier}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-bold font-mono text-foreground">{formatXp(player.xp)}</p>
+                            <p className="text-xs text-muted-foreground/60">XP</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              </>
+            )}
+
+            {/* Quick Play */}
+            {settings.showQuickPlay && (
+              <Card className="border-primary/20 bg-primary/5">
+                <CardContent className="p-4 text-center">
+                  <TrendingUp className="w-8 h-8 text-primary mx-auto mb-2" />
+                  <h3 className="font-bold text-sm mb-1" style={{ fontFamily: "Oxanium, sans-serif" }}>READY TO LEVEL UP?</h3>
+                  <p className="text-xs text-muted-foreground mb-3">Play mini-games to earn XP & EduCoins</p>
+                  <Link href="/courses">
+                    <Button size="sm" className="w-full text-xs">
+                      Start Playing <Zap className="w-3 h-3 ml-1" />
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
           </div>
-
-          <Card className="border-border/40">
-            <CardContent className="p-3 space-y-1">
-              {leaderboard?.slice(0, 8).map((player: any, i) => {
-                const isMe = player.id === user.id;
-                const medal = i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-600" : "text-muted-foreground";
-                const playerTier = getTierInfo(player.xp);
-
-                return (
-                  <div
-                    key={player.id}
-                    className={`flex items-center gap-2 px-2 py-2 rounded-lg transition-colors ${isMe ? "bg-primary/10 border border-primary/20" : "hover:bg-muted/30"}`}
-                    data-testid={`row-leaderboard-${i}`}
-                  >
-                    <span className={`text-xs font-bold w-5 text-center font-mono ${medal}`}>
-                      {i < 3 ? ["1st", "2nd", "3rd"][i] : `#${i + 1}`}
-                    </span>
-                    <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white ${playerTier.bgClass} flex-shrink-0`}>
-                      {player.username.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-medium truncate ${isMe ? "text-primary" : ""}`}>
-                        {player.username} {isMe && "(You)"}
-                      </p>
-                      <p className={`text-xs ${playerTier.colorClass}`}>{player.tier}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-bold font-mono text-foreground">{formatXp(player.xp)}</p>
-                      <p className="text-xs text-muted-foreground/60">XP</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Quick Play */}
-          <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="p-4 text-center">
-              <TrendingUp className="w-8 h-8 text-primary mx-auto mb-2" />
-              <h3 className="font-bold text-sm mb-1" style={{ fontFamily: "Oxanium, sans-serif" }}>READY TO LEVEL UP?</h3>
-              <p className="text-xs text-muted-foreground mb-3">Play mini-games to earn XP & EduCoins</p>
-              <Link href="/courses">
-                <Button size="sm" className="w-full text-xs">
-                  Start Playing <Zap className="w-3 h-3 ml-1" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </div>
+        )}
       </div>
     </div>
   );
