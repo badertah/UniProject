@@ -27,7 +27,7 @@ export default function LeaderboardPage() {
             <h1 className="text-2xl font-bold tracking-wider" style={{ fontFamily: "Oxanium, sans-serif" }}>
               LEADER<span className="text-yellow-400">BOARD</span>
             </h1>
-            <p className="text-sm text-muted-foreground">Top EduQuest players worldwide</p>
+            <p className="text-sm text-muted-foreground">Rankings of your team — earn XP to climb higher</p>
           </div>
         </div>
       </motion.div>
@@ -99,6 +99,12 @@ export default function LeaderboardPage() {
                   <div className="w-16 h-4 rounded bg-muted" />
                 </div>
               ))}
+            </div>
+          ) : leaderboard && leaderboard.length === 0 ? (
+            <div className="p-12 text-center">
+              <Trophy className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm font-medium text-muted-foreground mb-1">No players yet</p>
+              <p className="text-xs text-muted-foreground/60">Be the first to earn XP and claim the top spot!</p>
             </div>
           ) : (
             <div className="divide-y divide-border/30">

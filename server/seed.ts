@@ -248,6 +248,18 @@ export async function seedNewGameTypes() {
   console.log("[IKUGAMES] New game type levels seeded successfully!");
 }
 
+export async function removeFakeSeedUsers() {
+  try {
+    const fakeUsernames = ["CyberSage","NeonCoder","QuantumLearner","DataWizard","AlgoMaster","ByteHunter","NetRunner","CodePhantom"];
+    for (const username of fakeUsernames) {
+      await q("DELETE FROM users WHERE username = $1 AND is_admin = false", [username]);
+    }
+    console.log("[IKUGAMES] Fake seed users removed.");
+  } catch (e) {
+    // Ignore if already removed
+  }
+}
+
 export async function seedDatabase() {
   try {
     const [{ count }] = await q("SELECT COUNT(*) as count FROM topics");

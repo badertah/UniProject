@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 
 const FEATURES = [
-  { icon: BookOpen, title: "12 Courses", desc: "System Analysis, UML, Architecture & more", color: "text-cyan-400" },
-  { icon: Trophy, title: "Leaderboard", desc: "Compete with your classmates in real time", color: "text-yellow-400" },
-  { icon: Gamepad2, title: "Minigames", desc: "Play IKUFLY & earn XP while having fun", color: "text-purple-400" },
+  { icon: BookOpen, title: "Learning Courses", desc: "Gamified modules covering key concepts and skills", color: "text-cyan-400" },
+  { icon: Trophy, title: "Live Leaderboard", desc: "Compete with your team and track your progress", color: "text-yellow-400" },
+  { icon: Gamepad2, title: "Mini-Games", desc: "6 fun game types — Blitz, Bubble Pop, Memory & more", color: "text-purple-400" },
   { icon: Flame, title: "Daily Streaks", desc: "Log in every day and multiply your rewards", color: "text-orange-400" },
 ];
 
@@ -100,7 +100,7 @@ export default function AuthPage() {
             </span>
           </h2>
           <p className="text-slate-400 text-base mb-10 leading-relaxed max-w-sm">
-            The gamified learning platform for IKU Computer Engineering students. Master SAD concepts while earning XP, coins, and badges.
+            The gamified learning platform for teams and learners. Master concepts while earning XP, coins, and climbing the leaderboard.
           </p>
 
           {/* Feature list */}
@@ -124,16 +124,10 @@ export default function AuthPage() {
           </div>
         </motion.div>
 
-        {/* Bottom stats */}
-        <motion.div className="relative z-10 flex items-center gap-6 pt-6 border-t border-white/10"
+        {/* Online indicator */}
+        <motion.div className="relative z-10 flex items-center justify-end pt-6 border-t border-white/10"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}>
-          {[["500+", "Students"], ["12", "Courses"], ["50+", "Badges"]].map(([num, label]) => (
-            <div key={label} className="text-center">
-              <div className="text-xl font-black text-white" style={{ fontFamily: "Oxanium, sans-serif" }}>{num}</div>
-              <div className="text-xs text-slate-500">{label}</div>
-            </div>
-          ))}
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-xs text-slate-400 font-mono">ONLINE</span>
           </div>
@@ -167,7 +161,7 @@ export default function AuthPage() {
                 <p className="text-sm text-muted-foreground">
                   {mode === "login"
                     ? "Sign in to continue your learning journey"
-                    : "Join thousands of students on IKUGAMES"}
+                    : "Join your team on IKUGAMES and start learning"}
                 </p>
               </motion.div>
             </AnimatePresence>

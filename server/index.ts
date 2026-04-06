@@ -146,9 +146,10 @@ app.use((req, res, next) => {
     await pool.end();
     log("Database schema ready", "db");
 
-    const { seedDatabase, seedNewGameTypes } = await import("./seed");
+    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers } = await import("./seed");
     await seedDatabase();
     await seedNewGameTypes();
+    await removeFakeSeedUsers();
   } catch (e) {
     console.error("DB setup error:", e);
   }

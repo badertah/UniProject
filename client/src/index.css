@@ -342,6 +342,23 @@
   .wordle-present { background: rgba(234, 179, 8, 0.25); border-color: #eab308; color: #fde047; }
   .wordle-absent { background: rgba(71, 85, 105, 0.4); border-color: #475569; color: #94a3b8; }
 
+  /* Compact mode */
+  .compact-mode .p-4 { padding: 0.625rem; }
+  .compact-mode .p-6 { padding: 1rem; }
+  .compact-mode .gap-4 { gap: 0.625rem; }
+  .compact-mode .gap-6 { gap: 1rem; }
+  .compact-mode .mb-6 { margin-bottom: 1rem; }
+  .compact-mode .mb-8 { margin-bottom: 1.25rem; }
+  .compact-mode .space-y-4 > * + * { margin-top: 0.625rem; }
+  .compact-mode .text-2xl { font-size: 1.25rem; }
+
+  /* Reduce motion */
+  .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 6px;

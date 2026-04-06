@@ -1,12 +1,13 @@
 import { motion } from "framer-motion";
-import { useSettings } from "@/hooks/use-settings";
+import { useSettings, ACCENT_COLORS } from "@/hooks/use-settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Settings, Eye, RotateCcw, Flame, Coins, Zap,
-  Trophy, BarChart2, Sparkles, Sprout, Play, User
+  Trophy, BarChart2, Sparkles, Sprout, Play, User,
+  Palette, Wind, AlignJustify, CheckCircle2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -134,18 +135,99 @@ export default function SettingsPage() {
             <h1 className="text-2xl font-bold tracking-wider" style={{ fontFamily: "Oxanium, sans-serif" }}>
               DISPLAY <span className="text-primary">SETTINGS</span>
             </h1>
-            <p className="text-sm text-muted-foreground">Customize what you see across the app</p>
+            <p className="text-sm text-muted-foreground">Customize your experience across the platform</p>
           </div>
         </div>
       </motion.div>
 
       <div className="space-y-4">
+
+        {/* ── THEME CUSTOMIZATION ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.04 }}
+        >
+          <Card className="border-border/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold tracking-widest text-muted-foreground font-mono flex items-center gap-2">
+                <Palette className="w-4 h-4" /> THEME CUSTOMIZATION
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Choose your accent color to personalize the interface</p>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {/* Accent color swatches */}
+              <div className="py-3">
+                <p className="text-sm font-medium mb-3">Accent Color</p>
+                <div className="grid grid-cols-3 gap-2.5" data-testid="accent-color-picker">
+                  {Object.entries(ACCENT_COLORS).map(([key, color]) => {
+                    const isActive = settings.accentColor === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => updateSetting("accentColor", key)}
+                        data-testid={`color-${key}`}
+                        className={`relative flex items-center gap-2.5 p-3 rounded-xl border text-sm font-medium transition-all ${
+                          isActive
+                            ? "border-white/40 bg-white/10"
+                            : "border-border/40 bg-muted/20 hover:border-border/70 hover:bg-muted/40"
+                        }`}
+                      >
+                        <div
+                          className="w-5 h-5 rounded-full flex-shrink-0 ring-2 ring-offset-2 ring-offset-background"
+                          style={{
+                            background: color.hsl,
+                            boxShadow: isActive ? `0 0 12px ${color.glow}88` : undefined,
+                            ringColor: isActive ? color.glow : "transparent",
+                          }}
+                        />
+                        <span className="text-xs leading-tight">{color.label}</span>
+                        {isActive && (
+                          <CheckCircle2
+                            className="w-3.5 h-3.5 absolute top-1.5 right-1.5"
+                            style={{ color: color.glow }}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Separator className="my-1 bg-border/30" />
+
+              {/* Reduce Motion */}
+              <SettingToggle
+                label="Reduce Motion"
+                description="Minimize animations and transitions throughout the app"
+                icon={Wind}
+                settingKey="reduceMotion"
+                value={settings.reduceMotion}
+                onChange={(val) => updateSetting("reduceMotion", val)}
+              />
+
+              <Separator className="my-0 bg-border/30" />
+
+              {/* Compact Mode */}
+              <SettingToggle
+                label="Compact Mode"
+                description="Tighter spacing and smaller padding throughout the interface"
+                icon={AlignJustify}
+                settingKey="compactMode"
+                value={settings.compactMode}
+                onChange={(val) => updateSetting("compactMode", val)}
+              />
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* ── EXISTING DISPLAY GROUPS ── */}
         {SETTING_GROUPS.map((group, gi) => (
           <motion.div
             key={group.title}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: gi * 0.08 }}
+            transition={{ delay: 0.1 + gi * 0.08 }}
           >
             <Card className="border-border/40">
               <CardHeader className="pb-2">
@@ -177,14 +259,14 @@ export default function SettingsPage() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: SETTING_GROUPS.length * 0.08 }}
+          transition={{ delay: 0.1 + SETTING_GROUPS.length * 0.08 }}
         >
           <Card className="border-border/40">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">Reset All Settings</p>
-                  <p className="text-xs text-muted-foreground">Restore all display options to their defaults</p>
+                  <p className="text-xs text-muted-foreground">Restore all display options and theme to defaults</p>
                 </div>
                 <Button
                   variant="outline"
