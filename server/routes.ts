@@ -141,7 +141,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/topics", async (req, res) => {
     try {
       const allTopics = await storage.getAllTopics();
-      res.json(allTopics);
+      const topicsWithCount = await Promise.all(
+        allTopics.map(async (topic) => {
+          const levels = await storage.getLevelsByTopic(topic.id);
+          return { ...topic, levelCount: levels.length, levels };
+        })
+      );
+      res.json(topicsWithCount);
     } catch {
       res.status(500).json({ error: "Failed to fetch topics" });
     }

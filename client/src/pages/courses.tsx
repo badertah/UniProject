@@ -66,7 +66,8 @@ export default function CoursesPage() {
           {topics?.map((topic: any, i) => {
             const topicProgress = progress?.filter((p: any) => p.topic?.id === topic.id || p.level?.topicId === topic.id) || [];
             const completedCount = topicProgress.filter((p: any) => p.completed).length;
-            const progressPct = Math.min(100, Math.round((completedCount / 3) * 100));
+            const totalLevels = topic.levelCount || topic.levels?.length || 1;
+            const progressPct = Math.min(100, Math.round((completedCount / totalLevels) * 100));
             const gradient = TOPIC_GRADIENTS[topic.color] || "linear-gradient(135deg, #7c3aed, #6b21a8)";
 
             return (
@@ -99,13 +100,13 @@ export default function CoursesPage() {
                           {i + 1}
                         </div>
                         <div className="flex items-center gap-2">
-                          {completedCount >= 3 && (
+                          {completedCount >= totalLevels && (
                             <Badge className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
                               Complete
                             </Badge>
                           )}
                           <Badge variant="outline" className="text-xs">
-                            3 levels
+                            {totalLevels} levels
                           </Badge>
                         </div>
                       </div>
@@ -121,7 +122,7 @@ export default function CoursesPage() {
                       {/* Progress */}
                       <div className="space-y-1.5">
                         <div className="flex justify-between items-center text-xs">
-                          <span className="text-muted-foreground">{completedCount} / 3 levels done</span>
+                          <span className="text-muted-foreground">{completedCount} / {totalLevels} levels done</span>
                           <span className="text-muted-foreground font-mono">{progressPct}%</span>
                         </div>
                         <Progress value={progressPct} className="h-1.5" />
@@ -130,7 +131,10 @@ export default function CoursesPage() {
                       {/* Game types preview */}
                       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-border/30">
                         <span className="text-xs text-muted-foreground">Games:</span>
-                        {["Word", "Match", "Cipher"].map((g, gi) => (
+                        {Array.from(new Set((topic.levels || []).map((l: any) => {
+                          const labels: Record<string, string> = { word_scramble: "Word", term_matcher: "Match", emoji_cipher: "Cipher", speed_blitz: "Blitz", bubble_pop: "Bubble", memory_flip: "Memory" };
+                          return labels[l.gameType] || l.gameType;
+                        }))).slice(0, 4).map((g: any) => (
                           <span key={g} className="text-xs px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground font-mono">{g}</span>
                         ))}
                         <ChevronRight className="w-3 h-3 text-muted-foreground ml-auto" />

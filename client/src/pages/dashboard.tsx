@@ -220,7 +220,8 @@ export default function Dashboard() {
             {topics?.slice(0, 6).map((topic: any, i) => {
               const topicProgress = progress?.filter(p => p.topic?.id === topic.id) || [];
               const completedCount = topicProgress.filter(p => p.completed).length;
-              const progressPct = topics ? Math.round((completedCount / 3) * 100) : 0;
+              const totalLevels = topic.levelCount || topic.levels?.length || 1;
+              const progressPct = topics ? Math.min(100, Math.round((completedCount / totalLevels) * 100)) : 0;
 
               return (
                 <motion.div key={topic.id} variants={itemVariants}>
@@ -245,7 +246,7 @@ export default function Dashboard() {
                             {TOPIC_ICONS[topic.icon] || topic.icon?.charAt(0)}
                           </div>
                           <Badge variant="outline" className="text-xs border-border/40">
-                            3 levels
+                            {totalLevels} levels
                           </Badge>
                         </div>
                         <h3 className="font-semibold text-sm leading-tight mb-1 group-hover:text-primary transition-colors">{topic.name}</h3>
@@ -253,7 +254,7 @@ export default function Dashboard() {
 
                         <div className="space-y-1">
                           <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">{completedCount}/3 completed</span>
+                            <span className="text-muted-foreground">{completedCount}/{totalLevels} completed</span>
                             <span className="text-muted-foreground">{progressPct}%</span>
                           </div>
                           <Progress value={progressPct} className="h-1" />
