@@ -21,10 +21,13 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 2. **XP/Level system** — level = floor(xp/150)+1
 3. **Tier system** — Rookie (0) → Scholar (500) → Expert (1500) → Master (3500) → Legend (7000)
 4. **6 Topics** — all freely selectable, no locking; System Analysis, Programming, Data Structures, Database, Networks, Software Engineering
-5. **3 Mini-games per topic**:
-   - Wordle-style keyword guesser (5-letter words, 6 attempts)
-   - Definition Matcher (click-to-pair, shuffle mechanic)
-   - Emoji Cipher (multiple choice, 4 options, hint system)
+5. **6 Mini-games per topic** (3 original + 3 new):
+   - Wordle: 5-letter keyword guesser (6 attempts, keyboard + on-screen)
+   - Matcher: click-to-pair terms and definitions (shuffle mechanic)
+   - Emoji Cipher: multiple choice 4-option clue decoder
+   - Speed Blitz: rapid-fire quiz with 9-second countdown timer (SVG circle), score based on speed
+   - Bubble Pop: floating term bubbles in a dark arena — pop the right one for the definition shown at top
+   - Memory Flip: 4×4 card grid (8 pairs), 3D flip animation, match terms to definitions
 6. **Cosmetics Shop** — 14 items (avatars, frames, themes), purchase/equip with EduCoins
 7. **Global Leaderboard** — top 20, podium display for top 3
 8. **Profile Page** — tier progression, stats, equipped cosmetics

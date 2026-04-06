@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   ArrowLeft, Zap, Coins, Hash, Link2, Smile, Lock, CheckCircle2,
-  Star, ChevronRight, BookOpen
+  Star, ChevronRight, BookOpen, Gamepad2, Sparkles
 } from "lucide-react";
 
 const TOPIC_GRADIENTS: Record<string, string> = {
@@ -24,6 +24,9 @@ const GAME_ICONS: Record<string, any> = {
   wordle: Hash,
   matcher: Link2,
   emoji_cipher: Smile,
+  speed_blitz: Zap,
+  bubble_pop: Gamepad2,
+  memory_flip: Sparkles,
 };
 
 export default function TopicPage() {

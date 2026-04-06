@@ -55,6 +55,9 @@ const GAME_TYPE_CONFIG = {
   wordle: { label: "Word Guesser", icon: "Hash", color: "text-violet-400", description: "Guess the 5-letter keyword" },
   matcher: { label: "Definition Matcher", icon: "Link2", color: "text-cyan-400", description: "Match terms to definitions" },
   emoji_cipher: { label: "Emoji Cipher", icon: "Smile", color: "text-amber-400", description: "Decode concept from clues" },
+  speed_blitz: { label: "Speed Blitz", icon: "Zap", color: "text-rose-400", description: "Answer fast — beat the clock!" },
+  bubble_pop: { label: "Bubble Pop", icon: "Gamepad2", color: "text-cyan-400", description: "Pop the right bubble before it escapes!" },
+  memory_flip: { label: "Memory Flip", icon: "Star", color: "text-purple-400", description: "Flip cards and match every pair!" },
 };
 
 export function getGameTypeConfig(gameType: string) {
