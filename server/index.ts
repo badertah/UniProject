@@ -143,13 +143,36 @@ app.use((req, res, next) => {
         unlocked_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS badges (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        icon TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT 'from-violet-500 to-purple-600',
+        requirement_type TEXT NOT NULL,
+        requirement_value INTEGER NOT NULL DEFAULT 1,
+        xp_reward INTEGER NOT NULL DEFAULT 0,
+        coin_reward INTEGER NOT NULL DEFAULT 0,
+        rarity TEXT NOT NULL DEFAULT 'common'
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_badges (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR NOT NULL REFERENCES users(id),
+        badge_id VARCHAR NOT NULL REFERENCES badges(id),
+        earned_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
     await pool.end();
     log("Database schema ready", "db");
 
-    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers } = await import("./seed");
+    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges } = await import("./seed");
     await seedDatabase();
     await seedNewGameTypes();
     await removeFakeSeedUsers();
+    await seedBadges();
   } catch (e) {
     console.error("DB setup error:", e);
   }

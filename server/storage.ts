@@ -3,9 +3,11 @@ import { Pool } from "pg";
 import { eq, desc, sql as drizzleSql, and } from "drizzle-orm";
 import {
   users, topics, levels, questions, userProgress, cosmetics, userCosmetics,
+  badges, userBadges,
   type User, type InsertUser, type Topic, type Level, type Question,
   type UserProgress, type Cosmetic, type UserCosmetic,
-  type InsertTopic, type InsertLevel, type InsertQuestion
+  type Badge, type UserBadge,
+  type InsertTopic, type InsertLevel, type InsertQuestion, type InsertBadge
 } from "@shared/schema";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -18,6 +20,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User>;
   getLeaderboard(limit?: number): Promise<User[]>;
+  getAllUsers(): Promise<User[]>;
 
   // Topics
   getAllTopics(): Promise<Topic[]>;
@@ -28,21 +31,33 @@ export interface IStorage {
   getLevelsByTopic(topicId: string): Promise<Level[]>;
   getLevel(id: string): Promise<Level | undefined>;
   createLevel(level: InsertLevel): Promise<Level>;
+  updateLevel(id: string, data: Partial<Level>): Promise<Level>;
+  deleteLevel(id: string): Promise<void>;
 
   // Questions
   getQuestionsByLevel(levelId: string): Promise<Question[]>;
   createQuestion(question: InsertQuestion): Promise<Question>;
+  updateQuestion(id: string, data: Partial<Question>): Promise<Question>;
+  deleteQuestion(id: string): Promise<void>;
 
   // Progress
   getUserProgress(userId: string): Promise<(UserProgress & { level: Level; topic: Topic })[]>;
   getLevelProgress(userId: string, levelId: string): Promise<UserProgress | undefined>;
   saveProgress(userId: string, levelId: string, score: number, completed: boolean): Promise<UserProgress>;
+  getCompletedLevelsCount(userId: string): Promise<number>;
 
   // Cosmetics
   getAllCosmetics(): Promise<Cosmetic[]>;
   getUserCosmetics(userId: string): Promise<(UserCosmetic & { cosmetic: Cosmetic })[]>;
   purchaseCosmetic(userId: string, cosmeticId: string): Promise<UserCosmetic>;
   hasCosmetic(userId: string, cosmeticId: string): Promise<boolean>;
+
+  // Badges
+  getAllBadges(): Promise<Badge[]>;
+  getUserBadges(userId: string): Promise<(UserBadge & { badge: Badge })[]>;
+  awardBadge(userId: string, badgeId: string): Promise<UserBadge>;
+  hasBadge(userId: string, badgeId: string): Promise<boolean>;
+  badgesCount(): Promise<number>;
 
   // Seeding
   topicsCount(): Promise<number>;
@@ -70,8 +85,12 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getLeaderboard(limit = 10): Promise<User[]> {
+  async getLeaderboard(limit = 50): Promise<User[]> {
     return db.select().from(users).orderBy(desc(users.xp)).limit(limit);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(desc(users.createdAt));
   }
 
   async getAllTopics(): Promise<Topic[]> {
@@ -102,6 +121,17 @@ export class DatabaseStorage implements IStorage {
     return newLevel;
   }
 
+  async updateLevel(id: string, data: Partial<Level>): Promise<Level> {
+    const [updated] = await db.update(levels).set(data).where(eq(levels.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLevel(id: string): Promise<void> {
+    await db.delete(questions).where(eq(questions.levelId, id));
+    await db.delete(userProgress).where(eq(userProgress.levelId, id));
+    await db.delete(levels).where(eq(levels.id, id));
+  }
+
   async getQuestionsByLevel(levelId: string): Promise<Question[]> {
     return db.select().from(questions).where(eq(questions.levelId, levelId)).orderBy(questions.orderIndex);
   }
@@ -111,25 +141,28 @@ export class DatabaseStorage implements IStorage {
     return newQuestion;
   }
 
+  async updateQuestion(id: string, data: Partial<Question>): Promise<Question> {
+    const [updated] = await db.update(questions).set(data).where(eq(questions.id, id)).returning();
+    return updated;
+  }
+
+  async deleteQuestion(id: string): Promise<void> {
+    await db.delete(questions).where(eq(questions.id, id));
+  }
+
   async getUserProgress(userId: string): Promise<(UserProgress & { level: Level; topic: Topic })[]> {
     const results = await db
-      .select({
-        progress: userProgress,
-        level: levels,
-        topic: topics,
-      })
+      .select({ progress: userProgress, level: levels, topic: topics })
       .from(userProgress)
       .innerJoin(levels, eq(userProgress.levelId, levels.id))
       .innerJoin(topics, eq(levels.topicId, topics.id))
       .where(eq(userProgress.userId, userId));
-
     return results.map(r => ({ ...r.progress, level: r.level, topic: r.topic }));
   }
 
   async getLevelProgress(userId: string, levelId: string): Promise<UserProgress | undefined> {
     const [progress] = await db
-      .select()
-      .from(userProgress)
+      .select().from(userProgress)
       .where(and(eq(userProgress.userId, userId), eq(userProgress.levelId, levelId)));
     return progress;
   }
@@ -149,6 +182,14 @@ export class DatabaseStorage implements IStorage {
       .values({ userId, levelId, score, completed, completedAt: completed ? new Date() : undefined })
       .returning();
     return progress;
+  }
+
+  async getCompletedLevelsCount(userId: string): Promise<number> {
+    const [{ count }] = await db
+      .select({ count: drizzleSql<number>`count(*)` })
+      .from(userProgress)
+      .where(and(eq(userProgress.userId, userId), eq(userProgress.completed, true)));
+    return Number(count);
   }
 
   async getAllCosmetics(): Promise<Cosmetic[]> {
@@ -171,10 +212,39 @@ export class DatabaseStorage implements IStorage {
 
   async hasCosmetic(userId: string, cosmeticId: string): Promise<boolean> {
     const [uc] = await db
-      .select()
-      .from(userCosmetics)
+      .select().from(userCosmetics)
       .where(and(eq(userCosmetics.userId, userId), eq(userCosmetics.cosmeticId, cosmeticId)));
     return !!uc;
+  }
+
+  async getAllBadges(): Promise<Badge[]> {
+    return db.select().from(badges);
+  }
+
+  async getUserBadges(userId: string): Promise<(UserBadge & { badge: Badge })[]> {
+    const results = await db
+      .select({ ub: userBadges, badge: badges })
+      .from(userBadges)
+      .innerJoin(badges, eq(userBadges.badgeId, badges.id))
+      .where(eq(userBadges.userId, userId));
+    return results.map(r => ({ ...r.ub, badge: r.badge }));
+  }
+
+  async awardBadge(userId: string, badgeId: string): Promise<UserBadge> {
+    const [ub] = await db.insert(userBadges).values({ userId, badgeId }).returning();
+    return ub;
+  }
+
+  async hasBadge(userId: string, badgeId: string): Promise<boolean> {
+    const [ub] = await db
+      .select().from(userBadges)
+      .where(and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeId)));
+    return !!ub;
+  }
+
+  async badgesCount(): Promise<number> {
+    const [{ count }] = await db.select({ count: drizzleSql<number>`count(*)` }).from(badges);
+    return Number(count);
   }
 
   async topicsCount(): Promise<number> {

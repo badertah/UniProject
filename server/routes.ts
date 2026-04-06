@@ -50,6 +50,83 @@ function getTier(xp: number): string {
   return "Rookie";
 }
 
+async function checkAndAwardBadges(userId: string): Promise<any[]> {
+  try {
+    const [user, allBadges, userBadgesList, completedCount] = await Promise.all([
+      storage.getUser(userId),
+      storage.getAllBadges(),
+      storage.getUserBadges(userId),
+      storage.getCompletedLevelsCount(userId),
+    ]);
+    if (!user) return [];
+
+    const userBadgeIds = new Set(userBadgesList.map(ub => ub.badgeId));
+    const newlyAwarded: any[] = [];
+
+    const userProgress = await storage.getUserProgress(userId);
+    const gameTypesCompleted = new Set(
+      userProgress.filter(p => p.completed).map(p => p.level.gameType)
+    );
+
+    for (const badge of allBadges) {
+      if (userBadgeIds.has(badge.id)) continue;
+
+      let earned = false;
+      switch (badge.requirementType) {
+        case "xp_milestone":
+          earned = user.xp >= badge.requirementValue;
+          break;
+        case "streak":
+          earned = user.streak >= badge.requirementValue;
+          break;
+        case "levels_complete":
+          earned = completedCount >= badge.requirementValue;
+          break;
+        case "game_type_speed_blitz":
+          earned = gameTypesCompleted.has("speed_blitz");
+          break;
+        case "game_type_bubble_pop":
+          earned = gameTypesCompleted.has("bubble_pop");
+          break;
+        case "game_type_memory_flip":
+          earned = gameTypesCompleted.has("memory_flip");
+          break;
+        case "game_type_wordle":
+          earned = gameTypesCompleted.has("wordle");
+          break;
+        case "game_type_matcher":
+          earned = gameTypesCompleted.has("matcher") || gameTypesCompleted.has("term_matcher");
+          break;
+        case "game_type_emoji_cipher":
+          earned = gameTypesCompleted.has("emoji_cipher");
+          break;
+      }
+
+      if (earned) {
+        await storage.awardBadge(userId, badge.id);
+        if (badge.xpReward > 0 || badge.coinReward > 0) {
+          const currentUser = await storage.getUser(userId);
+          if (currentUser) {
+            const newXp = currentUser.xp + badge.xpReward;
+            await storage.updateUser(userId, {
+              xp: newXp,
+              level: calculateLevel(newXp),
+              eduCoins: currentUser.eduCoins + badge.coinReward,
+            });
+          }
+        }
+        newlyAwarded.push(badge);
+        userBadgeIds.add(badge.id);
+      }
+    }
+
+    return newlyAwarded;
+  } catch (e) {
+    console.error("Badge check error:", e);
+    return [];
+  }
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ============ AUTH ============
   app.post("/api/auth/register", async (req, res) => {
@@ -59,70 +136,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ error: "Username and password are required" });
       }
       const { username, password } = parsed.data;
-      if (username.length < 3) return res.status(400).json({ error: "Username must be at least 3 characters" });
-      if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-
       const existing = await storage.getUserByUsername(username);
       if (existing) return res.status(409).json({ error: "Username already taken" });
-
-      const hash = await bcrypt.hash(password, 10);
-      const user = await storage.createUser({ username, password: hash });
+      const hashed = await bcrypt.hash(password, 10);
+      const user = await storage.createUser({ username, password: hashed });
       const token = generateToken(user.id);
-
-      // Set streak for first login
-      const today = new Date().toISOString().split("T")[0];
-      await storage.updateUser(user.id, { lastLoginDate: today, streak: 1, level: 1 });
-
-      const { password: _, ...safeUser } = { ...user, lastLoginDate: today, streak: 1, level: 1 };
+      const { password: _, ...safeUser } = user;
       res.json({ token, user: { ...safeUser, tier: getTier(safeUser.xp) } });
     } catch (e) {
-      console.error("Register error:", e);
-      res.status(500).json({ error: "Registration failed. Please try again." });
+      res.status(500).json({ error: "Registration failed" });
     }
   });
 
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
-      if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
-
       const user = await storage.getUserByUsername(username);
-      if (!user) return res.status(401).json({ error: "Invalid username or password" });
-
+      if (!user) return res.status(401).json({ error: "Invalid credentials" });
       const valid = await bcrypt.compare(password, user.password);
-      if (!valid) return res.status(401).json({ error: "Invalid username or password" });
+      if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-      // Streak logic
       const today = new Date().toISOString().split("T")[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
       let newStreak = user.streak;
       let streakBonus = 0;
 
       if (user.lastLoginDate !== today) {
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
         if (user.lastLoginDate === yesterday) {
           newStreak = user.streak + 1;
-        } else {
+        } else if (user.lastLoginDate !== today) {
           newStreak = 1;
         }
         streakBonus = Math.min(newStreak * 5, 50);
         const newXp = user.xp + streakBonus;
-        const newLevel = calculateLevel(newXp);
+        const streakCoins = Math.floor(streakBonus / 2);
         await storage.updateUser(user.id, {
-          lastLoginDate: today,
           streak: newStreak,
+          lastLoginDate: today,
           xp: newXp,
-          level: newLevel,
-          eduCoins: user.eduCoins + Math.floor(streakBonus / 2),
+          level: calculateLevel(newXp),
+          eduCoins: user.eduCoins + streakCoins,
         });
       }
 
-      const updated = await storage.getUser(user.id);
+      const updatedUser = await storage.getUser(user.id);
+      const newBadges = await checkAndAwardBadges(user.id);
+      const finalUser = await storage.getUser(user.id);
       const token = generateToken(user.id);
-      const { password: _, ...safeUser } = updated!;
-      res.json({ token, user: { ...safeUser, tier: getTier(safeUser.xp), streakBonus } });
+      const { password: _, ...safeUser } = finalUser!;
+      res.json({ token, user: { ...safeUser, tier: getTier(safeUser.xp) }, streakBonus, newBadges });
     } catch (e) {
-      console.error("Login error:", e);
-      res.status(500).json({ error: "Login failed. Please try again." });
+      res.status(500).json({ error: "Login failed" });
     }
   });
 
@@ -143,8 +207,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const allTopics = await storage.getAllTopics();
       const topicsWithCount = await Promise.all(
         allTopics.map(async (topic) => {
-          const levels = await storage.getLevelsByTopic(topic.id);
-          return { ...topic, levelCount: levels.length, levels };
+          const lvls = await storage.getLevelsByTopic(topic.id);
+          return { ...topic, levelCount: lvls.length, levels: lvls };
         })
       );
       res.json(topicsWithCount);
@@ -185,6 +249,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/levels/:id/questions", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      const qs = await storage.getQuestionsByLevel(req.params.id);
+      res.json(qs);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch questions" });
+    }
+  });
+
   app.post("/api/levels", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
       const level = await storage.createLevel(req.body);
@@ -194,12 +267,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.put("/api/levels/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      const level = await storage.updateLevel(req.params.id, req.body);
+      res.json(level);
+    } catch {
+      res.status(500).json({ error: "Failed to update level" });
+    }
+  });
+
+  app.delete("/api/levels/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteLevel(req.params.id);
+      res.json({ success: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete level" });
+    }
+  });
+
+  // ============ QUESTIONS ============
   app.post("/api/questions", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
       const question = await storage.createQuestion(req.body);
       res.json(question);
     } catch {
       res.status(500).json({ error: "Failed to create question" });
+    }
+  });
+
+  app.put("/api/questions/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      const question = await storage.updateQuestion(req.params.id, req.body);
+      res.json(question);
+    } catch {
+      res.status(500).json({ error: "Failed to update question" });
+    }
+  });
+
+  app.delete("/api/questions/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      await storage.deleteQuestion(req.params.id);
+      res.json({ success: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete question" });
     }
   });
 
@@ -224,7 +334,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         xpGained = level.xpReward;
         coinsGained = level.coinReward;
       } else if (completed) {
-        // Partial reward for replaying
         xpGained = Math.floor(level.xpReward * 0.25);
         coinsGained = Math.floor(level.coinReward * 0.25);
       }
@@ -242,6 +351,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      const newBadges = completed ? await checkAndAwardBadges(req.userId!) : [];
       const updatedUser = await storage.getUser(req.userId!);
       const { password: _, ...safeUser } = updatedUser!;
 
@@ -251,6 +361,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         coinsGained,
         user: { ...safeUser, tier: getTier(safeUser.xp) },
         isFirstCompletion,
+        newBadges,
       });
     } catch (e) {
       console.error("Progress error:", e);
@@ -275,6 +386,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(safe);
     } catch {
       res.status(500).json({ error: "Failed to fetch leaderboard" });
+    }
+  });
+
+  // ============ BADGES ============
+  app.get("/api/badges", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const all = await storage.getAllBadges();
+      const userBadgesList = await storage.getUserBadges(req.userId!);
+      const earnedIds = new Set(userBadgesList.map(ub => ub.badgeId));
+      const badgesWithStatus = all.map(b => ({
+        ...b,
+        earned: earnedIds.has(b.id),
+        earnedAt: userBadgesList.find(ub => ub.badgeId === b.id)?.earnedAt || null,
+      }));
+      res.json(badgesWithStatus);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch badges" });
+    }
+  });
+
+  app.get("/api/badges/user/:userId", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const userBadgesList = await storage.getUserBadges(req.params.userId);
+      res.json(userBadgesList.map(ub => ub.badge));
+    } catch {
+      res.status(500).json({ error: "Failed to fetch user badges" });
+    }
+  });
+
+  app.post("/api/badges/check", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const newBadges = await checkAndAwardBadges(req.userId!);
+      res.json({ newBadges });
+    } catch {
+      res.status(500).json({ error: "Badge check failed" });
+    }
+  });
+
+  // ============ USERS (Admin) ============
+  app.get("/api/admin/users", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const safe = allUsers.map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
+      res.json(safe);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  app.put("/api/admin/users/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+    try {
+      const { xp, eduCoins, isAdmin } = req.body;
+      const updateData: any = {};
+      if (xp !== undefined) { updateData.xp = xp; updateData.level = calculateLevel(xp); }
+      if (eduCoins !== undefined) updateData.eduCoins = eduCoins;
+      if (isAdmin !== undefined) updateData.isAdmin = isAdmin;
+      const updated = await storage.updateUser(req.params.id, updateData);
+      const { password: _, ...safe } = updated;
+      res.json({ ...safe, tier: getTier(safe.xp) });
+    } catch {
+      res.status(500).json({ error: "Failed to update user" });
     }
   });
 
@@ -379,7 +551,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ============ SPEND COINS (Tycoon) ============
+  // ============ SPEND COINS ============
   app.post("/api/coins/spend", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const { amount } = req.body;

@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useSettings } from "@/hooks/use-settings";
 import {
   LayoutDashboard, BookOpen, Trophy, ShoppingBag, User, Settings,
-  LogOut, Zap, Flame, Coins, ChevronLeft, ChevronRight, Menu, Sprout
+  LogOut, Zap, Flame, Coins, ChevronLeft, ChevronRight, Menu, Sprout, Award
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -33,6 +33,7 @@ export function Layout({ children }: LayoutProps) {
     { path: "/farm", icon: Sprout, label: "Farm", always: false, settingKey: "showFarmTab" as const },
     { path: "/leaderboard", icon: Trophy, label: "Leaderboard", always: true },
     { path: "/shop", icon: ShoppingBag, label: "Shop", always: true },
+    { path: "/badges", icon: Award, label: "Badges", always: true },
     { path: "/profile", icon: User, label: "Profile", always: true },
     { path: "/settings", icon: Settings, label: "Settings", always: true },
   ];

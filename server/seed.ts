@@ -248,6 +248,51 @@ export async function seedNewGameTypes() {
   console.log("[IKUGAMES] New game type levels seeded successfully!");
 }
 
+export async function seedBadges() {
+  try {
+    const existing = await q("SELECT COUNT(*) as count FROM badges");
+    if (Number(existing[0].count) > 0) return;
+  } catch (e) { return; }
+
+  console.log("[IKUGAMES] Seeding badges...");
+
+  const badgeData = [
+    // XP Milestones
+    { name: "First Spark", desc: "Earn your first 100 XP", icon: "⚡", color: "from-yellow-400 to-amber-600", req: "xp_milestone", val: 100, xp: 0, coins: 5, rarity: "common" },
+    { name: "Knowledge Seeker", desc: "Earn 500 XP", icon: "📚", color: "from-blue-400 to-cyan-600", req: "xp_milestone", val: 500, xp: 20, coins: 10, rarity: "common" },
+    { name: "Mind Expanded", desc: "Earn 1,000 XP", icon: "🧠", color: "from-violet-500 to-purple-700", req: "xp_milestone", val: 1000, xp: 50, coins: 20, rarity: "rare" },
+    { name: "Scholar Elite", desc: "Earn 3,500 XP", icon: "🎓", color: "from-emerald-400 to-teal-600", req: "xp_milestone", val: 3500, xp: 100, coins: 40, rarity: "epic" },
+    { name: "XP Legend", desc: "Earn 7,000 XP — true mastery!", icon: "👑", color: "from-yellow-400 to-orange-600", req: "xp_milestone", val: 7000, xp: 200, coins: 100, rarity: "legendary" },
+    // Streak Badges
+    { name: "On Fire", desc: "Maintain a 3-day streak", icon: "🔥", color: "from-orange-400 to-red-600", req: "streak", val: 3, xp: 0, coins: 5, rarity: "common" },
+    { name: "Week Warrior", desc: "Maintain a 7-day streak", icon: "⚔️", color: "from-red-400 to-rose-600", req: "streak", val: 7, xp: 30, coins: 15, rarity: "rare" },
+    { name: "Fortnight Fighter", desc: "Maintain a 14-day streak", icon: "🛡️", color: "from-indigo-400 to-blue-600", req: "streak", val: 14, xp: 75, coins: 30, rarity: "epic" },
+    { name: "Monthly Master", desc: "Maintain a 30-day streak", icon: "💎", color: "from-cyan-400 to-blue-600", req: "streak", val: 30, xp: 200, coins: 80, rarity: "legendary" },
+    // Level Completion
+    { name: "First Victory", desc: "Complete your first level", icon: "⭐", color: "from-yellow-300 to-yellow-500", req: "levels_complete", val: 1, xp: 10, coins: 5, rarity: "common" },
+    { name: "High Five", desc: "Complete 5 levels", icon: "🖐️", color: "from-green-400 to-emerald-600", req: "levels_complete", val: 5, xp: 25, coins: 10, rarity: "common" },
+    { name: "Level Crusher", desc: "Complete 10 levels", icon: "🎯", color: "from-blue-400 to-indigo-600", req: "levels_complete", val: 10, xp: 60, coins: 25, rarity: "rare" },
+    { name: "Course Conqueror", desc: "Complete 20 levels", icon: "🏆", color: "from-amber-400 to-yellow-600", req: "levels_complete", val: 20, xp: 120, coins: 50, rarity: "epic" },
+    { name: "Grandmaster", desc: "Complete all 36 levels", icon: "🌟", color: "from-rose-400 to-pink-600", req: "levels_complete", val: 36, xp: 300, coins: 150, rarity: "legendary" },
+    // Game Type Badges
+    { name: "Word Wizard", desc: "Complete a Word Guesser level", icon: "📝", color: "from-slate-400 to-slate-600", req: "game_type_wordle", val: 1, xp: 10, coins: 5, rarity: "common" },
+    { name: "Match Maker", desc: "Complete a Matcher level", icon: "🔗", color: "from-teal-400 to-cyan-600", req: "game_type_matcher", val: 1, xp: 10, coins: 5, rarity: "common" },
+    { name: "Cipher Cracker", desc: "Complete an Emoji Cipher level", icon: "🔓", color: "from-amber-400 to-orange-600", req: "game_type_emoji_cipher", val: 1, xp: 10, coins: 5, rarity: "common" },
+    { name: "Speed Demon", desc: "Complete a Speed Blitz level", icon: "⚡", color: "from-yellow-300 to-red-500", req: "game_type_speed_blitz", val: 1, xp: 15, coins: 8, rarity: "rare" },
+    { name: "Bubble Master", desc: "Complete a Bubble Pop level", icon: "🫧", color: "from-sky-300 to-blue-500", req: "game_type_bubble_pop", val: 1, xp: 15, coins: 8, rarity: "rare" },
+    { name: "Memory King", desc: "Complete a Memory Flip level", icon: "🧩", color: "from-purple-400 to-violet-600", req: "game_type_memory_flip", val: 1, xp: 15, coins: 8, rarity: "rare" },
+  ];
+
+  for (const b of badgeData) {
+    await q(
+      `INSERT INTO badges (name, description, icon, color, requirement_type, requirement_value, xp_reward, coin_reward, rarity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [b.name, b.desc, b.icon, b.color, b.req, b.val, b.xp, b.coins, b.rarity]
+    );
+  }
+  console.log("[IKUGAMES] Badges seeded:", badgeData.length);
+}
+
 export async function removeFakeSeedUsers() {
   try {
     const fakeUsernames = ["CyberSage","NeonCoder","QuantumLearner","DataWizard","AlgoMaster","ByteHunter","NetRunner","CodePhantom"];

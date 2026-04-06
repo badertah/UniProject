@@ -28,12 +28,13 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
    - Speed Blitz: rapid-fire quiz with 9-second countdown timer (SVG circle), score based on speed
    - Bubble Pop: floating term bubbles in a dark arena — pop the right one for the definition shown at top
    - Memory Flip: 4×4 card grid (8 pairs), 3D flip animation, match terms to definitions
-6. **Cosmetics Shop** — 14 items (avatars, frames, themes), purchase/equip with EduCoins
-7. **Global Leaderboard** — top 20, podium display for top 3
-8. **Profile Page** — tier progression, stats, equipped cosmetics
-9. **Admin Panel** — create topics/levels/questions (admin/admin123)
-10. **Farm Tycoon** — narrative story game (`/farm`) with 12 chapters unlocked by XP; farm visual shows buildings/crops/animals earned through education
-11. **Display Settings** — (`/settings`) users can toggle visibility of: sidebar stats card, XP bar, streak, EduCoins, dashboard stats cards, leaderboard preview, quick play card, farm tab nav item. Stored in localStorage.
+6. **Cosmetics Shop** — 14 items (avatars, frames, themes), purchase/equip with EduCoins; emoji avatar previews, frame corner accents, swatch grids for themes; rarity shimmer effects; detail modal
+7. **Badges System** — 20 badges across 5 categories (XP milestones, streaks, levels completed, game type achievements); auto-awarded on progress save and login; `/badges` page with filter, progress bar, tooltip previews
+8. **Global Leaderboard** — top 20, podium display for top 3
+9. **Profile Page** — tier progression, stats, equipped cosmetics
+10. **Admin Panel** — full 4-tab panel: Question Editor (browse topic→level→questions inline, edit/delete each question or level), Create Content (new topics/levels with all 6 game types), Users (view/edit all users, promote to admin), Badges overview
+11. **Farm Tycoon** — narrative story game (`/farm`) with 12 chapters unlocked by XP; farm visual shows buildings/crops/animals earned through education
+12. **Display Settings** — (`/settings`) users can toggle visibility of: sidebar stats card, XP bar, streak, EduCoins, dashboard stats cards, leaderboard preview, quick play card, farm tab nav item. Stored in localStorage.
 
 ## Design
 - Dark futuristic cyberpunk with neon purple + electric blue
@@ -51,7 +52,8 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 - `/leaderboard` — Full leaderboard with podium
 - `/shop` — Cosmetics grid with preview modal
 - `/profile` — Tier progression, stats, achievements
-- `/admin` — Admin panel (topic/level/question creation)
+- `/badges` — Badge collection with filter (all/earned/locked, by rarity), progress bar, hover tooltips, and rarity shimmer
+- `/admin` — Admin panel: Question Editor, Create Content, Users manager, Badges overview
 - `/farm` — Farm Tycoon: narrative story with 12 XP-gated chapters + visual farm
 - `/settings` — Display settings: toggle sidebar/dashboard elements, farm tab
 
@@ -68,13 +70,20 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 - `POST /api/cosmetics/purchase/:id` — Buy item
 - `POST /api/cosmetics/equip/:id` — Equip item
 - `POST /api/cosmetics/unequip` — Unequip item type
-- Admin: `POST /api/topics|levels|questions`
+- `GET /api/badges` — All badges with earned status for current user
+- `POST /api/badges/check` — Run badge check for current user
+- `PUT|DELETE /api/questions/:id` — Edit or delete a question (admin)
+- `PUT|DELETE /api/levels/:id` — Edit or delete a level (admin)
+- `GET /api/admin/users` — All users (admin)
+- `PUT /api/admin/users/:id` — Update user XP/coins/isAdmin (admin)
+- `POST /api/topics|levels|questions` — Create content (admin)
 
 ## Seed Data
 - Admin user: `admin` / `admin123`
-- 8 seeded leaderboard players
-- 6 topics × 3 levels × questions for all game types
-- 14 cosmetics (common/rare/epic/legendary)
+- 6 topics × 6 levels = 36 levels (all game types covered)
+- 20 badges (XP milestones, streaks, level completion, game type achievements)
+- 14 cosmetics (common/rare/epic/legendary avatars/frames/themes)
+- Seed guards: all seeders skip if data already exists
 
 ## Run
 ```bash

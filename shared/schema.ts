@@ -75,6 +75,26 @@ export const userCosmetics = pgTable("user_cosmetics", {
   unlockedAt: timestamp("unlocked_at").defaultNow(),
 });
 
+export const badges = pgTable("badges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(),
+  color: text("color").notNull().default("from-violet-500 to-purple-600"),
+  requirementType: text("requirement_type").notNull(),
+  requirementValue: integer("requirement_value").notNull().default(1),
+  xpReward: integer("xp_reward").notNull().default(0),
+  coinReward: integer("coin_reward").notNull().default(0),
+  rarity: text("rarity").notNull().default("common"),
+});
+
+export const userBadges = pgTable("user_badges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  badgeId: varchar("badge_id").notNull().references(() => badges.id),
+  earnedAt: timestamp("earned_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -85,6 +105,7 @@ export const insertLevelSchema = createInsertSchema(levels).omit({ id: true });
 export const insertQuestionSchema = createInsertSchema(questions).omit({ id: true });
 export const insertCosmeticSchema = createInsertSchema(cosmetics).omit({ id: true });
 export const insertProgressSchema = createInsertSchema(userProgress).omit({ id: true, completedAt: true });
+export const insertBadgeSchema = createInsertSchema(badges).omit({ id: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -94,6 +115,9 @@ export type Question = typeof questions.$inferSelect;
 export type UserProgress = typeof userProgress.$inferSelect;
 export type Cosmetic = typeof cosmetics.$inferSelect;
 export type UserCosmetic = typeof userCosmetics.$inferSelect;
+export type Badge = typeof badges.$inferSelect;
+export type UserBadge = typeof userBadges.$inferSelect;
 export type InsertTopic = z.infer<typeof insertTopicSchema>;
 export type InsertLevel = z.infer<typeof insertLevelSchema>;
 export type InsertQuestion = z.infer<typeof insertQuestionSchema>;
+export type InsertBadge = z.infer<typeof insertBadgeSchema>;

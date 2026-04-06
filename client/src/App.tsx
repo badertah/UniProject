@@ -18,6 +18,7 @@ import ProfilePage from "@/pages/profile";
 import AdminPage from "@/pages/admin";
 import FarmPage from "@/pages/farm";
 import SettingsPage from "@/pages/settings";
+import BadgesPage from "@/pages/badges";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -98,6 +99,9 @@ function Router() {
       </Route>
       <Route path="/farm">
         <ProtectedRoute component={FarmPage} />
+      </Route>
+      <Route path="/badges">
+        <ProtectedRoute component={BadgesPage} />
       </Route>
       <Route path="/settings">
         <ProtectedRoute component={SettingsPage} />
