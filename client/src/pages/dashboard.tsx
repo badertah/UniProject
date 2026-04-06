@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useSettings } from "@/hooks/use-settings";
 import { getTierInfo, getXpToNextLevel, formatXp, getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
@@ -8,9 +9,10 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import IkuflyGame from "@/components/ikufly-game";
 import {
   Zap, Flame, Coins, Trophy, BookOpen, ChevronRight, Star,
-  TrendingUp, Target, Award, Lock, Hash, Link2, Smile
+  TrendingUp, Target, Award, Lock, Hash, Link2, Smile, Gamepad2, Play
 } from "lucide-react";
 
 const TOPIC_ICONS: Record<string, string> = {
@@ -47,6 +49,7 @@ function getTierPosition(xp: number): number {
 export default function Dashboard() {
   const { user } = useAuth();
   const { settings } = useSettings();
+  const [showGame, setShowGame] = useState(false);
   const { data: topics } = useQuery<any[]>({ queryKey: ["/api/topics"] });
   const { data: leaderboard } = useQuery<any[]>({ queryKey: ["/api/leaderboard"] });
   const { data: progress } = useQuery<any[]>({ queryKey: ["/api/progress"] });
@@ -73,6 +76,10 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
+      {/* IKUFLY Game Overlay */}
+      <AnimatePresence>
+        {showGame && <IkuflyGame onClose={() => setShowGame(false)} />}
+      </AnimatePresence>
       {/* Hero Section */}
       <motion.div
         className="relative rounded-xl overflow-hidden"
@@ -314,16 +321,45 @@ export default function Dashboard() {
               </>
             )}
 
+            {/* IKUFLY Minigame Widget */}
+            <motion.div
+              className="relative rounded-xl overflow-hidden border border-purple-500/30 cursor-pointer group"
+              style={{ background: "linear-gradient(135deg, #0f0c29, #1a0533)" }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowGame(true)}
+              data-testid="button-ikufly">
+              {/* Animated glow */}
+              <motion.div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl"
+                style={{ background: "radial-gradient(circle at 50% 50%, rgba(124,58,237,0.2) 0%, transparent 70%)" }} />
+              <div className="p-4 text-center relative z-10">
+                <motion.div
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}>
+                  <span className="text-4xl">🎓</span>
+                </motion.div>
+                <h3 className="font-black text-sm text-white mt-2 mb-0.5 tracking-wider" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                  IKU<span className="text-purple-400">FLY</span>
+                </h3>
+                <p className="text-xs text-slate-400 mb-3">Flappy minigame — earn XP & coins!</p>
+                <div className="flex items-center justify-center gap-1 bg-purple-600 hover:bg-purple-500 transition-colors text-white rounded-lg py-2 text-xs font-bold">
+                  <Play className="w-3 h-3" />
+                  PLAY NOW
+                </div>
+                <p className="text-xs text-slate-500 mt-2 font-mono">+2 XP per point · max 20 XP</p>
+              </div>
+            </motion.div>
+
             {/* Quick Play */}
             {settings.showQuickPlay && (
               <Card className="border-primary/20 bg-primary/5">
                 <CardContent className="p-4 text-center">
                   <TrendingUp className="w-8 h-8 text-primary mx-auto mb-2" />
                   <h3 className="font-bold text-sm mb-1" style={{ fontFamily: "Oxanium, sans-serif" }}>READY TO LEVEL UP?</h3>
-                  <p className="text-xs text-muted-foreground mb-3">Play mini-games to earn XP & EduCoins</p>
+                  <p className="text-xs text-muted-foreground mb-3">Complete courses to earn XP & EduCoins</p>
                   <Link href="/courses">
                     <Button size="sm" className="w-full text-xs">
-                      Start Playing <Zap className="w-3 h-3 ml-1" />
+                      Start Learning <Zap className="w-3 h-3 ml-1" />
                     </Button>
                   </Link>
                 </CardContent>

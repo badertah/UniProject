@@ -350,5 +350,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ============ MINIGAME REWARD ============
+  app.post("/api/minigame/reward", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { score } = req.body;
+      const xpReward = Math.min(Math.floor(score * 2), 20);
+      const coinsReward = Math.min(Math.floor(score / 5), 5);
+      const user = await storage.getUser(req.userId!);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const newXp = user.xp + xpReward;
+      const newLevel = calculateLevel(newXp);
+      const updated = await storage.updateUser(req.userId!, {
+        xp: newXp,
+        level: newLevel,
+        eduCoins: user.eduCoins + coinsReward,
+        tier: getTier(newXp),
+      });
+      const { password: _, ...safeUser } = updated;
+      res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) }, xpReward, coinsReward });
+    } catch {
+      res.status(500).json({ error: "Reward failed" });
+    }
+  });
+
+  // ============ SPEND COINS (Tycoon) ============
+  app.post("/api/coins/spend", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { amount } = req.body;
+      const user = await storage.getUser(req.userId!);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (user.eduCoins < amount) return res.status(400).json({ error: "Not enough EduCoins" });
+      const updated = await storage.updateUser(req.userId!, { eduCoins: user.eduCoins - amount });
+      const { password: _, ...safeUser } = updated;
+      res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) } });
+    } catch {
+      res.status(500).json({ error: "Spend failed" });
+    }
+  });
+
   return httpServer;
 }

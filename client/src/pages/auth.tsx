@@ -6,7 +6,17 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, User, Lock, Terminal, ChevronRight, Loader2 } from "lucide-react";
+import {
+  Zap, User, Lock, ChevronRight, Loader2, BookOpen,
+  Trophy, Flame, Star, Shield, Gamepad2, GraduationCap
+} from "lucide-react";
+
+const FEATURES = [
+  { icon: BookOpen, title: "12 Courses", desc: "System Analysis, UML, Architecture & more", color: "text-cyan-400" },
+  { icon: Trophy, title: "Leaderboard", desc: "Compete with your classmates in real time", color: "text-yellow-400" },
+  { icon: Gamepad2, title: "Minigames", desc: "Play IKUFLY & earn XP while having fun", color: "text-purple-400" },
+  { icon: Flame, title: "Daily Streaks", desc: "Log in every day and multiply your rewards", color: "text-orange-400" },
+];
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -28,11 +38,11 @@ export default function AuthPage() {
       if (mode === "login") {
         const result = await login(username.trim(), password);
         if (result.streakBonus && result.streakBonus > 0) {
-          toast({ title: "Streak Bonus!", description: `+${result.streakBonus} XP for your daily login streak!` });
+          toast({ title: "🔥 Streak Bonus!", description: `+${result.streakBonus} XP for your daily login streak!` });
         }
       } else {
         await register(username.trim(), password);
-        toast({ title: "Welcome to EduQuest!", description: "Your journey begins now." });
+        toast({ title: "Welcome to IKUGAMES!", description: "Your journey begins now." });
       }
       setLocation("/dashboard");
     } catch (err: any) {
@@ -47,209 +57,222 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background cyber-grid relative flex items-center justify-center overflow-hidden">
-      {/* Animated background orbs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          className="absolute w-96 h-96 rounded-full blur-3xl opacity-20"
-          style={{ background: "radial-gradient(circle, rgba(139,92,246,0.6) 0%, transparent 70%)", top: "10%", left: "10%" }}
-          animate={{ x: [-100, 100, -100], y: [-50, 100, -50] }}
-          transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-        />
-        <motion.div
-          className="absolute w-80 h-80 rounded-full blur-3xl opacity-15"
-          style={{ background: "radial-gradient(circle, rgba(6,182,212,0.6) 0%, transparent 70%)", bottom: "10%", right: "10%" }}
-          animate={{ x: [100, -100, 100], y: [50, -100, 50] }}
-          transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-        />
-        <motion.div
-          className="absolute w-64 h-64 rounded-full blur-2xl opacity-10"
-          style={{ background: "radial-gradient(circle, rgba(244,63,94,0.5) 0%, transparent 70%)", top: "50%", right: "20%" }}
-          animate={{ scale: [1, 1.3, 1], opacity: [0.1, 0.2, 0.1] }}
-          transition={{ duration: 8, repeat: Infinity }}
-        />
+    <div className="min-h-screen flex flex-col md:flex-row overflow-hidden bg-background">
+      {/* ── LEFT PANEL ─────────────────────────────── */}
+      <div className="hidden md:flex md:w-[55%] relative flex-col justify-between p-12 overflow-hidden"
+        style={{ background: "linear-gradient(135deg, #0f0c29, #1a0533, #24243e)" }}>
+
+        {/* Grid pattern */}
+        <div className="absolute inset-0 cyber-grid opacity-20" />
+
+        {/* Glowing orbs */}
+        <motion.div className="absolute w-80 h-80 rounded-full blur-3xl opacity-25 pointer-events-none"
+          style={{ background: "radial-gradient(circle, rgba(139,92,246,0.8) 0%, transparent 70%)", top: "-10%", left: "-10%" }}
+          animate={{ scale: [1, 1.15, 1] }} transition={{ duration: 6, repeat: Infinity }} />
+        <motion.div className="absolute w-64 h-64 rounded-full blur-3xl opacity-20 pointer-events-none"
+          style={{ background: "radial-gradient(circle, rgba(6,182,212,0.8) 0%, transparent 70%)", bottom: "5%", right: "5%" }}
+          animate={{ scale: [1.1, 1, 1.1] }} transition={{ duration: 8, repeat: Infinity }} />
+
+        {/* Logo */}
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center"
+              style={{ background: "linear-gradient(135deg, #7c3aed, #2563eb)" }}>
+              <GraduationCap className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-black tracking-widest text-white" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                IKU<span className="text-purple-400">GAMES</span>
+              </h1>
+              <p className="text-xs text-slate-400 tracking-[0.2em] font-mono">LEARN · PLAY · LEVEL UP</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Hero text */}
+        <motion.div className="relative z-10 flex-1 flex flex-col justify-center"
+          initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
+          <h2 className="text-4xl font-black text-white leading-tight mb-4" style={{ fontFamily: "Oxanium, sans-serif" }}>
+            Level Up Your<br />
+            <span className="text-transparent bg-clip-text"
+              style={{ backgroundImage: "linear-gradient(90deg, #a855f7, #06b6d4)" }}>
+              Knowledge
+            </span>
+          </h2>
+          <p className="text-slate-400 text-base mb-10 leading-relaxed max-w-sm">
+            The gamified learning platform for IKU Computer Engineering students. Master SAD concepts while earning XP, coins, and badges.
+          </p>
+
+          {/* Feature list */}
+          <div className="space-y-4">
+            {FEATURES.map(({ icon: Icon, title, desc, color }, i) => (
+              <motion.div key={title}
+                className="flex items-center gap-4 p-3 rounded-xl border border-white/10"
+                style={{ background: "rgba(255,255,255,0.04)" }}
+                initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.35 + i * 0.1 }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: "rgba(255,255,255,0.07)" }}>
+                  <Icon className={`w-4 h-4 ${color}`} />
+                </div>
+                <div>
+                  <p className="text-white text-sm font-bold">{title}</p>
+                  <p className="text-slate-500 text-xs">{desc}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Bottom stats */}
+        <motion.div className="relative z-10 flex items-center gap-6 pt-6 border-t border-white/10"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}>
+          {[["500+", "Students"], ["12", "Courses"], ["50+", "Badges"]].map(([num, label]) => (
+            <div key={label} className="text-center">
+              <div className="text-xl font-black text-white" style={{ fontFamily: "Oxanium, sans-serif" }}>{num}</div>
+              <div className="text-xs text-slate-500">{label}</div>
+            </div>
+          ))}
+          <div className="ml-auto flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs text-slate-400 font-mono">ONLINE</span>
+          </div>
+        </motion.div>
       </div>
 
-      {/* Corner decorations */}
-      <div className="absolute top-0 left-0 w-48 h-48 border-l-2 border-t-2 border-primary/30 pointer-events-none" />
-      <div className="absolute top-0 right-0 w-48 h-48 border-r-2 border-t-2 border-primary/30 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-48 h-48 border-l-2 border-b-2 border-accent/30 pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-48 h-48 border-r-2 border-b-2 border-accent/30 pointer-events-none" />
+      {/* ── RIGHT PANEL ─────────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center px-6 py-12 relative"
+        style={{ background: "hsl(var(--background))" }}>
 
-      {/* Scanning line animation */}
-      <motion.div
-        className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent pointer-events-none"
-        animate={{ y: ["-100vh", "100vh"] }}
-        transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-      />
-
-      <motion.div
-        className="relative z-10 w-full max-w-md px-4"
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5 }}
-      >
-        {/* Header */}
-        <div className="text-center mb-8">
-          <motion.div
-            className="flex items-center justify-center gap-3 mb-4"
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
-            <div className="w-12 h-12 rounded-lg bg-primary/20 border border-primary/40 flex items-center justify-center neon-purple">
-              <Zap className="w-6 h-6 text-primary" />
-            </div>
-            <div className="text-left">
-              <h1 className="text-2xl font-bold tracking-wider text-foreground" style={{ fontFamily: "Oxanium, sans-serif" }}>
-                EDU<span className="text-primary neon-text-purple">QUEST</span>
-              </h1>
-              <p className="text-xs text-muted-foreground tracking-widest">LEARNING SYSTEM v2.0</p>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-          >
-            <div className="flex items-center gap-2 justify-center mb-1">
-              <Terminal className="w-3 h-3 text-accent" />
-              <p className="text-accent text-xs tracking-[0.3em] font-mono">SYSTEM LOGIN</p>
-              <Terminal className="w-3 h-3 text-accent" />
-            </div>
-            <p className="text-muted-foreground text-sm">
-              {mode === "login" ? "Access your learning profile" : "Initialize new user profile"}
-            </p>
-          </motion.div>
+        {/* Mobile logo */}
+        <div className="absolute top-6 left-6 flex items-center gap-2 md:hidden">
+          <GraduationCap className="w-5 h-5 text-primary" />
+          <span className="text-lg font-black tracking-widest" style={{ fontFamily: "Oxanium, sans-serif" }}>
+            IKU<span className="text-primary">GAMES</span>
+          </span>
         </div>
 
-        {/* Card */}
-        <motion.div
-          className="glass-strong rounded-xl p-8 border border-primary/20"
-          style={{ boxShadow: "0 0 40px rgba(139,92,246,0.1), 0 20px 60px rgba(0,0,0,0.5)" }}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          {/* Mode toggle */}
-          <div className="flex rounded-lg bg-muted/50 p-1 mb-8">
+        <motion.div className="w-full max-w-sm"
+          initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
+
+          {/* Header */}
+          <div className="mb-8">
+            <AnimatePresence mode="wait">
+              <motion.div key={mode}
+                initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.2 }}>
+                <h2 className="text-2xl font-black text-foreground mb-1" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                  {mode === "login" ? "Welcome back" : "Create account"}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {mode === "login"
+                    ? "Sign in to continue your learning journey"
+                    : "Join thousands of students on IKUGAMES"}
+                </p>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Toggle tabs */}
+          <div className="flex rounded-xl bg-muted/60 p-1 mb-7 border border-border/40">
             {(["login", "register"] as const).map(m => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={`flex-1 py-2 text-sm font-medium tracking-wide rounded-md transition-all duration-200 ${
+              <button key={m} onClick={() => setMode(m)}
+                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${
                   mode === m
-                    ? "bg-primary text-primary-foreground shadow-md"
-                    : "text-muted-foreground"
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
-                data-testid={`button-${m}`}
-              >
-                {m === "login" ? "LOGIN" : "REGISTER"}
+                data-testid={`button-${m}`}>
+                {m === "login" ? "Sign In" : "Register"}
               </button>
             ))}
           </div>
 
+          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs tracking-widest text-muted-foreground font-mono">
-                USERNAME
+            {/* Username */}
+            <div className="space-y-1.5">
+              <Label htmlFor="username" className="text-sm font-medium text-foreground">
+                Username
               </Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="username"
-                  data-testid="input-username"
-                  type="text"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="Enter username"
-                  className="pl-10 bg-muted/30 border-border/60 text-foreground placeholder:text-muted-foreground/50 font-mono focus:border-primary/60 focus:ring-primary/30"
-                  autoComplete="username"
-                />
+                <Input id="username" data-testid="input-username" type="text"
+                  value={username} onChange={e => setUsername(e.target.value)}
+                  placeholder="Your username"
+                  className="pl-10 h-11 bg-muted/30 border-border/60 focus:border-primary/70 focus:ring-primary/20"
+                  autoComplete="username" />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs tracking-widest text-muted-foreground font-mono">
-                PASSWORD
+            {/* Password */}
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm font-medium text-foreground">
+                Password
               </Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="password"
-                  data-testid="input-password"
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  className="pl-10 bg-muted/30 border-border/60 text-foreground placeholder:text-muted-foreground/50 font-mono focus:border-primary/60 focus:ring-primary/30"
-                  autoComplete={mode === "login" ? "current-password" : "new-password"}
-                />
+                <Input id="password" data-testid="input-password" type="password"
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder={mode === "register" ? "Min. 6 characters" : "Your password"}
+                  className="pl-10 h-11 bg-muted/30 border-border/60 focus:border-primary/70 focus:ring-primary/20"
+                  autoComplete={mode === "login" ? "current-password" : "new-password"} />
               </div>
-              {mode === "register" && (
-                <p className="text-xs text-muted-foreground font-mono">Min 6 characters</p>
-              )}
             </div>
 
-            <Button
-              type="submit"
-              className="w-full font-bold tracking-widest"
-              disabled={loading}
-              size="lg"
-              data-testid="button-submit"
-            >
+            {/* Submit */}
+            <Button type="submit" className="w-full h-11 font-bold text-sm" disabled={loading}
+              data-testid="button-submit">
               {loading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <>
-                  {mode === "login" ? "INITIALIZE SESSION" : "CREATE PROFILE"}
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </>
+                <span className="flex items-center gap-2">
+                  {mode === "login" ? "Sign In" : "Create Account"}
+                  <ChevronRight className="w-4 h-4" />
+                </span>
               )}
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-xs text-muted-foreground">
-              {mode === "login" ? "New to EduQuest?" : "Already have an account?"}{" "}
-              <button
-                onClick={() => setMode(mode === "login" ? "register" : "login")}
-                className="text-primary hover:text-primary/80 font-medium transition-colors"
-                data-testid="button-toggle-mode"
-              >
-                {mode === "login" ? "Create profile" : "Login here"}
-              </button>
-            </p>
+          {/* Switch mode */}
+          <p className="text-center text-sm text-muted-foreground mt-6">
+            {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
+            <button onClick={() => setMode(mode === "login" ? "register" : "login")}
+              className="text-primary font-semibold hover:underline transition-colors"
+              data-testid="button-toggle-mode">
+              {mode === "login" ? "Register here" : "Sign in"}
+            </button>
+          </p>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-6">
+            <div className="flex-1 h-px bg-border/50" />
+            <span className="text-xs text-muted-foreground/60 font-mono">or</span>
+            <div className="flex-1 h-px bg-border/50" />
+          </div>
+
+          {/* Info badges */}
+          <div className="flex items-center justify-center gap-4">
+            {[
+              { icon: Shield, label: "Secure", color: "text-emerald-400" },
+              { icon: Zap, label: "Fast", color: "text-yellow-400" },
+              { icon: Star, label: "Free", color: "text-purple-400" },
+            ].map(({ icon: Icon, label, color }) => (
+              <div key={label} className="flex flex-col items-center gap-1">
+                <div className="w-8 h-8 rounded-lg bg-muted/50 border border-border/40 flex items-center justify-center">
+                  <Icon className={`w-4 h-4 ${color}`} />
+                </div>
+                <span className="text-xs text-muted-foreground">{label}</span>
+              </div>
+            ))}
           </div>
 
           {/* Admin hint */}
-          <div className="mt-4 pt-4 border-t border-border/30">
-            <p className="text-xs text-muted-foreground/50 text-center font-mono">
-              admin / admin123 for admin access
-            </p>
-          </div>
+          <p className="text-center text-xs text-muted-foreground/40 font-mono mt-6">
+            admin / admin123 for admin access
+          </p>
         </motion.div>
-
-        {/* Footer indicators */}
-        <motion.div
-          className="flex items-center justify-center gap-6 mt-6"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          {["SECURE", "ENCRYPTED", "ONLINE"].map((label, i) => (
-            <div key={label} className="flex items-center gap-1.5">
-              <motion.div
-                className="w-1.5 h-1.5 rounded-full bg-accent"
-                animate={{ opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 2, repeat: Infinity, delay: i * 0.4 }}
-              />
-              <span className="text-xs text-muted-foreground/60 font-mono tracking-widest">{label}</span>
-            </div>
-          ))}
-        </motion.div>
-      </motion.div>
+      </div>
     </div>
   );
 }
