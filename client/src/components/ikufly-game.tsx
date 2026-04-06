@@ -11,12 +11,12 @@ const W = 360;
 const H = 480;
 const BIRD_X = 70;
 const BIRD_R = 16;
-const GRAVITY = 0.42;
-const JUMP_VEL = -8.2;
+const GRAVITY = 0.22;
+const JUMP_VEL = -5.8;
 const PIPE_W = 54;
-const PIPE_GAP = 148;
-const PIPE_SPEED = 2.4;
-const PIPE_INTERVAL = 115; // frames
+const PIPE_GAP = 160;
+const PIPE_SPEED = 1.8;
+const PIPE_INTERVAL = 130; // frames
 
 interface Pipe {
   x: number;
