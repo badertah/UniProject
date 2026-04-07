@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Coins, Star, X, ArrowUpCircle, ShoppingCart } from "lucide-react";
+import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 
 const TICK_INTERVAL_MS = 30_000;
@@ -174,6 +175,8 @@ export default function FarmPage() {
     });
   }, [user, farmSave.owned, spendMutation, toast]);
 
+  const [, setLocation] = useLocation();
+
   const [viewSize, setViewSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => { const r = () => setViewSize({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
 
@@ -236,55 +239,146 @@ export default function FarmPage() {
 
           <svg className="absolute inset-0" width={CANVAS_W} height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
             <defs>
-              <linearGradient id="plotCrops" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#A67C00"/><stop offset="100%" stopColor="#8B6914"/></linearGradient>
-              <linearGradient id="plotLive" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7CB342"/><stop offset="100%" stopColor="#558B2F"/></linearGradient>
-              <linearGradient id="plotBuild" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#BDBDBD"/><stop offset="100%" stopColor="#9E9E9E"/></linearGradient>
-              <linearGradient id="plotEquip" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#90A4AE"/><stop offset="100%" stopColor="#607D8B"/></linearGradient>
-              <linearGradient id="plotLocked" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8B7355"/><stop offset="100%" stopColor="#6B5B45"/></linearGradient>
-              <linearGradient id="roadG" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#C8A87A"/><stop offset="100%" stopColor="#A88A58"/></linearGradient>
+              <linearGradient id="farmGrassGrad" x1="0.5" y1="0" x2="0.5" y2="1">
+                <stop offset="0%" stopColor="#7DB845" stopOpacity="0.25"/>
+                <stop offset="100%" stopColor="#4A7820" stopOpacity="0.45"/>
+              </linearGradient>
+              <radialGradient id="farmEdgeFade" cx="50%" cy="50%" r="50%">
+                <stop offset="50%" stopColor="transparent"/>
+                <stop offset="100%" stopColor="rgba(0,0,0,0.18)"/>
+              </radialGradient>
+              <filter id="roadBlur"><feGaussianBlur stdDeviation="1.5"/></filter>
             </defs>
 
-            {BUILDINGS.map(b => {
-              const { x, y } = isoPos(b.col, b.row);
-              const innerHW = ISO_HALF_W - 6;
-              const innerHH = ISO_HALF_H - 3;
-              return (
-                <g key={`road-${b.id}`}>
-                  {b.col < 3 && (() => {
-                    const next = isoPos(b.col + 1, b.row);
-                    const mx = (x + next.x) / 2;
-                    const my = (y + next.y) / 2;
-                    return <polygon points={`${x + innerHW * 0.5},${y} ${next.x - innerHW * 0.5},${next.y} ${next.x - innerHW * 0.3},${next.y + 8} ${x + innerHW * 0.3},${y + 8}`} fill="url(#roadG)" opacity="0.6"/>;
-                  })()}
-                  {b.row < 2 && (() => {
-                    const next = isoPos(b.col, b.row + 1);
-                    return <polygon points={`${x},${y + innerHH * 0.5} ${next.x},${next.y - innerHH * 0.5} ${next.x - 8},${next.y - innerHH * 0.3} ${x - 8},${y + innerHH * 0.3}`} fill="url(#roadG)" opacity="0.6"/>;
-                  })()}
-                </g>
-              );
-            })}
+            {/* === FARM GROUND: single large organic territory === */}
+            {/* Outer shadow for depth */}
+            <polygon points="570,28 1052,268 678,452 196,208" fill="rgba(0,0,0,0.18)" />
+            {/* Main farm land base */}
+            <polygon points="560,20 1040,260 680,440 200,200" fill="#6B9A36" />
+            {/* Lighter grass variation top-left */}
+            <polygon points="560,20 800,148 560,200 320,200" fill="#78A83F" opacity="0.6"/>
+            {/* Darker soil variation bottom-right */}
+            <polygon points="800,260 1040,260 760,380 680,440" fill="#5A8628" opacity="0.5"/>
+            {/* Gradient overlay */}
+            <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmGrassGrad)" />
+            {/* Edge darkening */}
+            <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmEdgeFade)" opacity="0.5"/>
 
+            {/* === DIRT ROADS: along isometric grid axes === */}
+            {/* Road shadows */}
+            {[0,1,2].flatMap(row => [0,1,2].map(col => {
+              const a = isoPos(col, row); const nb = isoPos(col+1, row);
+              return <line key={`rs-r${row}c${col}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
+            }))}
+            {[0,1,2,3].flatMap(col => [0,1].map(row => {
+              const a = isoPos(col, row); const nb = isoPos(col, row+1);
+              return <line key={`rs-c${col}r${row}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
+            }))}
+            {/* Road surface */}
+            {[0,1,2].flatMap(row => [0,1,2].map(col => {
+              const a = isoPos(col, row); const nb = isoPos(col+1, row);
+              return <line key={`rr${row}c${col}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
+            }))}
+            {[0,1,2,3].flatMap(col => [0,1].map(row => {
+              const a = isoPos(col, row); const nb = isoPos(col, row+1);
+              return <line key={`rc${col}r${row}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
+            }))}
+            {/* Road edge glow */}
+            {[0,1,2].flatMap(row => [0,1,2].map(col => {
+              const a = isoPos(col, row); const nb = isoPos(col+1, row);
+              return <line key={`re-r${row}c${col}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#A07838" strokeWidth="16" strokeLinecap="round" opacity="0.25"/>;
+            }))}
+            {/* Road center dashes */}
+            {[0,1,2].flatMap(row => [0,1,2].map(col => {
+              const a = isoPos(col, row); const nb = isoPos(col+1, row);
+              const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
+              return <line key={`rm-r${row}c${col}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
+            }))}
+            {[0,1,2,3].flatMap(col => [0,1].map(row => {
+              const a = isoPos(col, row); const nb = isoPos(col, row+1);
+              const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
+              return <line key={`rm-c${col}r${row}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
+            }))}
+            {/* Road intersections (roundish squares) */}
+            {[0,1,2,3].flatMap(col => [0,1,2].map(row => {
+              const p = isoPos(col, row);
+              return <ellipse key={`ri-${col}-${row}`} cx={p.x} cy={p.y} rx={10} ry={6} fill="#B88A48" opacity="0.8"/>;
+            }))}
+
+            {/* === SOIL PATCHES under each building plot === */}
             {BUILDINGS.map(b => {
               const { x, y } = isoPos(b.col, b.row);
               const owned = (farmSave.owned[b.id] || 0) > 0;
-              const level = farmSave.owned[b.id] || 0;
-              const plotId = owned ? CAT_PLOT_ID[b.category] : "plotLocked";
-              const outerHW = ISO_HALF_W - 2;
-              const outerHH = ISO_HALF_H - 1;
               return (
-                <g key={`plot-${b.id}`}>
-                  <polygon points={diamondPoints(x, y, outerHW + 4, outerHH + 2)} fill="rgba(0,0,0,0.08)"/>
-                  <polygon points={diamondPoints(x, y, outerHW, outerHH)} fill={`url(#${plotId})`} stroke={owned ? PLOT_COLORS[b.category].stroke : "#5a4a3a"} strokeWidth="2"/>
-                  <polygon points={diamondPoints(x, y, outerHW, outerHH)} fill="rgba(255,255,255,0.06)"/>
+                <g key={`soil-${b.id}`}>
+                  {/* Outer soil shadow */}
+                  <ellipse cx={x} cy={y+4} rx={76} ry={38} fill="rgba(0,0,0,0.15)"/>
+                  {/* Soil base */}
+                  <ellipse cx={x} cy={y} rx={74} ry={36} fill={owned ? "#7A5A28" : "#6B5040"} opacity={owned ? 0.65 : 0.5}/>
+                  {/* Soil highlight */}
+                  <ellipse cx={x-12} cy={y-6} rx={30} ry={12} fill="rgba(255,255,255,0.07)"/>
+                  {/* Plot border ring */}
+                  <ellipse cx={x} cy={y} rx={74} ry={36} fill="none" stroke={owned ? "#9A7838" : "#5a4a3a"} strokeWidth="1.5" opacity="0.6"/>
+                  {/* Locked cross-hatch lines */}
                   {!owned && (
                     <>
-                      <line x1={x - outerHW * 0.6} y1={y - outerHH * 0.1} x2={x + outerHW * 0.6} y2={y - outerHH * 0.1} stroke="#5a4a3a" strokeWidth="1" opacity="0.3" strokeDasharray="6 4"/>
-                      <line x1={x - outerHW * 0.4} y1={y + outerHH * 0.3} x2={x + outerHW * 0.4} y2={y + outerHH * 0.3} stroke="#5a4a3a" strokeWidth="1" opacity="0.3" strokeDasharray="6 4"/>
+                      <line x1={x-50} y1={y-6} x2={x+50} y2={y-6} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
+                      <line x1={x-40} y1={y+8} x2={x+40} y2={y+8} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
                     </>
                   )}
                 </g>
               );
             })}
+
+            {/* === FARM DECORATIONS: fence posts along boundary === */}
+            {[
+              [560,20],[680,80],[800,140],[920,200],[1040,260],
+              [920,320],[800,380],[680,440],
+              [560,380],[440,320],[320,260],[200,200],
+              [320,140],[440,80],
+            ].map(([fx,fy],i) => (
+              <g key={`fence-${i}`} opacity="0.7">
+                <rect x={fx-3} y={fy-10} width="6" height="14" rx="1.5" fill="#8B6040"/>
+                <rect x={fx-5} y={fy-12} width="10" height="5" rx="1" fill="#A0724E"/>
+              </g>
+            ))}
+            {/* Fence rails top edge */}
+            <polyline points="560,20 680,80 800,140 920,200 1040,260" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <polyline points="560,20 440,80 320,140 200,200" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
+
+            {/* === GRASS TUFTS scattered inside farm === */}
+            {[
+              {x:640,y:55},{x:720,y:105},{x:840,y:165},{x:960,y:225},
+              {x:480,y:105},{x:390,y:160},{x:300,y:215},
+              {x:770,y:310},{x:630,y:350},{x:500,y:300},{x:420,y:250},
+            ].map((g, i) => (
+              <g key={`gt-${i}`} opacity={0.45 + (i%3)*0.1}>
+                <line x1={g.x-3} y1={g.y} x2={g.x-7} y2={g.y-11} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
+                <line x1={g.x} y1={g.y} x2={g.x} y2={g.y-14} stroke="#5A9028" strokeWidth="1.8" strokeLinecap="round"/>
+                <line x1={g.x+3} y1={g.y} x2={g.x+6} y2={g.y-10} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
+              </g>
+            ))}
+
+            {/* === ROCKS/PEBBLES scattered === */}
+            {[
+              {x:700,y:58,r:4},{x:850,y:175,r:3},{x:430,y:115,r:3.5},
+              {x:740,y:300,r:3},{x:520,y:245,r:4},{x:960,y:240,r:3},
+            ].map((r2, i) => (
+              <ellipse key={`rock-${i}`} cx={r2.x} cy={r2.y} rx={r2.r*1.6} ry={r2.r} fill="#9A8870" opacity="0.6"/>
+            ))}
+
+            {/* === WILDFLOWERS inside farm === */}
+            {[
+              {x:660,y:62,c:"#FFD700"},{x:830,y:155,c:"#FF7043"},
+              {x:460,y:130,c:"#E040FB"},{x:750,y:290,c:"#FFC107"},
+              {x:540,y:260,c:"#FF5722"},{x:910,y:220,c:"#FFD700"},
+            ].map((f, i) => (
+              <g key={`wf-${i}`} opacity="0.65">
+                <line x1={f.x} y1={f.y} x2={f.x} y2={f.y+8} stroke="#4A8020" strokeWidth="1.2"/>
+                <circle cx={f.x} cy={f.y} r="3.5" fill={f.c}/>
+                <circle cx={f.x-3} cy={f.y-2} r="2" fill={f.c} opacity="0.7"/>
+              </g>
+            ))}
 
             {[
               { x: 60, y: 200 }, { x: 1060, y: 180 }, { x: 80, y: 400 },
@@ -453,7 +547,15 @@ export default function FarmPage() {
         </div>
       </div>
 
-      <div className="absolute top-0 left-0 right-0 z-30 px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: "linear-gradient(180deg, rgba(30,20,10,0.8) 0%, rgba(50,35,20,0.6) 70%, transparent 100%)", paddingBottom: 14 }}>
+      <div className="absolute top-0 left-0 right-0 z-30 px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: "linear-gradient(180deg, rgba(30,20,10,0.85) 0%, rgba(50,35,20,0.65) 70%, transparent 100%)", paddingBottom: 14 }}>
+        <button
+          onClick={() => setLocation("/")}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-bold text-xs transition-all hover:scale-105 active:scale-95"
+          style={{ background: "rgba(255,255,255,0.12)", color: "#FFD700", border: "1px solid rgba(255,215,0,0.35)", backdropFilter: "blur(6px)" }}
+          data-testid="btn-back-to-menu"
+        >
+          <ChevronLeft className="w-3.5 h-3.5"/> Menu
+        </button>
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #FFD700, #F5A623)", boxShadow: "0 2px 8px rgba(245,166,35,0.4)" }}>
             <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="#F57F17"/><circle cx="9" cy="9" r="5" fill="#FFD54F"/></svg>
