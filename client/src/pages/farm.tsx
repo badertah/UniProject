@@ -5,33 +5,89 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { Coins, Star, Sun, X, ArrowUpCircle, ShoppingCart, Lock } from "lucide-react";
 import {
-  Coins, Star, Sun, X,
-  ArrowUpCircle, ShoppingCart, Lock,
-} from "lucide-react";
+  BuildingSVG, LockedFieldSVG, TreeSVG,
+  WheatFieldSVG, VegetablePatchSVG, AppleOrchardSVG, GreenhouseSVG,
+  ChickenCoopSVG, DairyCowsSVG, FarmhouseSVG, WindmillSVG,
+  BarnSVG, TractorSVG, GrainSiloSVG, IrrigationSVG,
+} from "@/components/farm-buildings";
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const TICK_INTERVAL_MS = 30_000; // 30 seconds per income tick
-const MAX_FARM_BANK = 500;       // max pending coins
-const MAX_OFFLINE_TICKS = 20;    // cap offline income to ~10 mins
-const FARM_STATE_KEY = "farm_v2_state";
+// ── Constants ─────────────────────────────────────────────────────────────────
+const TICK_INTERVAL_MS = 30_000;
+const MAX_FARM_BANK    = 500;
+const MAX_OFFLINE_TICKS = 20;
+const FARM_STATE_KEY   = "farm_v2_state";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Building catalogue ────────────────────────────────────────────────────────
 interface BuildingDef {
-  id: string;
-  name: string;
-  emoji: string;
+  id: string; name: string; emoji: string; icon: string;
   description: string;
   category: "crops" | "buildings" | "livestock" | "equipment";
-  buyCost: number;
-  upgradeCost: [number, number];
+  buyCost: number; upgradeCost: [number, number];
   incomePerTick: [number, number, number];
-  tickMultiplier: number; // income fires every N ticks
-  tileRow: number;
-  tileCol: number;
-  activeEmoji?: string; // upgraded visual
+  tickMultiplier: number;
+  // position on the farm canvas (px from top-left)
+  x: number; y: number; w: number; h: number;
 }
 
+const BUILDINGS: BuildingDef[] = [
+  // Row 1 — Crops
+  { id: "wheat_field",     name: "Wheat Field",     emoji: "🌾", icon: "🌾",
+    description: "Golden wheat rows — steady income every 30 seconds.",
+    category: "crops",     buyCost: 30,  upgradeCost: [60,  120], incomePerTick: [2,  5,  10], tickMultiplier: 1,
+    x: 20,  y: 20,  w: 195, h: 148 },
+  { id: "vegetable_patch", name: "Vegetable Patch",  emoji: "🥕", icon: "🥕",
+    description: "Fresh vegetables that grow faster every level.",
+    category: "crops",     buyCost: 50,  upgradeCost: [100, 200], incomePerTick: [3,  7,  14], tickMultiplier: 1,
+    x: 245, y: 20,  w: 195, h: 148 },
+  { id: "apple_orchard",   name: "Apple Orchard",   emoji: "🍎", icon: "🍎",
+    description: "Beautiful orchard trees heavy with red apples.",
+    category: "crops",     buyCost: 80,  upgradeCost: [150, 300], incomePerTick: [4,  9,  18], tickMultiplier: 1,
+    x: 470, y: 20,  w: 195, h: 148 },
+  { id: "greenhouse",      name: "Greenhouse",       emoji: "🌿", icon: "🪴",
+    description: "Year-round glass house for premium crops.",
+    category: "crops",     buyCost: 120, upgradeCost: [240, 480], incomePerTick: [5,  11, 22], tickMultiplier: 1,
+    x: 695, y: 20,  w: 195, h: 148 },
+
+  // Row 2 — Livestock + Buildings
+  { id: "chicken_coop",    name: "Chicken Coop",    emoji: "🐔", icon: "🐔",
+    description: "Free-range hens — income every 60 seconds.",
+    category: "livestock", buyCost: 55,  upgradeCost: [110, 220], incomePerTick: [4,  8,  16], tickMultiplier: 2,
+    x: 20,  y: 198, w: 195, h: 148 },
+  { id: "dairy_cows",      name: "Dairy Cows",      emoji: "🐄", icon: "🐄",
+    description: "Happy cows producing fresh milk and steady income.",
+    category: "livestock", buyCost: 90,  upgradeCost: [180, 360], incomePerTick: [5,  11, 22], tickMultiplier: 2,
+    x: 245, y: 198, w: 195, h: 148 },
+  { id: "farmhouse",       name: "Farmhouse",        emoji: "🏠", icon: "🏡",
+    description: "Your home base — upgrade it to unlock more workers.",
+    category: "buildings", buyCost: 40,  upgradeCost: [90,  180], incomePerTick: [3,  6,  13], tickMultiplier: 2,
+    x: 470, y: 198, w: 195, h: 148 },
+  { id: "windmill",        name: "Windmill",         emoji: "⚙️", icon: "🎡",
+    description: "Harnessing wind power to boost the whole farm.",
+    category: "buildings", buyCost: 100, upgradeCost: [200, 400], incomePerTick: [6,  12, 24], tickMultiplier: 2,
+    x: 695, y: 198, w: 195, h: 148 },
+
+  // Row 3 — Equipment + Storage
+  { id: "barn",            name: "Red Barn",         emoji: "🏚️", icon: "🏚️",
+    description: "Classic red barn for storing grain and tools.",
+    category: "buildings", buyCost: 70,  upgradeCost: [140, 280], incomePerTick: [5,  10, 20], tickMultiplier: 3,
+    x: 20,  y: 376, w: 195, h: 148 },
+  { id: "tractor",         name: "Tractor",          emoji: "🚜", icon: "🚜",
+    description: "Heavy-duty machine that speeds up all operations.",
+    category: "equipment", buyCost: 150, upgradeCost: [300, 600], incomePerTick: [8,  16, 32], tickMultiplier: 3,
+    x: 245, y: 376, w: 195, h: 148 },
+  { id: "silo",            name: "Grain Silo",       emoji: "🏗️", icon: "🏛️",
+    description: "Store grain in bulk and sell at peak market prices.",
+    category: "equipment", buyCost: 130, upgradeCost: [260, 520], incomePerTick: [7,  14, 28], tickMultiplier: 3,
+    x: 470, y: 376, w: 195, h: 148 },
+  { id: "irrigation",      name: "Irrigation",       emoji: "💧", icon: "💦",
+    description: "Automated water system for the entire farm.",
+    category: "equipment", buyCost: 110, upgradeCost: [220, 440], incomePerTick: [6,  13, 26], tickMultiplier: 3,
+    x: 695, y: 376, w: 195, h: 148 },
+];
+
+// ── Farm state ─────────────────────────────────────────────────────────────────
 type FarmSave = {
   owned: Record<string, number>;
   farmBank: number;
@@ -40,101 +96,6 @@ type FarmSave = {
   day: number;
 };
 
-type CoinPop = { id: string; row: number; col: number; amount: number };
-
-// ── Building catalogue ────────────────────────────────────────────────────────
-const BUILDINGS: BuildingDef[] = [
-  {
-    id: "wheat_field", name: "Wheat Field", emoji: "🌾", activeEmoji: "🌾",
-    description: "Golden wheat that earns steady coins every 30 seconds.",
-    category: "crops", buyCost: 30, upgradeCost: [60, 120],
-    incomePerTick: [2, 5, 10], tickMultiplier: 1, tileRow: 0, tileCol: 0,
-  },
-  {
-    id: "vegetable_patch", name: "Vegetable Patch", emoji: "🥕", activeEmoji: "🥦",
-    description: "Fresh vegetables — grows faster at higher levels.",
-    category: "crops", buyCost: 50, upgradeCost: [100, 200],
-    incomePerTick: [3, 7, 14], tickMultiplier: 1, tileRow: 0, tileCol: 2,
-  },
-  {
-    id: "apple_orchard", name: "Apple Orchard", emoji: "🍎", activeEmoji: "🍎",
-    description: "Beautiful orchard trees bearing fruit each season.",
-    category: "crops", buyCost: 80, upgradeCost: [150, 300],
-    incomePerTick: [4, 9, 18], tickMultiplier: 1, tileRow: 0, tileCol: 4,
-  },
-  {
-    id: "greenhouse", name: "Greenhouse", emoji: "🪴", activeEmoji: "🌿",
-    description: "Climate-controlled glass house for year-round growing.",
-    category: "crops", buyCost: 120, upgradeCost: [240, 480],
-    incomePerTick: [5, 11, 22], tickMultiplier: 1, tileRow: 0, tileCol: 6,
-  },
-  {
-    id: "chicken_coop", name: "Chicken Coop", emoji: "🐔", activeEmoji: "🐔",
-    description: "Free-range hens laying eggs every morning.",
-    category: "livestock", buyCost: 55, upgradeCost: [110, 220],
-    incomePerTick: [4, 8, 16], tickMultiplier: 2, tileRow: 2, tileCol: 0,
-  },
-  {
-    id: "dairy_cows", name: "Dairy Cows", emoji: "🐄", activeEmoji: "🐄",
-    description: "Happy cows producing fresh milk and steady income.",
-    category: "livestock", buyCost: 90, upgradeCost: [180, 360],
-    incomePerTick: [5, 11, 22], tickMultiplier: 2, tileRow: 2, tileCol: 2,
-  },
-  {
-    id: "farmhouse", name: "Farmhouse", emoji: "🏠", activeEmoji: "🏡",
-    description: "Your home base — upgrade to house more workers.",
-    category: "buildings", buyCost: 40, upgradeCost: [90, 180],
-    incomePerTick: [3, 6, 13], tickMultiplier: 2, tileRow: 2, tileCol: 4,
-  },
-  {
-    id: "windmill", name: "Windmill", emoji: "🌬️", activeEmoji: "⚙️",
-    description: "Harnesses wind power to boost the whole farm.",
-    category: "buildings", buyCost: 100, upgradeCost: [200, 400],
-    incomePerTick: [6, 12, 24], tickMultiplier: 2, tileRow: 2, tileCol: 6,
-  },
-  {
-    id: "barn", name: "Red Barn", emoji: "🏚️", activeEmoji: "🏚️",
-    description: "Classic red barn for storing grain and tools.",
-    category: "buildings", buyCost: 70, upgradeCost: [140, 280],
-    incomePerTick: [5, 10, 20], tickMultiplier: 3, tileRow: 4, tileCol: 1,
-  },
-  {
-    id: "tractor", name: "Tractor", emoji: "🚜", activeEmoji: "🚜",
-    description: "Heavy-duty machine that speeds up all operations.",
-    category: "equipment", buyCost: 150, upgradeCost: [300, 600],
-    incomePerTick: [8, 16, 32], tickMultiplier: 3, tileRow: 4, tileCol: 3,
-  },
-  {
-    id: "silo", name: "Grain Silo", emoji: "🏗️", activeEmoji: "🏛️",
-    description: "Store grain in bulk and sell at peak market prices.",
-    category: "equipment", buyCost: 130, upgradeCost: [260, 520],
-    incomePerTick: [7, 14, 28], tickMultiplier: 3, tileRow: 4, tileCol: 5,
-  },
-  {
-    id: "irrigation", name: "Irrigation", emoji: "💧", activeEmoji: "💦",
-    description: "Automated watering system for the entire farm.",
-    category: "equipment", buyCost: 110, upgradeCost: [220, 440],
-    incomePerTick: [6, 13, 26], tickMultiplier: 3, tileRow: 4, tileCol: 7,
-  },
-];
-
-// Pre-index buildings by tile position
-const BLDG_BY_TILE = new Map<string, BuildingDef>();
-BUILDINGS.forEach(b => BLDG_BY_TILE.set(`${b.tileRow},${b.tileCol}`, b));
-
-// ── Tile map ─────────────────────────────────────────────────────────────────
-// 10 cols × 6 rows
-// B:id = building slot | G = grass | P = path | T = tree | W = water | F = flower | N = fence
-const RAW_MAP = [
-  ["B:wheat_field",  "G", "B:vegetable_patch", "G", "B:apple_orchard", "G", "B:greenhouse", "G", "T", "T"],
-  ["N",              "N", "N",                 "N", "N",               "N", "N",            "N", "N", "T"],
-  ["B:chicken_coop", "G", "B:dairy_cows",      "G", "B:farmhouse",     "G", "B:windmill",   "G", "F", "W"],
-  ["P",              "P", "P",                 "P", "P",               "P", "P",            "P", "P", "P"],
-  ["G",              "B:barn", "G",            "B:tractor", "G",       "B:silo", "G",       "B:irrigation", "G", "G"],
-  ["F",              "G", "T",                 "F", "F",               "T", "F",            "G", "T", "F"],
-];
-
-// ── State helpers ─────────────────────────────────────────────────────────────
 function loadState(): FarmSave {
   try {
     const raw = localStorage.getItem(FARM_STATE_KEY);
@@ -151,309 +112,115 @@ function saveState(s: FarmSave) {
   localStorage.setItem(FARM_STATE_KEY, JSON.stringify(s));
 }
 
-// Process N offline ticks, returns updated state + new coin pops (empty for offline)
-function processTicks(state: FarmSave, nTicks: number, silent = false): {
-  state: FarmSave; pops: Array<{ row: number; col: number; amount: number }>;
-} {
-  const owned = state.owned;
+function processTicks(state: FarmSave, n: number, silent = false) {
   let farmBank = state.farmBank;
   const tickCounters = { ...state.tickCounters };
-  const pops: Array<{ row: number; col: number; amount: number }> = [];
+  const pops: Array<{ id: string; x: number; y: number; amount: number }> = [];
 
-  for (let t = 0; t < nTicks; t++) {
-    for (const bldg of BUILDINGS) {
-      const level = owned[bldg.id] || 0;
-      if (level === 0) continue;
-      tickCounters[bldg.id] = (tickCounters[bldg.id] || 0) + 1;
-      if (tickCounters[bldg.id] >= bldg.tickMultiplier) {
-        tickCounters[bldg.id] = 0;
-        const income = bldg.incomePerTick[level - 1];
+  for (let t = 0; t < n; t++) {
+    for (const b of BUILDINGS) {
+      const lv = state.owned[b.id] || 0;
+      if (!lv) continue;
+      tickCounters[b.id] = (tickCounters[b.id] || 0) + 1;
+      if (tickCounters[b.id] >= b.tickMultiplier) {
+        tickCounters[b.id] = 0;
+        const income = b.incomePerTick[lv - 1];
         farmBank = Math.min(farmBank + income, MAX_FARM_BANK);
-        if (!silent) pops.push({ row: bldg.tileRow, col: bldg.tileCol, amount: income });
+        if (!silent) {
+          pops.push({
+            id: `${b.id}-${Date.now()}-${Math.random()}`,
+            x: b.x + b.w / 2,
+            y: b.y,
+            amount: income,
+          });
+        }
       }
     }
   }
-
-  return {
-    state: { ...state, farmBank, tickCounters, lastTickTime: state.lastTickTime + nTicks * TICK_INTERVAL_MS },
-    pops,
-  };
+  return { state: { ...state, farmBank, tickCounters }, pops };
 }
 
-// ── Level visual helpers ──────────────────────────────────────────────────────
-const LVL_RING = ["", "ring-1 ring-yellow-400/60", "ring-2 ring-blue-400/60", "ring-2 ring-purple-400/80"];
-const LVL_BADGE = ["", "bg-yellow-500 text-white", "bg-blue-500 text-white", "bg-purple-600 text-white"];
-const LVL_LABEL = ["", "L1", "L2", "L3★"];
-
-const TILE_STYLES: Record<string, string> = {
-  G: "bg-gradient-to-br from-emerald-800/80 to-emerald-900/60",
-  P: "bg-gradient-to-r from-amber-900/80 to-stone-800/70",
-  T: "bg-gradient-to-br from-emerald-800/80 to-emerald-900/60",
-  W: "bg-gradient-to-br from-blue-700/80 to-cyan-900/70",
-  F: "bg-gradient-to-br from-emerald-800/80 to-emerald-900/60",
-  N: "bg-amber-900/50",
+// ── Visual helpers ─────────────────────────────────────────────────────────────
+const LVL_RING_COLOR  = ["", "#fbbf24", "#60a5fa", "#c084fc"];
+const LVL_BG          = ["", "bg-yellow-500", "bg-blue-500", "bg-purple-600"];
+const LVL_LABEL       = ["", "LV1", "LV2", "LV3★"];
+const CAT_COLOR: Record<string, string> = {
+  crops: "text-emerald-400", buildings: "text-blue-400",
+  livestock: "text-amber-400", equipment: "text-violet-400",
 };
 
-const TILE_DECOR: Record<string, string> = {
-  T: "🌲",
-  F: "🌸",
-  W: "🌊",
-  N: "🪵",
-  G: "",
-  P: "·",
-};
+type CoinPop = { id: string; x: number; y: number; amount: number };
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Farm canvas dims ───────────────────────────────────────────────────────────
+const CANVAS_W = 910; // 4 cols × 195px + 3 gaps × 30px + 2 × 20px = 910
+const CANVAS_H = 544; // 3 rows × 148px + 2 gaps × 30px + 2 × 20px = 544
 
-function FarmTile({
-  cell, row, col, owned, onClick, hasPop,
-}: {
-  cell: string; row: number; col: number;
-  owned: Record<string, number>;
-  onClick: (b: BuildingDef | null, r: number, c: number) => void;
-  hasPop: boolean;
-}) {
-  const isBuilding = cell.startsWith("B:");
-  const bldgId = isBuilding ? cell.slice(2) : null;
-  const bldg = bldgId ? (BLDG_BY_TILE.get(`${row},${col}`) ?? null) : null;
-  const level = bldg ? (owned[bldg.id] || 0) : 0;
-  const isOwned = level > 0;
-  const isMaxed = level === 3;
-  const type = isBuilding ? "B" : cell;
-  const baseStyle = TILE_STYLES[type] || TILE_STYLES.G;
+// Decorative tree positions
+const TREES = [
+  { x: 50, y: -5, s: 0.55 },  // won't render if negative — skip
+  { x: 850, y: 185, s: 0.6 },
+  { x: 845, y: 360, s: 0.65 },
+  { x: 5, y: 185, s: 0.5 },
+];
 
-  const tileContent = () => {
-    if (!isBuilding) {
-      return (
-        <span className="text-2xl select-none opacity-90">
-          {TILE_DECOR[cell] || ""}
-        </span>
-      );
-    }
-    if (!bldg) return null;
-    if (!isOwned) {
-      return (
-        <div className="flex flex-col items-center gap-0.5 opacity-40">
-          <span className="text-3xl grayscale">{bldg.emoji}</span>
-          <Lock className="w-3 h-3 text-white/50" />
-        </div>
-      );
-    }
-    return (
-      <div className="relative flex flex-col items-center">
-        <motion.span
-          className="text-4xl select-none drop-shadow-lg"
-          animate={hasPop ? { scale: [1, 1.15, 1], rotate: [0, -5, 5, 0] } : {}}
-          transition={{ duration: 0.4 }}
-        >
-          {level >= 2 ? (bldg.activeEmoji || bldg.emoji) : bldg.emoji}
-        </motion.span>
-        {/* Level badge */}
-        <span className={`absolute -top-1.5 -right-1.5 text-[9px] font-black px-1 py-0 rounded-full leading-4 ${LVL_BADGE[level]}`}>
-          {LVL_LABEL[level]}
-        </span>
-        {/* Maxed star */}
-        {isMaxed && (
-          <Star className="absolute -top-1.5 -left-1.5 w-3 h-3 text-yellow-300 fill-yellow-300" />
-        )}
-      </div>
-    );
-  };
-
-  const clickable = isBuilding;
-
-  return (
-    <motion.div
-      onClick={clickable ? () => onClick(bldg, row, col) : undefined}
-      whileHover={clickable ? { scale: 1.06, zIndex: 10 } : {}}
-      whileTap={clickable ? { scale: 0.94 } : {}}
-      className={`
-        relative flex items-center justify-center rounded-md border
-        transition-all duration-200 select-none overflow-visible
-        ${baseStyle}
-        ${isBuilding ? "cursor-pointer" : ""}
-        ${isOwned ? `${LVL_RING[level]} shadow-md` : "border-black/20"}
-        ${isBuilding && !isOwned ? "opacity-70 hover:opacity-100 border-dashed border-white/20" : "border-black/20"}
-        ${isBuilding && isOwned ? "shadow-lg" : ""}
-      `}
-      style={{ width: "100%", height: "100%", position: "relative" }}
-      data-testid={bldg ? `tile-${bldg.id}` : undefined}
-    >
-      {tileContent()}
-    </motion.div>
-  );
-}
-
-function CoinPopAnimation({ pop, onDone }: { pop: CoinPop; onDone: () => void }) {
-  return (
-    <motion.div
-      key={pop.id}
-      className="absolute pointer-events-none z-50 flex items-center gap-0.5"
-      style={{ left: "50%", top: "10%", transform: "translateX(-50%)" }}
-      initial={{ opacity: 1, y: 0, scale: 0.8 }}
-      animate={{ opacity: 0, y: -44, scale: 1.1 }}
-      transition={{ duration: 1.2, ease: "easeOut" }}
-      onAnimationComplete={onDone}
-    >
-      <span className="text-yellow-300 font-black text-xs drop-shadow-lg">+{pop.amount}</span>
-      <span className="text-xs">🪙</span>
-    </motion.div>
-  );
-}
-
-function BuildingPanel({
-  bldg, level, userCoins, onBuy, onUpgrade, onClose, isPending,
-}: {
-  bldg: BuildingDef; level: number; userCoins: number;
-  onBuy: () => void; onUpgrade: () => void; onClose: () => void;
-  isPending: boolean;
-}) {
-  const action = level === 0
-    ? { type: "buy" as const, cost: bldg.buyCost, label: "Build" }
-    : level < 3
-    ? { type: "upgrade" as const, cost: bldg.upgradeCost[level - 1], label: `Upgrade to L${level + 1}` }
-    : null;
-
-  const canAfford = action ? userCoins >= action.cost : true;
-  const CATEGORY_COLORS: Record<string, string> = {
-    crops: "text-emerald-400", buildings: "text-blue-400",
-    livestock: "text-amber-400", equipment: "text-violet-400",
-  };
-
-  return (
-    <motion.div
-      className="fixed inset-x-0 bottom-0 z-50 px-3 pb-safe-bottom pb-4"
-      initial={{ y: 200, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 200, opacity: 0 }}
-      transition={{ type: "spring", damping: 26, stiffness: 300 }}
-    >
-      <div className="bg-card/95 backdrop-blur-xl border border-border/50 rounded-2xl p-4 shadow-2xl max-w-lg mx-auto">
-        <div className="flex items-start gap-3 mb-4">
-          {/* Emoji display */}
-          <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-4xl flex-shrink-0
-            ${level > 0 ? "bg-emerald-900/50 border border-emerald-500/30" : "bg-muted/40 border border-border/30"}`}>
-            {level > 0 ? (bldg.activeEmoji || bldg.emoji) : bldg.emoji}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <h3 className="font-black text-base tracking-wide" style={{ fontFamily: "Oxanium, sans-serif" }}>
-                {bldg.name}
-              </h3>
-              {level > 0 && (
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${LVL_BADGE[level]}`}>
-                  {LVL_LABEL[level]}
-                </span>
-              )}
-            </div>
-            <p className={`text-xs font-medium capitalize ${CATEGORY_COLORS[bldg.category] || ""}`}>
-              {bldg.category}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">{bldg.description}</p>
-          </div>
-          <button onClick={onClose} className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center flex-shrink-0">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Income tiers */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {bldg.incomePerTick.map((inc, i) => (
-            <div
-              key={i}
-              className={`rounded-lg p-2 text-center border transition-all ${
-                level === i + 1
-                  ? "border-emerald-500/50 bg-emerald-500/10"
-                  : level > i + 1
-                  ? "border-emerald-800/40 bg-emerald-900/20"
-                  : "border-border/30 bg-muted/20 opacity-60"
-              }`}
-            >
-              <div className="font-bold text-emerald-400 text-sm">+{inc} 🪙</div>
-              <div className="text-muted-foreground text-xs">
-                Level {i + 1} {level === i + 1 ? "✓" : ""}
-              </div>
-              <div className="text-muted-foreground/50 text-[9px]">
-                per {bldg.tickMultiplier * 30}s
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Action */}
-        {level === 3 ? (
-          <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-purple-500/10 border border-purple-500/30">
-            <Star className="w-4 h-4 text-purple-400 fill-purple-400" />
-            <span className="font-bold text-purple-400 text-sm">FULLY MAXED OUT</span>
-          </div>
-        ) : action ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-sm">
-              <Coins className="w-4 h-4 text-yellow-400" />
-              <span className="font-bold text-yellow-400 font-mono">{userCoins}</span>
-              <span className="text-muted-foreground text-xs">available</span>
-            </div>
-            <Button
-              className={`flex-1 font-bold ${
-                action.type === "buy"
-                  ? "bg-emerald-600 hover:bg-emerald-500"
-                  : "bg-blue-600 hover:bg-blue-500"
-              }`}
-              onClick={action.type === "buy" ? onBuy : onUpgrade}
-              disabled={!canAfford || isPending}
-              data-testid={`btn-${action.type}-${bldg.id}`}
-            >
-              {action.type === "buy"
-                ? <><ShoppingCart className="w-4 h-4 mr-1.5" /> {action.label} • {action.cost} 🪙</>
-                : <><ArrowUpCircle className="w-4 h-4 mr-1.5" /> {action.label} • {action.cost} 🪙</>
-              }
-            </Button>
-          </div>
-        ) : null}
-
-        {action && !canAfford && (
-          <p className="text-center text-xs text-red-400 mt-2">
-            Need {action.cost - userCoins} more EduCoins — complete course levels to earn more!
-          </p>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function FarmPage() {
   const { user, updateUser } = useAuth();
   const { toast } = useToast();
 
   const [farmSave, setFarmSave] = useState<FarmSave>(loadState);
   const [coinPops, setCoinPops] = useState<CoinPop[]>([]);
-  const [selectedTile, setSelectedTile] = useState<{ bldg: BuildingDef | null; row: number; col: number } | null>(null);
+  const [selected, setSelected] = useState<BuildingDef | null>(null);
   const [isHarvesting, setIsHarvesting] = useState(false);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
-  const popIdRef = useRef(0);
 
-  // ── Harvest API call ─────────────────────────────────────────────────────
+  // Process offline ticks on mount
+  useEffect(() => {
+    const saved = loadState();
+    const elapsed = Date.now() - saved.lastTickTime;
+    const missed = Math.min(Math.floor(elapsed / TICK_INTERVAL_MS), MAX_OFFLINE_TICKS);
+    if (missed > 0) {
+      const { state: ns } = processTicks(saved, missed, true);
+      ns.lastTickTime = Date.now();
+      saveState(ns);
+      setFarmSave(ns);
+    } else {
+      setFarmSave(saved);
+    }
+  }, []);
+
+  // Live tick loop
+  useEffect(() => {
+    tickRef.current = setInterval(() => {
+      setFarmSave(prev => {
+        const { state: ns, pops } = processTicks(prev, 1, false);
+        ns.lastTickTime = Date.now();
+        saveState(ns);
+        if (pops.length) setCoinPops(cur => [...cur, ...pops]);
+        return ns;
+      });
+    }, TICK_INTERVAL_MS);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, []);
+
+  // Harvest API
   const harvestMutation = useMutation({
     mutationFn: (coins: number) => apiRequest("POST", "/api/farm/harvest", { coins }),
     onSuccess: (data: any) => {
       if (data.user) updateUser(data.user);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({
-        title: `🌾 Harvest Complete! +${data.coinsAdded} EduCoins`,
-        description: `Farm Day ${farmSave.day + 1} begins. Keep growing!`,
+        title: `🌾 Harvest! +${data.coinsAdded} EduCoins`,
+        description: `Day ${farmSave.day + 1} begins. Keep farming!`,
       });
       setFarmSave(prev => {
-        const next = { ...prev, farmBank: 0, day: prev.day + 1 };
-        saveState(next);
-        return next;
+        const ns = { ...prev, farmBank: 0, day: prev.day + 1 };
+        saveState(ns);
+        return ns;
       });
       setIsHarvesting(false);
     },
-    onError: () => {
-      toast({ title: "Harvest failed", variant: "destructive" });
-      setIsHarvesting(false);
-    },
+    onError: () => { toast({ title: "Harvest failed", variant: "destructive" }); setIsHarvesting(false); },
   });
 
   const spendMutation = useMutation({
@@ -464,333 +231,291 @@ export default function FarmPage() {
     },
   });
 
-  // ── Process offline ticks on mount ──────────────────────────────────────
-  useEffect(() => {
-    const saved = loadState();
-    const now = Date.now();
-    const elapsed = now - saved.lastTickTime;
-    const missedTicks = Math.min(Math.floor(elapsed / TICK_INTERVAL_MS), MAX_OFFLINE_TICKS);
-    if (missedTicks > 0) {
-      const { state: newState } = processTicks(saved, missedTicks, true);
-      newState.lastTickTime = now;
-      saveState(newState);
-      setFarmSave(newState);
-    } else {
-      setFarmSave(saved);
-    }
-  }, []);
-
-  // ── Live tick loop ───────────────────────────────────────────────────────
-  useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setFarmSave(prev => {
-        const { state: newState, pops } = processTicks(prev, 1, false);
-        newState.lastTickTime = Date.now();
-        saveState(newState);
-
-        // Trigger coin pop animations
-        if (pops.length > 0) {
-          const newPops = pops.map(p => ({
-            ...p,
-            id: `pop-${Date.now()}-${++popIdRef.current}`,
-          }));
-          setCoinPops(cur => [...cur, ...newPops]);
-        }
-
-        return newState;
-      });
-    }, TICK_INTERVAL_MS);
-
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
-  }, []);
-
-  // ── Buy / Upgrade handlers ───────────────────────────────────────────────
-  const handleBuy = useCallback((bldg: BuildingDef) => {
-    if (!user || user.eduCoins < bldg.buyCost) {
-      toast({ title: "Not enough EduCoins", description: `You need ${bldg.buyCost} coins`, variant: "destructive" });
+  const handleBuy = useCallback((b: BuildingDef) => {
+    if (!user || user.eduCoins < b.buyCost) {
+      toast({ title: "Not enough EduCoins", variant: "destructive" });
       return;
     }
-    spendMutation.mutate(bldg.buyCost, {
+    spendMutation.mutate(b.buyCost, {
       onSuccess: () => {
-        setFarmSave(prev => {
-          const next = { ...prev, owned: { ...prev.owned, [bldg.id]: 1 } };
-          saveState(next);
-          return next;
-        });
-        setSelectedTile(null);
-        toast({ title: `${bldg.emoji} ${bldg.name} built!`, description: `Now generating +${bldg.incomePerTick[0]} coins every ${bldg.tickMultiplier * 30}s` });
+        setFarmSave(prev => { const ns = { ...prev, owned: { ...prev.owned, [b.id]: 1 } }; saveState(ns); return ns; });
+        setSelected(null);
+        toast({ title: `${b.emoji} ${b.name} built!`, description: `Earns +${b.incomePerTick[0]} coins every ${b.tickMultiplier * 30}s` });
       },
     });
   }, [user, spendMutation, toast]);
 
-  const handleUpgrade = useCallback((bldg: BuildingDef) => {
+  const handleUpgrade = useCallback((b: BuildingDef) => {
     if (!user) return;
-    const currentLevel = farmSave.owned[bldg.id] || 0;
-    if (currentLevel === 0 || currentLevel >= 3) return;
-    const cost = bldg.upgradeCost[currentLevel - 1];
+    const lv = farmSave.owned[b.id] || 0;
+    if (!lv || lv >= 3) return;
+    const cost = b.upgradeCost[lv - 1];
     if (user.eduCoins < cost) {
-      toast({ title: "Not enough EduCoins", description: `You need ${cost} coins`, variant: "destructive" });
+      toast({ title: "Not enough EduCoins", variant: "destructive" });
       return;
     }
     spendMutation.mutate(cost, {
       onSuccess: () => {
-        const newLevel = currentLevel + 1;
-        setFarmSave(prev => {
-          const next = { ...prev, owned: { ...prev.owned, [bldg.id]: newLevel } };
-          saveState(next);
-          return next;
-        });
-        setSelectedTile(null);
-        toast({
-          title: `⬆️ ${bldg.name} upgraded to Level ${newLevel}${newLevel === 3 ? " ★" : ""}!`,
-          description: `Now generating +${bldg.incomePerTick[newLevel - 1]} coins every ${bldg.tickMultiplier * 30}s`,
-        });
+        const nl = lv + 1;
+        setFarmSave(prev => { const ns = { ...prev, owned: { ...prev.owned, [b.id]: nl } }; saveState(ns); return ns; });
+        setSelected(null);
+        toast({ title: `⬆️ ${b.name} → Level ${nl}${nl === 3 ? " ★" : ""}!`, description: `Now earns +${b.incomePerTick[nl - 1]} coins every ${b.tickMultiplier * 30}s` });
       },
     });
   }, [user, farmSave.owned, spendMutation, toast]);
 
-  const handleHarvest = useCallback(() => {
-    if (farmSave.farmBank <= 0) return;
-    setIsHarvesting(true);
-    harvestMutation.mutate(farmSave.farmBank);
-  }, [farmSave.farmBank, harvestMutation]);
-
   if (!user) return null;
 
-  // ── Derived values ───────────────────────────────────────────────────────
   const totalOwned = Object.values(farmSave.owned).filter(v => v > 0).length;
-  const totalMaxed = Object.values(farmSave.owned).filter(v => v === 3).length;
-  const totalIncomePer30s = BUILDINGS.reduce((sum, b) => {
+  const farmRating = totalOwned === 0 ? "Empty Farm" : totalOwned < 4 ? "Seedling" : totalOwned < 8 ? "Growing" : totalOwned < 12 ? "Thriving" : "Legendary";
+  const incomePerMin = BUILDINGS.reduce((s, b) => {
     const lv = farmSave.owned[b.id] || 0;
-    return lv > 0 ? sum + (lv > 0 ? b.incomePerTick[lv - 1] : 0) / b.tickMultiplier : sum;
+    return lv ? s + (b.incomePerTick[lv - 1] / b.tickMultiplier) * 2 : s;
   }, 0);
 
-  const farmRating = totalOwned === 0 ? "Barren" : totalOwned < 4 ? "Seedling" : totalOwned < 8 ? "Growing" : totalOwned < 12 ? "Thriving" : "Legendary";
-  const farmRatingEmoji = { Barren: "🪨", Seedling: "🌱", Growing: "🌿", Thriving: "🌾", Legendary: "🏆" }[farmRating];
-
-  // Build a map of which tiles have pending pops
-  const popTileSet = new Set(coinPops.map(p => `${p.row},${p.col}`));
-
   return (
-    <div className="flex flex-col h-full min-h-screen bg-gradient-to-b from-sky-950 via-slate-900 to-emerald-950">
-      {/* ── Top Header Bar ─────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-border/30 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-emerald-300">
+
+      {/* ── Top bar ───────────────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-30 bg-white/20 backdrop-blur-md border-b border-white/30 px-4 py-2.5 flex items-center gap-3 flex-wrap shadow-md">
         <div className="flex items-center gap-2">
-          <span className="text-xl">{farmRatingEmoji}</span>
+          <Sun className="w-5 h-5 text-yellow-500 fill-yellow-400" />
           <div>
-            <h1 className="text-sm font-black tracking-widest leading-none" style={{ fontFamily: "Oxanium, sans-serif" }}>
-              FARM <span className="text-emerald-400">TYCOON</span>
+            <h1 className="text-sm font-black tracking-widest text-emerald-900 leading-none"
+              style={{ fontFamily: "Oxanium, sans-serif" }}>
+              FARM <span className="text-emerald-600">TYCOON</span>
             </h1>
-            <p className="text-[10px] text-muted-foreground font-mono">Day {farmSave.day} · {farmRating} Farm</p>
+            <p className="text-[10px] text-emerald-800 font-mono">Day {farmSave.day} · {farmRating}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-1 justify-end flex-wrap">
-          {/* Farm bank display */}
+          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/30 text-emerald-900 text-xs font-mono">
+            ⚡ {Math.round(incomePerMin)}/min
+          </div>
+          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/30 text-emerald-900 text-xs">
+            🏗️ {totalOwned}/12
+          </div>
+
+          {/* Farm bank */}
           {farmSave.farmBank > 0 && (
             <motion.div
-              animate={{ scale: [1, 1.03, 1] }}
-              transition={{ repeat: Infinity, duration: 2 }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40"
+              animate={{ scale: [1, 1.04, 1] }}
+              transition={{ repeat: Infinity, duration: 2.5 }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/80 text-white text-sm font-bold shadow-lg"
             >
-              <span className="text-xs">🌾</span>
-              <span className="font-bold text-emerald-400 text-sm font-mono">{farmSave.farmBank}</span>
-              <span className="text-xs text-muted-foreground">ready</span>
+              🌾 {farmSave.farmBank} ready
             </motion.div>
           )}
 
           {/* EduCoins */}
-          <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-            <Coins className="w-3.5 h-3.5 text-yellow-400" />
-            <span className="font-bold text-yellow-400 text-sm font-mono">{user.eduCoins}</span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-yellow-400/80 text-yellow-900 text-sm font-bold shadow">
+            <Coins className="w-4 h-4" />
+            {user.eduCoins}
           </div>
 
-          {/* Harvest button */}
+          {/* Harvest */}
           <Button
             size="sm"
-            className={`h-8 px-3 text-xs font-bold transition-all ${
+            className={`h-8 px-3 text-xs font-black transition-all border-2 ${
               farmSave.farmBank > 0
-                ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                : "bg-muted/30 text-muted-foreground cursor-not-allowed"
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-800 shadow-lg"
+                : "bg-white/30 text-emerald-700 border-transparent"
             }`}
             disabled={farmSave.farmBank === 0 || harvestMutation.isPending}
-            onClick={handleHarvest}
+            onClick={() => { setIsHarvesting(true); harvestMutation.mutate(farmSave.farmBank); }}
             data-testid="button-harvest"
           >
-            {harvestMutation.isPending ? (
-              <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8 }}>🌀</motion.span>
-            ) : (
-              <>🌾 Harvest {farmSave.farmBank > 0 ? `+${farmSave.farmBank}` : ""}</>
-            )}
+            {harvestMutation.isPending
+              ? <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7 }}>🔄</motion.span>
+              : `🌾 HARVEST${farmSave.farmBank > 0 ? ` +${farmSave.farmBank}` : ""}`}
           </Button>
         </div>
       </div>
 
-      {/* ── 2D Farm Grid ──────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto p-4 flex items-start justify-center">
-        {/* Sky + decorations */}
-        <div className="w-full max-w-4xl">
-          {/* Sky bar */}
-          <div className="flex items-center justify-between mb-3 px-1">
-            <div className="flex items-center gap-1.5">
-              <Sun className="w-5 h-5 text-yellow-300 fill-yellow-200" />
-              <span className="text-xs text-sky-200/60 font-mono">Day {farmSave.day}</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-sky-200/50 font-mono">
-              <span>📊 {totalOwned}/12 buildings</span>
-              {totalMaxed > 0 && <span>⭐ {totalMaxed} maxed</span>}
-              <span>⚡ ~{Math.round(totalIncomePer30s * 2)}/min</span>
-            </div>
-          </div>
+      {/* ── Farm world scroll area ─────────────────────────────────────────── */}
+      <div className="flex-1 overflow-auto p-4 md:p-6">
+        <div className="relative mx-auto" style={{ width: CANVAS_W, height: CANVAS_H }}>
 
-          {/* The grid */}
-          <div
-            className="relative w-full rounded-2xl overflow-hidden border border-black/40 shadow-2xl"
-            style={{ aspectRatio: "10/6" }}
+          {/* ── Background: grass + paths ──────────────────────────────────── */}
+          <svg
+            viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
+            width={CANVAS_W}
+            height={CANVAS_H}
+            className="absolute inset-0 rounded-2xl overflow-hidden"
+            xmlns="http://www.w3.org/2000/svg"
           >
-            <div
-              className="absolute inset-0 grid"
-              style={{
-                gridTemplateColumns: `repeat(10, 1fr)`,
-                gridTemplateRows: `repeat(6, 1fr)`,
-                gap: "2px",
-                padding: "2px",
-                background: "linear-gradient(to bottom, #14532d 0%, #15803d 40%, #166534 100%)",
-              }}
-            >
-              {RAW_MAP.map((rowArr, rowIdx) =>
-                rowArr.map((cell, colIdx) => {
-                  const key = `${rowIdx}-${colIdx}`;
-                  const hasPop = popTileSet.has(`${rowIdx},${colIdx}`);
-                  const cellPops = coinPops.filter(p => p.row === rowIdx && p.col === colIdx);
+            {/* Grass */}
+            <rect width={CANVAS_W} height={CANVAS_H} fill="#6abf4b" rx="16"/>
+            {/* Grass texture patches */}
+            {Array.from({ length: 30 }).map((_, i) => (
+              <ellipse key={i}
+                cx={(i * 37) % CANVAS_W}
+                cy={(i * 53) % CANVAS_H}
+                rx="18" ry="10"
+                fill="#5aad3e" opacity="0.4"
+              />
+            ))}
+            {/* Horizontal path rows */}
+            <rect x="0" y="176" width={CANVAS_W} height="30" fill="#d4b896" rx="0"/>
+            <rect x="0" y="354" width={CANVAS_W} height="30" fill="#d4b896" rx="0"/>
+            {/* Vertical path cols */}
+            <rect x="215" y="0" width="30" height={CANVAS_H} fill="#d4b896"/>
+            <rect x="440" y="0" width="30" height={CANVAS_H} fill="#d4b896"/>
+            <rect x="665" y="0" width="30" height={CANVAS_H} fill="#d4b896"/>
+            {/* Path intersections (slightly darker) */}
+            {[176, 354].map(py =>
+              [215, 440, 665].map(px => (
+                <rect key={`${px}-${py}`} x={px} y={py} width="30" height="30" fill="#c8a882"/>
+              ))
+            )}
+            {/* Path edge lines (kerb) */}
+            <line x1="0" y1="176" x2={CANVAS_W} y2="176" stroke="#c8a882" strokeWidth="2"/>
+            <line x1="0" y1="206" x2={CANVAS_W} y2="206" stroke="#c8a882" strokeWidth="2"/>
+            <line x1="0" y1="354" x2={CANVAS_W} y2="354" stroke="#c8a882" strokeWidth="2"/>
+            <line x1="0" y1="384" x2={CANVAS_W} y2="384" stroke="#c8a882" strokeWidth="2"/>
+            <line x1="215" y1="0" x2="215" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
+            <line x1="245" y1="0" x2="245" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
+            <line x1="440" y1="0" x2="440" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
+            <line x1="470" y1="0" x2="470" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
+            <line x1="665" y1="0" x2="665" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
+            <line x1="695" y1="0" x2="695" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
+            {/* Decorative small rocks on paths */}
+            {[[230, 190],[455, 365],[680, 190],[455, 190],[230, 365]].map(([rx, ry], i) => (
+              <ellipse key={i} cx={rx} cy={ry} rx="5" ry="3.5" fill="#a89070" opacity="0.6"/>
+            ))}
+          </svg>
 
-                  return (
-                    <div key={key} className="relative" style={{ minHeight: 0, minWidth: 0 }}>
-                      <FarmTile
-                        cell={cell}
-                        row={rowIdx}
-                        col={colIdx}
-                        owned={farmSave.owned}
-                        hasPop={hasPop}
-                        onClick={(bldg, r, c) => setSelectedTile({ bldg, row: r, col: c })}
-                      />
-                      {/* Coin pop animations anchored to this tile */}
-                      <AnimatePresence>
-                        {cellPops.map(pop => (
-                          <CoinPopAnimation
-                            key={pop.id}
-                            pop={pop}
-                            onDone={() => setCoinPops(cur => cur.filter(p => p.id !== pop.id))}
-                          />
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+          {/* ── Decorative trees ────────────────────────────────────────────── */}
+          <div className="absolute pointer-events-none" style={{ right: 8, top: 188, zIndex: 5 }}>
+            <TreeSVG scale={0.65}/>
+          </div>
+          <div className="absolute pointer-events-none" style={{ right: 8, top: 362, zIndex: 5 }}>
+            <TreeSVG scale={0.6}/>
+          </div>
+          <div className="absolute pointer-events-none" style={{ left: 8, top: 188, zIndex: 5 }}>
+            <TreeSVG scale={0.55}/>
           </div>
 
-          {/* Legend */}
-          <div className="flex items-center gap-4 mt-2 px-1 flex-wrap">
-            <span className="text-xs text-muted-foreground/50">Click any 🔒 tile to buy a building</span>
-            <span className="text-xs text-muted-foreground/50">·</span>
-            <span className="text-xs text-muted-foreground/50">Coins appear every 30s, Harvest to collect</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Shop Bar ──────────────────────────────────────────────────────── */}
-      <div className="border-t border-border/30 bg-slate-900/80 backdrop-blur">
-        <div className="px-3 pt-2 pb-1 flex items-center justify-between">
-          <span className="text-xs font-bold tracking-widest text-muted-foreground font-mono">BUILDINGS</span>
-          <span className="text-xs text-muted-foreground">{totalOwned}/12 owned</span>
-        </div>
-        <div className="flex gap-2 overflow-x-auto px-3 pb-3 no-scrollbar">
+          {/* ── Building plots ─────────────────────────────────────────────── */}
           {BUILDINGS.map(b => {
             const level = farmSave.owned[b.id] || 0;
             const isOwned = level > 0;
             const isMaxed = level === 3;
-            const nextCost = level === 0 ? b.buyCost : level < 3 ? b.upgradeCost[level - 1] : null;
-            const canAfford = nextCost !== null && user.eduCoins >= nextCost;
 
             return (
-              <motion.button
+              <motion.div
                 key={b.id}
-                whileHover={{ y: -2 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setSelectedTile({ bldg: b, row: b.tileRow, col: b.tileCol })}
-                className={`flex-shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-xl border transition-all ${
-                  isMaxed
-                    ? "border-purple-500/40 bg-purple-500/10"
-                    : isOwned
-                    ? "border-emerald-500/40 bg-emerald-500/10"
-                    : canAfford
-                    ? "border-yellow-500/30 bg-yellow-500/5 hover:border-yellow-500/60"
-                    : "border-border/30 bg-card/30 opacity-60"
-                }`}
-                data-testid={`shop-btn-${b.id}`}
+                className="absolute cursor-pointer"
+                style={{ left: b.x, top: b.y, width: b.w, height: b.h, zIndex: 2 }}
+                whileHover={{ scale: 1.04, zIndex: 20 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setSelected(b)}
+                data-testid={`tile-${b.id}`}
               >
-                <span className="text-xl">{isOwned ? (b.activeEmoji || b.emoji) : b.emoji}</span>
-                <span className="text-[9px] font-medium leading-tight text-center whitespace-nowrap max-w-[60px] truncate">
-                  {b.name.split(" ")[0]}
-                </span>
-                {isMaxed ? (
-                  <Star className="w-2.5 h-2.5 text-purple-400 fill-purple-400" />
-                ) : (
-                  <span className={`text-[9px] font-mono font-bold ${canAfford ? "text-yellow-400" : "text-muted-foreground/50"}`}>
-                    {nextCost}🪙
-                  </span>
+                <div
+                  className="w-full h-full rounded-xl overflow-hidden shadow-lg"
+                  style={{
+                    boxShadow: isOwned
+                      ? `0 4px 20px rgba(0,0,0,0.25), 0 0 0 3px ${LVL_RING_COLOR[level]}`
+                      : "0 2px 10px rgba(0,0,0,0.2)",
+                  }}
+                >
+                  {/* Building SVG art */}
+                  {isOwned
+                    ? <BuildingSVG buildingId={b.id} level={level}/>
+                    : <LockedFieldSVG cost={b.buyCost}/>
+                  }
+                </div>
+
+                {/* Nameplate */}
+                <div className={`
+                  absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap
+                  px-3 py-0.5 rounded-full text-xs font-bold shadow-lg
+                  ${isOwned
+                    ? "bg-gray-900/85 text-white"
+                    : "bg-gray-800/70 text-gray-300"}
+                `}>
+                  {b.name}
+                  {isOwned && (
+                    <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full font-black ${LVL_BG[level]} text-white`}>
+                      {LVL_LABEL[level]}
+                    </span>
+                  )}
+                  {isMaxed && <Star className="inline w-3 h-3 ml-1 text-yellow-400 fill-yellow-300"/>}
+                </div>
+
+                {/* Income badge (owned only) */}
+                {isOwned && (
+                  <div className="absolute bottom-2 right-2 bg-black/60 text-yellow-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
+                  </div>
                 )}
-                {isOwned && !isMaxed && (
-                  <span className={`text-[9px] px-1 rounded font-bold ${LVL_BADGE[level]}`}>{LVL_LABEL[level]}</span>
-                )}
-              </motion.button>
+              </motion.div>
             );
           })}
+
+          {/* ── Coin pop animations ─────────────────────────────────────────── */}
+          <AnimatePresence>
+            {coinPops.map(pop => (
+              <motion.div
+                key={pop.id}
+                className="absolute pointer-events-none z-40 flex items-center gap-1"
+                style={{ left: pop.x, top: pop.y, transform: "translate(-50%, -100%)" }}
+                initial={{ opacity: 1, y: 0, scale: 0.8 }}
+                animate={{ opacity: 0, y: -50, scale: 1.15 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.3, ease: "easeOut" }}
+                onAnimationComplete={() =>
+                  setCoinPops(cur => cur.filter(p => p.id !== pop.id))
+                }
+              >
+                <span className="font-black text-yellow-300 text-sm drop-shadow-lg">+{pop.amount}</span>
+                <span className="text-base">🪙</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
+
+        {/* Hint row */}
+        <p className="text-center text-xs text-emerald-900/60 mt-3">
+          Click any plot to buy or upgrade · Coins generate every 30s · Hit Harvest to collect
+        </p>
       </div>
 
-      {/* ── Building detail panel ─────────────────────────────────────────── */}
+      {/* ── Building detail panel (slide-up) ──────────────────────────────── */}
       <AnimatePresence>
-        {selectedTile?.bldg && (
+        {selected && (
           <>
-            {/* Backdrop */}
             <motion.div
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedTile(null)}
+              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setSelected(null)}
             />
-            <BuildingPanel
-              bldg={selectedTile.bldg}
-              level={farmSave.owned[selectedTile.bldg.id] || 0}
+            <BuildingModal
+              b={selected}
+              level={farmSave.owned[selected.id] || 0}
               userCoins={user.eduCoins}
-              onBuy={() => selectedTile.bldg && handleBuy(selectedTile.bldg)}
-              onUpgrade={() => selectedTile.bldg && handleUpgrade(selectedTile.bldg)}
-              onClose={() => setSelectedTile(null)}
+              onBuy={() => handleBuy(selected)}
+              onUpgrade={() => handleUpgrade(selected)}
+              onClose={() => setSelected(null)}
               isPending={spendMutation.isPending}
             />
           </>
         )}
       </AnimatePresence>
 
-      {/* Harvest celebration overlay */}
+      {/* Harvest celebration */}
       <AnimatePresence>
         {isHarvesting && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 pointer-events-none"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           >
             <motion.div
-              className="text-6xl"
-              animate={{ y: [0, -30, 0], scale: [1, 1.3, 1] }}
-              transition={{ repeat: 2, duration: 0.5 }}
+              className="text-8xl"
+              animate={{ scale: [0.5, 1.4, 1], rotate: [0, 15, -15, 0] }}
+              transition={{ duration: 0.8 }}
             >
               🌾
             </motion.div>
@@ -798,5 +523,120 @@ export default function FarmPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ── Building detail modal ──────────────────────────────────────────────────────
+function BuildingModal({
+  b, level, userCoins, onBuy, onUpgrade, onClose, isPending,
+}: {
+  b: BuildingDef; level: number; userCoins: number;
+  onBuy: () => void; onUpgrade: () => void; onClose: () => void;
+  isPending: boolean;
+}) {
+  const action = level === 0
+    ? { type: "buy" as const,     label: "Build",             cost: b.buyCost }
+    : level < 3
+    ? { type: "upgrade" as const, label: `Upgrade → Level ${level + 1}`, cost: b.upgradeCost[level - 1] }
+    : null;
+  const canAfford = action ? userCoins >= action.cost : true;
+
+  return (
+    <motion.div
+      className="fixed inset-x-0 bottom-0 z-50 px-3 pb-6"
+      initial={{ y: 220, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 220, opacity: 0 }}
+      transition={{ type: "spring", damping: 28, stiffness: 320 }}
+    >
+      <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-lg mx-auto overflow-hidden">
+        {/* SVG preview strip */}
+        <div className="h-36 w-full overflow-hidden bg-gradient-to-r from-emerald-100 to-sky-100">
+          <div className="w-full h-full">
+            {level > 0
+              ? <BuildingSVG buildingId={b.id} level={level}/>
+              : <LockedFieldSVG cost={b.buyCost}/>
+            }
+          </div>
+        </div>
+
+        <div className="p-4">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-black text-gray-900 text-lg" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                  {b.name}
+                </h3>
+                {level > 0 && (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full text-white
+                    ${level === 1 ? "bg-yellow-500" : level === 2 ? "bg-blue-500" : "bg-purple-600"}`}>
+                    {LVL_LABEL[level]}
+                  </span>
+                )}
+              </div>
+              <p className={`text-xs font-semibold capitalize ${CAT_COLOR[b.category]}`}>{b.category}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{b.description}</p>
+            </div>
+            <button onClick={onClose} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center ml-2 flex-shrink-0">
+              <X className="w-3.5 h-3.5 text-gray-600"/>
+            </button>
+          </div>
+
+          {/* Income tiers */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {b.incomePerTick.map((inc, i) => (
+              <div key={i} className={`rounded-xl p-2.5 text-center border-2 transition-all ${
+                level === i + 1 ? "border-emerald-400 bg-emerald-50"
+                : level > i + 1 ? "border-emerald-200 bg-emerald-50/50 opacity-70"
+                : "border-gray-200 bg-gray-50 opacity-50"
+              }`}>
+                <div className="font-black text-emerald-600 text-base">+{inc}🪙</div>
+                <div className="text-gray-500 text-[10px] font-medium">Level {i + 1}</div>
+                <div className="text-gray-400 text-[9px]">every {b.tickMultiplier * 30}s</div>
+                {level === i + 1 && <div className="text-emerald-500 text-[9px] font-bold">✓ ACTIVE</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* Action */}
+          {level === 3 ? (
+            <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-purple-50 border-2 border-purple-300">
+              <Star className="w-5 h-5 text-purple-500 fill-purple-400"/>
+              <span className="font-black text-purple-600">FULLY MAXED OUT</span>
+            </div>
+          ) : action ? (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 text-sm">
+                <Coins className="w-4 h-4 text-yellow-500"/>
+                <span className="font-bold text-gray-800">{userCoins}</span>
+                <span className="text-gray-400 text-xs">available</span>
+              </div>
+              <Button
+                className={`flex-1 font-bold h-11 text-base ${
+                  action.type === "buy"
+                    ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                    : "bg-blue-600 hover:bg-blue-500 text-white"
+                }`}
+                onClick={action.type === "buy" ? onBuy : onUpgrade}
+                disabled={!canAfford || isPending}
+                data-testid={`btn-${action.type}-${b.id}`}
+              >
+                {action.type === "buy"
+                  ? <><ShoppingCart className="w-4 h-4 mr-2"/> {action.label} · {action.cost} coins</>
+                  : <><ArrowUpCircle className="w-4 h-4 mr-2"/> {action.label} · {action.cost} coins</>
+                }
+              </Button>
+            </div>
+          ) : null}
+
+          {action && !canAfford && (
+            <p className="text-center text-xs text-red-500 mt-2 font-medium">
+              Need {action.cost - userCoins} more EduCoins — complete course levels to earn more!
+            </p>
+          )}
+        </div>
+      </div>
+    </motion.div>
   );
 }
