@@ -551,6 +551,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ============ FARM HARVEST ============
+  app.post("/api/farm/harvest", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { coins } = req.body;
+      if (!coins || coins <= 0) return res.status(400).json({ error: "Invalid coin amount" });
+      const coinsToAdd = Math.min(Math.floor(Number(coins)), 500);
+      const user = await storage.getUser(req.userId!);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const updated = await storage.updateUser(req.userId!, {
+        eduCoins: user.eduCoins + coinsToAdd,
+      });
+      const { password: _, ...safeUser } = updated;
+      res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) }, coinsAdded: coinsToAdd });
+    } catch {
+      res.status(500).json({ error: "Harvest failed" });
+    }
+  });
+
   // ============ SPEND COINS ============
   app.post("/api/coins/spend", authMiddleware, async (req: AuthRequest, res) => {
     try {

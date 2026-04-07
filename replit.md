@@ -33,7 +33,7 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 8. **Global Leaderboard** — top 20, podium display for top 3
 9. **Profile Page** — tier progression, stats, equipped cosmetics
 10. **Admin Panel** — full 4-tab panel: Question Editor (browse topic→level→questions inline, edit/delete each question or level), Create Content (new topics/levels with all 6 game types), Users (view/edit all users, promote to admin), Badges overview
-11. **Farm Tycoon** — narrative story game (`/farm`) with 12 chapters unlocked by XP; farm visual shows buildings/crops/animals earned through education
+11. **Farm Tycoon 2D** — full 2D farm game (`/farm`): 10×6 tile grid (grass/path/water/tree/flower/fence tiles); 12 buildings at fixed positions (crops row, livestock+buildings row, equipment row); 30s passive income ticks; floating coin pop animations; farm bank → Harvest → EduCoins (capped 500/harvest); offline income catch-up (max 20 ticks); building shop bar at bottom; building detail modal with buy/upgrade; state in localStorage `farm_v2_state`; `/api/farm/harvest` endpoint
 12. **Display Settings** — (`/settings`) users can toggle visibility of: sidebar stats card, XP bar, streak, EduCoins, dashboard stats cards, leaderboard preview, quick play card, farm tab nav item. Stored in localStorage.
 
 ## Design
