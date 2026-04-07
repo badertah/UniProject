@@ -188,8 +188,6 @@ export default function FarmPage() {
 
   const hasChickens = (farmSave.owned["chicken_coop"] || 0) > 0;
   const hasCows = (farmSave.owned["dairy_cows"] || 0) > 0;
-  const hasWindmill = (farmSave.owned["windmill"] || 0) > 0;
-  const hasTractor = (farmSave.owned["tractor"] || 0) > 0;
 
   const sortedBuildings = [...BUILDINGS].sort((a, b) => (a.col + a.row) - (b.col + b.row));
 
@@ -330,8 +328,8 @@ export default function FarmPage() {
             const isOwned = level > 0;
             const isMaxed = level === 3;
             const { x, y } = isoPos(b.col, b.row);
-            const bldgW = 150;
-            const bldgH = 110;
+            const bldgW = 170;
+            const bldgH = 130;
             const depth = b.col + b.row;
 
             return (
@@ -340,7 +338,7 @@ export default function FarmPage() {
                 className="absolute iso-tile"
                 style={{
                   left: x - bldgW / 2,
-                  top: y - bldgH * 0.65,
+                  top: y - bldgH * 0.7,
                   width: bldgW,
                   height: bldgH,
                   zIndex: 10 + depth * 3,
@@ -435,34 +433,6 @@ export default function FarmPage() {
             );
           })}
 
-          {hasWindmill && (() => {
-            const wp = isoPos(3, 1);
-            return (
-              <div className="absolute pointer-events-none" style={{ left: wp.x - 16, top: wp.y - 70, zIndex: 25 }}>
-                <svg width="32" height="32" viewBox="0 0 32 32">
-                  <g style={{ transformOrigin: "16px 16px", animation: "windmillSpin 3s linear infinite" }}>
-                    {[0,90,180,270].map(a => { const r = a*Math.PI/180; return <line key={a} x1="16" y1="16" x2={16+Math.sin(r)*14} y2={16-Math.cos(r)*14} stroke="#1565C0" strokeWidth="3" strokeLinecap="round"/>; })}
-                  </g>
-                  <circle cx="16" cy="16" r="3.5" fill="#37474F"/><circle cx="16" cy="16" r="2" fill="#78909C"/>
-                </svg>
-              </div>
-            );
-          })()}
-
-          {hasTractor && (() => {
-            const tp = isoPos(1, 2);
-            return (
-              <div className="absolute pointer-events-none" style={{ left: tp.x - 20, top: tp.y + 10, zIndex: 25, animation: "tractorDrive 10s ease-in-out infinite" }}>
-                <svg width="28" height="18" viewBox="0 0 28 18">
-                  <rect x="7" y="2" width="14" height="10" rx="2" fill="#43A047"/>
-                  <rect x="5" y="0" width="10" height="7" rx="2" fill="#388E3C"/>
-                  <rect x="6" y="1" width="4" height="3" rx="1" fill="#BBDEFB"/>
-                  <circle cx="7" cy="13" r="5" fill="#212121"/><circle cx="7" cy="13" r="3.5" fill="#333"/>
-                  <circle cx="21" cy="14" r="3.5" fill="#212121"/><circle cx="21" cy="14" r="2.5" fill="#333"/>
-                </svg>
-              </div>
-            );
-          })()}
 
           <AnimatePresence>
             {coinPops.map(pop => {
