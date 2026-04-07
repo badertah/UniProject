@@ -149,6 +149,11 @@ const CAT_COLOR: Record<string, string> = {
   livestock: "text-amber-400", equipment: "text-violet-400",
 };
 
+const CAT_HEX: Record<string, string> = {
+  crops: "#43A047", buildings: "#1565C0",
+  livestock: "#E8730C", equipment: "#7B1FA2",
+};
+
 type CoinPop = { id: string; x: number; y: number; amount: number };
 
 // ── Farm canvas dims ───────────────────────────────────────────────────────────
@@ -274,54 +279,82 @@ export default function FarmPage() {
   }, 0);
 
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-emerald-300">
+    <div className="flex flex-col min-h-screen" style={{
+      background: "linear-gradient(180deg, #87CEEB 0%, #5FB8E0 25%, #7EC850 45%, #5EAD3E 55%, #4A9030 100%)"
+    }}>
 
-      {/* ── Top bar ───────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-30 bg-white/20 backdrop-blur-md border-b border-white/30 px-4 py-2.5 flex items-center gap-3 flex-wrap shadow-md">
-        <div className="flex items-center gap-2">
-          <Sun className="w-5 h-5 text-yellow-500 fill-yellow-400" />
+      <div className="sticky top-0 z-30 px-3 py-2 flex items-center gap-2 flex-wrap"
+        style={{
+          background: "linear-gradient(180deg, rgba(62,39,22,0.92) 0%, rgba(90,60,35,0.88) 100%)",
+          borderBottom: "3px solid #8B6914",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.3), inset 0 -1px 0 rgba(255,200,80,0.2)"
+        }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{
+            background: "linear-gradient(135deg, #FFD700, #F5A623)",
+            boxShadow: "0 2px 8px rgba(245,166,35,0.4)"
+          }}>
+            <Sun className="w-5 h-5 text-amber-900" />
+          </div>
           <div>
-            <h1 className="text-sm font-black tracking-widest text-emerald-900 leading-none"
-              style={{ fontFamily: "Oxanium, sans-serif" }}>
-              FARM <span className="text-emerald-600">TYCOON</span>
+            <h1 className="text-sm font-black tracking-wider leading-none"
+              style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>
+              FARM TYCOON
             </h1>
-            <p className="text-[10px] text-emerald-800 font-mono">Day {farmSave.day} · {farmRating}</p>
+            <p className="text-[10px] font-semibold" style={{ color: "#C8A84E" }}>
+              Day {farmSave.day} · {farmRating}
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-1 justify-end flex-wrap">
-          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/30 text-emerald-900 text-xs font-mono">
+        <div className="flex items-center gap-1.5 flex-1 justify-end flex-wrap">
+          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
+            style={{ background: "rgba(255,255,255,0.1)", color: "#A8D8A8", border: "1px solid rgba(168,216,168,0.2)" }}>
             ⚡ {Math.round(incomePerMin)}/min
           </div>
-          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/30 text-emerald-900 text-xs">
+          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
+            style={{ background: "rgba(255,255,255,0.1)", color: "#90CAF9", border: "1px solid rgba(144,202,249,0.2)" }}>
             🏗️ {totalOwned}/12
           </div>
 
-          {/* Farm bank */}
           {farmSave.farmBank > 0 && (
             <motion.div
-              animate={{ scale: [1, 1.04, 1] }}
-              transition={{ repeat: Infinity, duration: 2.5 }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/80 text-white text-sm font-bold shadow-lg"
+              animate={{ scale: [1, 1.05, 1] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-black"
+              style={{
+                background: "linear-gradient(135deg, #2E7D32, #43A047)",
+                color: "white",
+                boxShadow: "0 2px 12px rgba(46,125,50,0.5), inset 0 1px 0 rgba(255,255,255,0.2)",
+                border: "1px solid rgba(255,255,255,0.15)"
+              }}
             >
-              🌾 {farmSave.farmBank} ready
+              🌾 {farmSave.farmBank}
             </motion.div>
           )}
 
-          {/* EduCoins */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-yellow-400/80 text-yellow-900 text-sm font-bold shadow">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-black"
+            style={{
+              background: "linear-gradient(135deg, #F5A623, #FFD700)",
+              color: "#5D4037",
+              boxShadow: "0 2px 8px rgba(245,166,35,0.4)",
+              border: "1px solid rgba(255,255,255,0.3)"
+            }}>
             <Coins className="w-4 h-4" />
             {user.eduCoins}
           </div>
 
-          {/* Harvest */}
           <Button
             size="sm"
-            className={`h-8 px-3 text-xs font-black transition-all border-2 ${
-              farmSave.farmBank > 0
-                ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-800 shadow-lg"
-                : "bg-white/30 text-emerald-700 border-transparent"
-            }`}
+            className="h-9 px-4 text-xs font-black transition-all"
+            style={{
+              background: farmSave.farmBank > 0
+                ? "linear-gradient(135deg, #2E7D32, #1B5E20)"
+                : "rgba(255,255,255,0.1)",
+              color: farmSave.farmBank > 0 ? "white" : "rgba(200,168,78,0.6)",
+              border: farmSave.farmBank > 0 ? "2px solid #4CAF50" : "2px solid transparent",
+              boxShadow: farmSave.farmBank > 0 ? "0 2px 12px rgba(46,125,50,0.4)" : "none"
+            }}
             disabled={farmSave.farmBank === 0 || harvestMutation.isPending}
             onClick={() => { setIsHarvesting(true); harvestMutation.mutate(farmSave.farmBank); }}
             data-testid="button-harvest"
@@ -333,71 +366,94 @@ export default function FarmPage() {
         </div>
       </div>
 
-      {/* ── Farm world scroll area ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto p-4 md:p-6">
+      <div className="flex-1 overflow-auto p-3 md:p-6">
         <div className="relative mx-auto" style={{ width: CANVAS_W, height: CANVAS_H }}>
 
-          {/* ── Background: grass + paths ──────────────────────────────────── */}
           <svg
             viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
             width={CANVAS_W}
             height={CANVAS_H}
-            className="absolute inset-0 rounded-2xl overflow-hidden"
+            className="absolute inset-0 overflow-hidden"
+            style={{ borderRadius: 16 }}
             xmlns="http://www.w3.org/2000/svg"
           >
-            {/* Grass */}
-            <rect width={CANVAS_W} height={CANVAS_H} fill="#6abf4b" rx="16"/>
-            {/* Grass texture patches */}
-            {Array.from({ length: 30 }).map((_, i) => (
+            <defs>
+              <linearGradient id="farmGrass" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#5EAD3E"/>
+                <stop offset="100%" stopColor="#4A8A2F"/>
+              </linearGradient>
+              <linearGradient id="farmPath" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#C8A87A"/>
+                <stop offset="50%" stopColor="#B89968"/>
+                <stop offset="100%" stopColor="#A88A58"/>
+              </linearGradient>
+              <filter id="pathShadow">
+                <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <rect width={CANVAS_W} height={CANVAS_H} fill="url(#farmGrass)" rx="16"/>
+            {Array.from({ length: 40 }).map((_, i) => (
               <ellipse key={i}
-                cx={(i * 37) % CANVAS_W}
-                cy={(i * 53) % CANVAS_H}
-                rx="18" ry="10"
-                fill="#5aad3e" opacity="0.4"
+                cx={(i * 41 + 13) % CANVAS_W}
+                cy={(i * 37 + 7) % CANVAS_H}
+                rx={12 + (i % 3) * 6} ry={6 + (i % 2) * 4}
+                fill={i % 2 === 0 ? "#52A034" : "#68B848"} opacity={0.25 + (i % 3) * 0.1}
               />
             ))}
-            {/* Horizontal path rows */}
-            <rect x="0" y="176" width={CANVAS_W} height="30" fill="#d4b896" rx="0"/>
-            <rect x="0" y="354" width={CANVAS_W} height="30" fill="#d4b896" rx="0"/>
-            {/* Vertical path cols */}
-            <rect x="215" y="0" width="30" height={CANVAS_H} fill="#d4b896"/>
-            <rect x="440" y="0" width="30" height={CANVAS_H} fill="#d4b896"/>
-            <rect x="665" y="0" width="30" height={CANVAS_H} fill="#d4b896"/>
-            {/* Path intersections (slightly darker) */}
-            {[176, 354].map(py =>
-              [215, 440, 665].map(px => (
-                <rect key={`${px}-${py}`} x={px} y={py} width="30" height="30" fill="#c8a882"/>
+            {Array.from({ length: 15 }).map((_, i) => {
+              const gx = (i * 67 + 20) % CANVAS_W;
+              const gy = (i * 43 + 30) % CANVAS_H;
+              return (
+                <g key={`grass${i}`} opacity="0.3">
+                  <line x1={gx} y1={gy} x2={gx - 2} y2={gy - 8} stroke="#3D8A28" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1={gx + 3} y1={gy} x2={gx + 4} y2={gy - 7} stroke="#3D8A28" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1={gx + 6} y1={gy} x2={gx + 5} y2={gy - 6} stroke="#3D8A28" strokeWidth="1.5" strokeLinecap="round"/>
+                </g>
+              );
+            })}
+            <rect x="0" y="173" width={CANVAS_W} height="34" fill="url(#farmPath)"/>
+            <rect x="0" y="351" width={CANVAS_W} height="34" fill="url(#farmPath)"/>
+            <rect x="212" y="0" width="34" height={CANVAS_H} fill="url(#farmPath)"/>
+            <rect x="437" y="0" width="34" height={CANVAS_H} fill="url(#farmPath)"/>
+            <rect x="662" y="0" width="34" height={CANVAS_H} fill="url(#farmPath)"/>
+            {[173, 351].map(py =>
+              [212, 437, 662].map(px => (
+                <rect key={`int-${px}-${py}`} x={px} y={py} width="34" height="34" fill="#A88A58"/>
               ))
             )}
-            {/* Path edge lines (kerb) */}
-            <line x1="0" y1="176" x2={CANVAS_W} y2="176" stroke="#c8a882" strokeWidth="2"/>
-            <line x1="0" y1="206" x2={CANVAS_W} y2="206" stroke="#c8a882" strokeWidth="2"/>
-            <line x1="0" y1="354" x2={CANVAS_W} y2="354" stroke="#c8a882" strokeWidth="2"/>
-            <line x1="0" y1="384" x2={CANVAS_W} y2="384" stroke="#c8a882" strokeWidth="2"/>
-            <line x1="215" y1="0" x2="215" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
-            <line x1="245" y1="0" x2="245" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
-            <line x1="440" y1="0" x2="440" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
-            <line x1="470" y1="0" x2="470" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
-            <line x1="665" y1="0" x2="665" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
-            <line x1="695" y1="0" x2="695" y2={CANVAS_H} stroke="#c8a882" strokeWidth="2"/>
-            {/* Decorative small rocks on paths */}
-            {[[230, 190],[455, 365],[680, 190],[455, 190],[230, 365]].map(([rx, ry], i) => (
-              <ellipse key={i} cx={rx} cy={ry} rx="5" ry="3.5" fill="#a89070" opacity="0.6"/>
+            {[173, 207, 351, 385].map(y => (
+              <line key={`h-${y}`} x1="0" y1={y} x2={CANVAS_W} y2={y} stroke="#9E8050" strokeWidth="1.5" opacity="0.5"/>
+            ))}
+            {[212, 246, 437, 471, 662, 696].map(x => (
+              <line key={`v-${x}`} x1={x} y1="0" x2={x} y2={CANVAS_H} stroke="#9E8050" strokeWidth="1.5" opacity="0.5"/>
+            ))}
+            {[[228, 188],[228, 366],[454, 188],[454, 366],[680, 188],[680, 366]].map(([rx, ry], i) => (
+              <g key={`rock-${i}`}>
+                <ellipse cx={rx} cy={ry} rx="4" ry="2.5" fill="#8B7355" opacity="0.5"/>
+                <ellipse cx={rx + 8} cy={ry + 3} rx="3" ry="2" fill="#7A6548" opacity="0.4"/>
+              </g>
+            ))}
+            {[[100, 188], [330, 366], [560, 188], [780, 366]].map(([fx, fy], i) => (
+              <g key={`flower-${i}`} opacity="0.5">
+                <circle cx={fx} cy={fy} r="3" fill="#FFD700"/>
+                <circle cx={fx + 12} cy={fy + 4} r="2.5" fill="#FF7043"/>
+                <circle cx={fx - 8} cy={fy + 2} r="2" fill="#E040FB"/>
+              </g>
             ))}
           </svg>
 
-          {/* ── Decorative trees ────────────────────────────────────────────── */}
-          <div className="absolute pointer-events-none" style={{ right: 8, top: 188, zIndex: 5 }}>
-            <TreeSVG scale={0.65}/>
-          </div>
-          <div className="absolute pointer-events-none" style={{ right: 8, top: 362, zIndex: 5 }}>
-            <TreeSVG scale={0.6}/>
-          </div>
-          <div className="absolute pointer-events-none" style={{ left: 8, top: 188, zIndex: 5 }}>
-            <TreeSVG scale={0.55}/>
-          </div>
+          {[
+            { right: 5, top: 176, s: 0.7 },
+            { right: 5, top: 354, s: 0.6 },
+            { left: 5, top: 176, s: 0.55 },
+            { left: 5, top: 354, s: 0.5 },
+          ].map(({ s, ...stylePos }, i) => (
+            <div key={`tree-${i}`} className="absolute pointer-events-none" style={{ ...stylePos, zIndex: 5 }}>
+              <TreeSVG scale={s}/>
+            </div>
+          ))}
 
-          {/* ── Building plots ─────────────────────────────────────────────── */}
           {BUILDINGS.map(b => {
             const level = farmSave.owned[b.id] || 0;
             const isOwned = level > 0;
@@ -408,46 +464,67 @@ export default function FarmPage() {
                 key={b.id}
                 className="absolute cursor-pointer"
                 style={{ left: b.x, top: b.y, width: b.w, height: b.h, zIndex: 2 }}
-                whileHover={{ scale: 1.04, zIndex: 20 }}
-                whileTap={{ scale: 0.97 }}
+                whileHover={{ scale: 1.05, zIndex: 20 }}
+                whileTap={{ scale: 0.96 }}
                 onClick={() => setSelected(b)}
                 data-testid={`tile-${b.id}`}
               >
                 <div
-                  className="w-full h-full rounded-xl overflow-hidden shadow-lg"
+                  className="w-full h-full overflow-hidden"
                   style={{
+                    borderRadius: 12,
                     boxShadow: isOwned
-                      ? `0 4px 20px rgba(0,0,0,0.25), 0 0 0 3px ${LVL_RING_COLOR[level]}`
-                      : "0 2px 10px rgba(0,0,0,0.2)",
+                      ? `0 6px 24px rgba(0,0,0,0.3), 0 0 0 3px ${LVL_RING_COLOR[level]}, inset 0 1px 0 rgba(255,255,255,0.1)`
+                      : "0 3px 12px rgba(0,0,0,0.25)",
+                    border: isOwned ? "none" : "2px dashed rgba(139,107,53,0.4)"
                   }}
                 >
-                  {/* Building SVG art */}
                   {isOwned
                     ? <BuildingSVG buildingId={b.id} level={level}/>
                     : <LockedFieldSVG cost={b.buyCost}/>
                   }
                 </div>
 
-                {/* Nameplate */}
-                <div className={`
-                  absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap
-                  px-3 py-0.5 rounded-full text-xs font-bold shadow-lg
-                  ${isOwned
-                    ? "bg-gray-900/85 text-white"
-                    : "bg-gray-800/70 text-gray-300"}
-                `}>
-                  {b.name}
+                <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap"
+                  style={{
+                    padding: "2px 10px",
+                    borderRadius: 20,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    background: isOwned
+                      ? "linear-gradient(135deg, rgba(30,20,10,0.9), rgba(50,35,20,0.9))"
+                      : "rgba(60,40,20,0.75)",
+                    color: isOwned ? "#FFD700" : "#BDBDBD",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                    border: isOwned ? "1px solid rgba(255,215,0,0.3)" : "1px solid rgba(100,80,50,0.3)"
+                  }}>
+                  {b.emoji} {b.name}
                   {isOwned && (
-                    <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full font-black ${LVL_BG[level]} text-white`}>
+                    <span style={{
+                      marginLeft: 6,
+                      fontSize: 9,
+                      padding: "1px 6px",
+                      borderRadius: 10,
+                      fontWeight: 900,
+                      background: level === 1 ? "#F5A623" : level === 2 ? "#2196F3" : "#9C27B0",
+                      color: "white"
+                    }}>
                       {LVL_LABEL[level]}
                     </span>
                   )}
                   {isMaxed && <Star className="inline w-3 h-3 ml-1 text-yellow-400 fill-yellow-300"/>}
                 </div>
 
-                {/* Income badge (owned only) */}
                 {isOwned && (
-                  <div className="absolute bottom-2 right-2 bg-black/60 text-yellow-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  <div className="absolute bottom-1.5 right-1.5" style={{
+                    background: "linear-gradient(135deg, rgba(0,0,0,0.7), rgba(30,20,10,0.8))",
+                    color: "#FFD700",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "2px 8px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,215,0,0.2)"
+                  }}>
                     +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
                   </div>
                 )}
@@ -455,7 +532,6 @@ export default function FarmPage() {
             );
           })}
 
-          {/* ── Coin pop animations ─────────────────────────────────────────── */}
           <AnimatePresence>
             {coinPops.map(pop => (
               <motion.div
@@ -463,32 +539,30 @@ export default function FarmPage() {
                 className="absolute pointer-events-none z-40 flex items-center gap-1"
                 style={{ left: pop.x, top: pop.y, transform: "translate(-50%, -100%)" }}
                 initial={{ opacity: 1, y: 0, scale: 0.8 }}
-                animate={{ opacity: 0, y: -50, scale: 1.15 }}
+                animate={{ opacity: 0, y: -60, scale: 1.2 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 1.3, ease: "easeOut" }}
+                transition={{ duration: 1.5, ease: "easeOut" }}
                 onAnimationComplete={() =>
                   setCoinPops(cur => cur.filter(p => p.id !== pop.id))
                 }
               >
-                <span className="font-black text-yellow-300 text-sm drop-shadow-lg">+{pop.amount}</span>
+                <span className="font-black text-sm" style={{ color: "#FFD700", textShadow: "0 2px 4px rgba(0,0,0,0.5)" }}>+{pop.amount}</span>
                 <span className="text-base">🪙</span>
               </motion.div>
             ))}
           </AnimatePresence>
         </div>
 
-        {/* Hint row */}
-        <p className="text-center text-xs text-emerald-900/60 mt-3">
-          Click any plot to buy or upgrade · Coins generate every 30s · Hit Harvest to collect
+        <p className="text-center text-xs mt-3 font-medium" style={{ color: "rgba(62,39,22,0.5)" }}>
+          Tap any plot to build or upgrade · Income generates every 30s · Harvest to collect your earnings
         </p>
       </div>
 
-      {/* ── Building detail panel (slide-up) ──────────────────────────────── */}
       <AnimatePresence>
         {selected && (
           <>
             <motion.div
-              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setSelected(null)}
             />
@@ -505,7 +579,6 @@ export default function FarmPage() {
         )}
       </AnimatePresence>
 
-      {/* Harvest celebration */}
       <AnimatePresence>
         {isHarvesting && (
           <motion.div
@@ -549,9 +622,15 @@ function BuildingModal({
       exit={{ y: 220, opacity: 0 }}
       transition={{ type: "spring", damping: 28, stiffness: 320 }}
     >
-      <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-lg mx-auto overflow-hidden">
-        {/* SVG preview strip */}
-        <div className="h-36 w-full overflow-hidden bg-gradient-to-r from-emerald-100 to-sky-100">
+      <div className="max-w-lg mx-auto overflow-hidden" style={{
+        background: "linear-gradient(180deg, #F5F0DC 0%, #FAFAF5 100%)",
+        borderRadius: 20,
+        boxShadow: "0 -4px 30px rgba(0,0,0,0.25), 0 0 0 3px rgba(139,105,20,0.3)",
+        border: "2px solid rgba(139,105,20,0.2)"
+      }}>
+        <div className="h-40 w-full overflow-hidden" style={{
+          background: "linear-gradient(135deg, #E8E0CC, #D4C8A8)"
+        }}>
           <div className="w-full h-full">
             {level > 0
               ? <BuildingSVG buildingId={b.id} level={level}/>
@@ -561,63 +640,69 @@ function BuildingModal({
         </div>
 
         <div className="p-4">
-          {/* Header */}
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-black text-gray-900 text-lg" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                <span className="text-xl">{b.emoji}</span>
+                <h3 className="font-black text-lg" style={{ fontFamily: "Oxanium, sans-serif", color: "#3E2716" }}>
                   {b.name}
                 </h3>
                 {level > 0 && (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full text-white
-                    ${level === 1 ? "bg-yellow-500" : level === 2 ? "bg-blue-500" : "bg-purple-600"}`}>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
+                    style={{ background: level === 1 ? "#F5A623" : level === 2 ? "#2196F3" : "#9C27B0" }}>
                     {LVL_LABEL[level]}
                   </span>
                 )}
               </div>
-              <p className={`text-xs font-semibold capitalize ${CAT_COLOR[b.category]}`}>{b.category}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{b.description}</p>
+              <p className="text-xs font-semibold capitalize" style={{ color: CAT_HEX[b.category] }}>{b.category}</p>
+              <p className="text-xs mt-0.5" style={{ color: "#8B7355" }}>{b.description}</p>
             </div>
-            <button onClick={onClose} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center ml-2 flex-shrink-0">
-              <X className="w-3.5 h-3.5 text-gray-600"/>
+            <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center ml-2 flex-shrink-0"
+              style={{ background: "rgba(139,105,20,0.1)" }}>
+              <X className="w-4 h-4" style={{ color: "#8B6914" }}/>
             </button>
           </div>
 
-          {/* Income tiers */}
           <div className="grid grid-cols-3 gap-2 mb-4">
             {b.incomePerTick.map((inc, i) => (
-              <div key={i} className={`rounded-xl p-2.5 text-center border-2 transition-all ${
-                level === i + 1 ? "border-emerald-400 bg-emerald-50"
-                : level > i + 1 ? "border-emerald-200 bg-emerald-50/50 opacity-70"
-                : "border-gray-200 bg-gray-50 opacity-50"
-              }`}>
-                <div className="font-black text-emerald-600 text-base">+{inc}🪙</div>
-                <div className="text-gray-500 text-[10px] font-medium">Level {i + 1}</div>
-                <div className="text-gray-400 text-[9px]">every {b.tickMultiplier * 30}s</div>
-                {level === i + 1 && <div className="text-emerald-500 text-[9px] font-bold">✓ ACTIVE</div>}
+              <div key={i} className="rounded-xl p-2.5 text-center transition-all" style={{
+                border: level === i + 1 ? "2px solid #43A047" : level > i + 1 ? "2px solid #A5D6A7" : "2px solid #E0D8C0",
+                background: level === i + 1 ? "rgba(67,160,71,0.08)" : level > i + 1 ? "rgba(67,160,71,0.04)" : "rgba(0,0,0,0.02)",
+                opacity: level < i + 1 ? 0.5 : 1
+              }}>
+                <div className="font-black text-base" style={{ color: "#2E7D32" }}>+{inc}🪙</div>
+                <div className="text-[10px] font-medium" style={{ color: "#8B7355" }}>Level {i + 1}</div>
+                <div className="text-[9px]" style={{ color: "#A89070" }}>every {b.tickMultiplier * 30}s</div>
+                {level === i + 1 && <div className="text-[9px] font-bold" style={{ color: "#43A047" }}>✓ ACTIVE</div>}
               </div>
             ))}
           </div>
 
-          {/* Action */}
           {level === 3 ? (
-            <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-purple-50 border-2 border-purple-300">
-              <Star className="w-5 h-5 text-purple-500 fill-purple-400"/>
-              <span className="font-black text-purple-600">FULLY MAXED OUT</span>
+            <div className="flex items-center justify-center gap-2 py-3 rounded-xl" style={{
+              background: "linear-gradient(135deg, rgba(156,39,176,0.08), rgba(156,39,176,0.15))",
+              border: "2px solid rgba(156,39,176,0.3)"
+            }}>
+              <Star className="w-5 h-5" style={{ color: "#9C27B0", fill: "#CE93D8" }}/>
+              <span className="font-black" style={{ color: "#7B1FA2" }}>FULLY MAXED OUT</span>
             </div>
           ) : action ? (
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1 text-sm">
-                <Coins className="w-4 h-4 text-yellow-500"/>
-                <span className="font-bold text-gray-800">{userCoins}</span>
-                <span className="text-gray-400 text-xs">available</span>
+                <Coins className="w-4 h-4" style={{ color: "#F5A623" }}/>
+                <span className="font-bold" style={{ color: "#3E2716" }}>{userCoins}</span>
+                <span className="text-xs" style={{ color: "#A89070" }}>available</span>
               </div>
               <Button
-                className={`flex-1 font-bold h-11 text-base ${
-                  action.type === "buy"
-                    ? "bg-emerald-600 hover:bg-emerald-500 text-white"
-                    : "bg-blue-600 hover:bg-blue-500 text-white"
-                }`}
+                className="flex-1 font-bold h-11 text-base text-white"
+                style={{
+                  background: action.type === "buy"
+                    ? "linear-gradient(135deg, #2E7D32, #1B5E20)"
+                    : "linear-gradient(135deg, #1565C0, #0D47A1)",
+                  boxShadow: action.type === "buy"
+                    ? "0 3px 12px rgba(46,125,50,0.4)"
+                    : "0 3px 12px rgba(21,101,192,0.4)"
+                }}
                 onClick={action.type === "buy" ? onBuy : onUpgrade}
                 disabled={!canAfford || isPending}
                 data-testid={`btn-${action.type}-${b.id}`}
@@ -631,7 +716,7 @@ function BuildingModal({
           ) : null}
 
           {action && !canAfford && (
-            <p className="text-center text-xs text-red-500 mt-2 font-medium">
+            <p className="text-center text-xs mt-2 font-medium" style={{ color: "#C62828" }}>
               Need {action.cost - userCoins} more EduCoins — complete course levels to earn more!
             </p>
           )}
