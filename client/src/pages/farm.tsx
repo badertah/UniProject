@@ -12,7 +12,7 @@ import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 const TICK_INTERVAL_MS = 30_000;
 const MAX_FARM_BANK    = 500;
 const MAX_OFFLINE_TICKS = 20;
-const FARM_STATE_KEY   = "farm_v2_state";
+const farmKey = (uid: string) => `farm_v2_state_${uid}`;
 
 const ISO_HALF_W = 120;
 const ISO_HALF_H = 60;
@@ -65,11 +65,11 @@ type FarmSave = {
   day: number;
 };
 
-function loadState(): FarmSave {
-  try { const raw = localStorage.getItem(FARM_STATE_KEY); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
+function loadState(uid: string): FarmSave {
+  try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
 function defaultState(): FarmSave { return { owned: {}, farmBank: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1 }; }
-function saveState(s: FarmSave) { localStorage.setItem(FARM_STATE_KEY, JSON.stringify(s)); }
+function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 type CoinPop = { id: string; bId: string; amount: number };
 
@@ -106,24 +106,42 @@ const CAT_PLOT_ID: Record<string, string> = { crops: "plotCrops", livestock: "pl
 export default function FarmPage() {
   const { user, updateUser } = useAuth();
   const { toast } = useToast();
-  const [farmSave, setFarmSave] = useState<FarmSave>(loadState);
+  const [farmSave, setFarmSave] = useState<FarmSave>(defaultState);
   const [coinPops, setCoinPops] = useState<CoinPop[]>([]);
   const [selected, setSelected] = useState<BuildingDef | null>(null);
   const [isHarvesting, setIsHarvesting] = useState(false);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
+  // Keep user id accessible inside tick closure without re-creating the interval
+  const userIdRef = useRef<string | null>(null);
+  const loadedForRef = useRef<string | null>(null);
 
+  // Load the correct farm state whenever the logged-in user changes
   useEffect(() => {
-    const saved = loadState();
+    if (!user) return;
+    if (loadedForRef.current === user.id) return; // already loaded for this user
+    loadedForRef.current = user.id;
+    userIdRef.current = user.id;
+    const saved = loadState(user.id);
     const elapsed = Date.now() - saved.lastTickTime;
     const missed = Math.min(Math.floor(elapsed / TICK_INTERVAL_MS), MAX_OFFLINE_TICKS);
-    if (missed > 0) { const { state: ns } = processTicks(saved, missed, true); ns.lastTickTime = Date.now(); saveState(ns); setFarmSave(ns); } else { setFarmSave(saved); }
-  }, []);
+    if (missed > 0) {
+      const { state: ns } = processTicks(saved, missed, true);
+      ns.lastTickTime = Date.now();
+      saveState(ns, user.id);
+      setFarmSave(ns);
+    } else {
+      setFarmSave(saved);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     tickRef.current = setInterval(() => {
+      const uid = userIdRef.current;
+      if (!uid) return;
       setFarmSave(prev => {
         const { state: ns, pops } = processTicks(prev, 1, false);
-        ns.lastTickTime = Date.now(); saveState(ns);
+        ns.lastTickTime = Date.now();
+        saveState(ns, uid);
         if (pops.length) setCoinPops(cur => [...cur, ...pops]);
         return ns;
       });
@@ -137,7 +155,7 @@ export default function FarmPage() {
       if (data.user) updateUser(data.user);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: `🌾 Harvest! +${data.coinsAdded} EduCoins`, description: `Day ${farmSave.day + 1} begins!` });
-      setFarmSave(prev => { const ns = { ...prev, farmBank: 0, day: prev.day + 1 }; saveState(ns); return ns; });
+      setFarmSave(prev => { const ns = { ...prev, farmBank: 0, day: prev.day + 1 }; if (user) saveState(ns, user.id); return ns; });
       setIsHarvesting(false);
     },
     onError: () => { toast({ title: "Harvest failed", variant: "destructive" }); setIsHarvesting(false); },
@@ -152,7 +170,7 @@ export default function FarmPage() {
     if (!user || user.eduCoins < b.buyCost) { toast({ title: "Not enough EduCoins", variant: "destructive" }); return; }
     spendMutation.mutate(b.buyCost, {
       onSuccess: () => {
-        setFarmSave(prev => { const ns = { ...prev, owned: { ...prev.owned, [b.id]: 1 } }; saveState(ns); return ns; });
+        setFarmSave(prev => { const ns = { ...prev, owned: { ...prev.owned, [b.id]: 1 } }; if (user) saveState(ns, user.id); return ns; });
         setSelected(null);
         toast({ title: `${b.emoji} ${b.name} built!` });
       },
@@ -168,7 +186,7 @@ export default function FarmPage() {
     spendMutation.mutate(cost, {
       onSuccess: () => {
         const nl = lv + 1;
-        setFarmSave(prev => { const ns = { ...prev, owned: { ...prev.owned, [b.id]: nl } }; saveState(ns); return ns; });
+        setFarmSave(prev => { const ns = { ...prev, owned: { ...prev.owned, [b.id]: nl } }; if (user) saveState(ns, user.id); return ns; });
         setSelected(null);
         toast({ title: `⬆️ ${b.name} → Level ${nl}!` });
       },
