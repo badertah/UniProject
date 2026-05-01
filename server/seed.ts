@@ -293,6 +293,274 @@ export async function seedBadges() {
   console.log("[IKUGAMES] Badges seeded:", badgeData.length);
 }
 
+// ===========================================================
+// SAD Play-to-Learn — interactive games (no quiz questions)
+// Each "question" row stores one puzzle round; structured data
+// lives in `options` JSON. Idempotent guard via gameType check.
+// ===========================================================
+export async function seedSADPlayToLearn() {
+  try {
+    const existing = await q(
+      "SELECT COUNT(*) as count FROM levels WHERE game_type IN ('sdlc_sorter','req_sorter','usecase_builder','erd_doctor','dfd_detective','sequence_stacker')"
+    );
+    if (Number(existing[0].count) > 0) return;
+  } catch (e) { return; }
+
+  // Find the SAD topic
+  const sadRows = await q("SELECT id FROM topics WHERE name ILIKE '%system analysis%' LIMIT 1");
+  if (sadRows.length === 0) return;
+  const sadId = sadRows[0].id as string;
+
+  console.log("[IKUGAMES] Seeding SAD play-to-learn games...");
+
+  // Wipe legacy SAD levels (and their questions + any progress) so the user
+  // sees only the new play-to-learn experience.
+  const oldLevels = await q(
+    "SELECT id FROM levels WHERE topic_id = $1 AND game_type NOT IN ('sdlc_sorter','req_sorter','usecase_builder','erd_doctor','dfd_detective','sequence_stacker')",
+    [sadId]
+  );
+  for (const lvl of oldLevels) {
+    await q("DELETE FROM user_progress WHERE level_id = $1", [lvl.id]);
+    await q("DELETE FROM questions WHERE level_id = $1", [lvl.id]);
+    await q("DELETE FROM levels WHERE id = $1", [lvl.id]);
+  }
+
+  async function createLevel(num: number, name: string, gameType: string, xp: number, coins: number, diff: string) {
+    const [l] = await q(
+      "INSERT INTO levels (topic_id, level_number, name, game_type, xp_reward, coin_reward, difficulty) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+      [sadId, num, name, gameType, xp, coins, diff]
+    );
+    return l.id as string;
+  }
+
+  async function addRound(levelId: string, content: string, answer: string, options: any, idx: number) {
+    await q(
+      "INSERT INTO questions (level_id, content, answer, options, order_index) VALUES ($1,$2,$3,$4::jsonb,$5)",
+      [levelId, content, answer, JSON.stringify(options), idx]
+    );
+  }
+
+  // ---------- L1: SDLC Sorter ----------
+  const l1 = await createLevel(1, "SDLC Sorter", "sdlc_sorter", 60, 18, "easy");
+  const sdlcRounds = [
+    {
+      content: "A small team is starting a brand-new banking app from scratch. Put the classic SDLC phases in order.",
+      methodology: "Classic Waterfall",
+      phases: ["Planning", "Analysis", "Design", "Implementation", "Testing", "Maintenance"],
+      explanation: "The classic SDLC follows: plan it, analyze needs, design the solution, build it, test it, then maintain it in production.",
+    },
+    {
+      content: "Order the steps the team takes to gather and document what users need before writing any code.",
+      methodology: "Requirements Engineering",
+      phases: ["Elicit Requirements", "Analyze Requirements", "Specify Requirements", "Validate Requirements"],
+      explanation: "First you elicit (gather) requirements, then analyze them, write a clear specification, and finally validate them with stakeholders.",
+    },
+    {
+      content: "Order the steps in a single Agile sprint cycle.",
+      methodology: "Agile Sprint",
+      phases: ["Sprint Planning", "Daily Standup", "Development", "Sprint Review", "Sprint Retrospective"],
+      explanation: "An Agile sprint starts with planning, runs daily standups during development, ends with a review of the work, and a retrospective to improve.",
+    },
+  ];
+  for (let i = 0; i < sdlcRounds.length; i++) {
+    const r = sdlcRounds[i];
+    await addRound(l1, r.content, r.phases.join("|"), r, i);
+  }
+
+  // ---------- L2: Requirements Sorter ----------
+  const l2 = await createLevel(2, "Requirements Sorter", "req_sorter", 65, 20, "easy");
+  const reqRounds = [
+    { content: "The user must be able to log in with their email and password.", answer: "functional", explanation: "Login is something the system DOES — that's a functional requirement." },
+    { content: "The system must respond to every page request in under 2 seconds.", answer: "non_functional", explanation: "Response time is a quality attribute (performance) — non-functional." },
+    { content: "Users can search for a product by its name or barcode.", answer: "functional", explanation: "Search is a feature the system performs — functional." },
+    { content: "All passwords must be encrypted using bcrypt before storage.", answer: "non_functional", explanation: "Security/encryption is a quality requirement — non-functional." },
+    { content: "Customers can add items to a shopping cart and check out.", answer: "functional", explanation: "Add-to-cart and checkout are concrete actions — functional." },
+    { content: "The website must be available 99.9% of the time.", answer: "non_functional", explanation: "Availability/uptime is a non-functional quality requirement." },
+    { content: "Admins can ban users who violate the terms of service.", answer: "functional", explanation: "Banning users is an admin feature — functional." },
+    { content: "The interface must follow WCAG 2.1 accessibility guidelines.", answer: "non_functional", explanation: "Accessibility is a usability quality — non-functional." },
+  ];
+  for (let i = 0; i < reqRounds.length; i++) {
+    await addRound(l2, reqRounds[i].content, reqRounds[i].answer, { explanation: reqRounds[i].explanation }, i);
+  }
+
+  // ---------- L3: Use Case Connector ----------
+  const l3 = await createLevel(3, "Use Case Connector", "usecase_builder", 75, 22, "medium");
+  const ucRounds = [
+    {
+      content: "Online Library System — figure out which actor is responsible for each use case.",
+      actors: [
+        { id: "reader",    label: "Reader",    emoji: "📖" },
+        { id: "librarian", label: "Librarian", emoji: "🧑‍💼" },
+      ],
+      useCases: [
+        { label: "Borrow a Book",        actorId: "reader" },
+        { label: "Return a Book",        actorId: "reader" },
+        { label: "Add a New Book",       actorId: "librarian" },
+        { label: "Issue a Membership",   actorId: "librarian" },
+        { label: "Search the Catalogue", actorId: "reader" },
+      ],
+      explanation: "Readers borrow, return and search. Librarians manage the catalogue and memberships.",
+    },
+    {
+      content: "Online Shop — match each use case to the right actor.",
+      actors: [
+        { id: "customer", label: "Customer", emoji: "🛒" },
+        { id: "admin",    label: "Admin",    emoji: "🛠️" },
+        { id: "courier",  label: "Courier",  emoji: "📦" },
+      ],
+      useCases: [
+        { label: "Place an Order",        actorId: "customer" },
+        { label: "Add a Product",         actorId: "admin" },
+        { label: "Update Order Status",   actorId: "courier" },
+        { label: "View Order History",    actorId: "customer" },
+        { label: "Manage Discount Codes", actorId: "admin" },
+      ],
+      explanation: "Customers place orders and see their history. Admins manage products and discounts. Couriers update delivery status.",
+    },
+  ];
+  for (let i = 0; i < ucRounds.length; i++) {
+    await addRound(l3, ucRounds[i].content, "see_options", ucRounds[i], i);
+  }
+
+  // ---------- L4: ER Diagram Doctor ----------
+  const l4 = await createLevel(4, "ER Diagram Doctor", "erd_doctor", 80, 24, "medium");
+  const erdRounds = [
+    { content: "In an online shop, every Customer can place many Orders, but each Order belongs to exactly one Customer. What's the cardinality?",
+      answer: "1:N", left: "Customer", right: "Order",
+      explanation: "One customer → many orders, but each order has only one customer. Classic 1-to-many." },
+    { content: "Each Person has exactly one Passport, and each Passport belongs to exactly one Person.",
+      answer: "1:1", left: "Person", right: "Passport",
+      explanation: "Both sides are exactly one — that's a one-to-one relationship." },
+    { content: "A Student can enroll in many Courses, and each Course can have many Students.",
+      answer: "N:N", left: "Student", right: "Course",
+      explanation: "Both sides have many on the other side — many-to-many. In implementation this needs a junction table." },
+    { content: "An Author can write many Books, and a Book in this database is written by exactly one Author.",
+      answer: "1:N", left: "Author", right: "Book",
+      explanation: "One author writes many books; each book has one author here. 1-to-many." },
+    { content: "A Movie can be tagged with many Genres, and a Genre can apply to many Movies.",
+      answer: "N:N", left: "Movie", right: "Genre",
+      explanation: "Movies and genres connect freely — many-to-many." },
+  ];
+  for (let i = 0; i < erdRounds.length; i++) {
+    const r = erdRounds[i];
+    await addRound(l4, r.content, r.answer, { left: r.left, right: r.right, explanation: r.explanation }, i);
+  }
+
+  // ---------- L5: Data Flow Detective ----------
+  const l5 = await createLevel(5, "Data Flow Detective", "dfd_detective", 85, 26, "medium");
+  const dfdRounds = [
+    {
+      content: "Online Order System — the diagram is missing the flow that delivers the receipt to the customer.",
+      missingLabel: "Receipt",
+      nodes: [
+        { id: "cust",  label: "Customer",       type: "source" },
+        { id: "place", label: "Place Order",    type: "process" },
+        { id: "store", label: "Orders DB",      type: "store" },
+        { id: "email", label: "Email Receipt",  type: "process" },
+      ],
+      existingFlows: [
+        { from: "cust",  to: "place", label: "Order details" },
+        { from: "place", to: "store", label: "Save order" },
+        { from: "store", to: "email", label: "Order data" },
+      ],
+      correctFrom: "email",
+      correctTo: "cust",
+      explanation: "After 'Email Receipt' formats the receipt, the data flows back to the Customer (the original source/sink).",
+    },
+    {
+      content: "Library Borrow System — the flow that records the loan in the Loans store is missing.",
+      missingLabel: "Loan record",
+      nodes: [
+        { id: "reader", label: "Reader",        type: "source" },
+        { id: "borrow", label: "Borrow Book",   type: "process" },
+        { id: "books",  label: "Books DB",      type: "store" },
+        { id: "loans",  label: "Loans DB",      type: "store" },
+      ],
+      existingFlows: [
+        { from: "reader", to: "borrow", label: "Book ID" },
+        { from: "books",  to: "borrow", label: "Book status" },
+      ],
+      correctFrom: "borrow",
+      correctTo: "loans",
+      explanation: "The 'Borrow Book' process must write the new loan into the Loans DB. Two stores can never connect directly — a process must sit between them.",
+    },
+    {
+      content: "Payroll System — the flow sending pay slips to employees is missing.",
+      missingLabel: "Pay slip",
+      nodes: [
+        { id: "emp",     label: "Employee",       type: "source" },
+        { id: "calc",    label: "Calculate Pay",  type: "process" },
+        { id: "payroll", label: "Payroll DB",     type: "store" },
+        { id: "send",    label: "Send Pay Slip",  type: "process" },
+      ],
+      existingFlows: [
+        { from: "emp",     to: "calc",    label: "Hours worked" },
+        { from: "calc",    to: "payroll", label: "Pay record" },
+        { from: "payroll", to: "send",    label: "Pay record" },
+      ],
+      correctFrom: "send",
+      correctTo: "emp",
+      explanation: "After 'Send Pay Slip' formats the slip, it flows back to the Employee — who is both the source of hours and the sink for the slip.",
+    },
+  ];
+  for (let i = 0; i < dfdRounds.length; i++) {
+    const r = dfdRounds[i];
+    await addRound(l5, r.content, `${r.correctFrom}->${r.correctTo}`, r, i);
+  }
+
+  // ---------- L6: Sequence Stacker ----------
+  const l6 = await createLevel(6, "Sequence Stacker", "sequence_stacker", 90, 28, "medium");
+  const seqRounds = [
+    {
+      content: "User Login Flow — order the messages from earliest (top) to latest (bottom).",
+      objects: ["User", "LoginPage", "AuthService", "Database"],
+      steps: [
+        "User enters email and password",
+        "LoginPage sends credentials to AuthService",
+        "AuthService asks Database for matching user",
+        "Database returns the user record",
+        "AuthService verifies the password hash",
+        "LoginPage redirects User to dashboard",
+      ],
+      explanation: "Each message can only happen after the data it depends on has arrived. The user types first; the database is asked before it can answer.",
+    },
+    {
+      content: "ATM Cash Withdrawal — order the messages in time.",
+      objects: ["Customer", "ATM", "Bank"],
+      steps: [
+        "Customer inserts card",
+        "ATM asks Customer for PIN",
+        "Customer enters PIN",
+        "ATM sends PIN to Bank for verification",
+        "Bank confirms PIN is valid",
+        "Customer requests cash amount",
+        "ATM dispenses the cash",
+      ],
+      explanation: "Each step waits for the previous one to finish — the bank can only verify after a PIN exists, and cash only comes out after authorization.",
+    },
+    {
+      content: "Place Order Online — order the messages in time.",
+      objects: ["Customer", "Web App", "Payment", "Warehouse"],
+      steps: [
+        "Customer adds items to cart",
+        "Customer clicks Checkout",
+        "Web App creates a pending order",
+        "Web App requests payment from Payment service",
+        "Payment confirms charge succeeded",
+        "Web App tells Warehouse to ship the order",
+        "Web App shows order confirmation to Customer",
+      ],
+      explanation: "Order creation comes before payment, payment before shipment, and confirmation only at the end once everything succeeded.",
+    },
+  ];
+  for (let i = 0; i < seqRounds.length; i++) {
+    const r = seqRounds[i];
+    await addRound(l6, r.content, r.steps.join("|"), r, i);
+  }
+
+  console.log("[IKUGAMES] SAD play-to-learn games seeded successfully (6 levels).");
+}
+
 export async function removeFakeSeedUsers() {
   try {
     const fakeUsernames = ["CyberSage","NeonCoder","QuantumLearner","DataWizard","AlgoMaster","ByteHunter","NetRunner","CodePhantom"];

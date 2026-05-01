@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   ArrowLeft, Zap, Coins, Hash, Link2, Smile, Lock, CheckCircle2,
-  Star, ChevronRight, BookOpen, Gamepad2, Sparkles
+  Star, ChevronRight, BookOpen, Gamepad2, Sparkles,
+  Layers, Boxes, Workflow, Database, Activity, ListOrdered
 } from "lucide-react";
 
 const TOPIC_GRADIENTS: Record<string, string> = {
@@ -21,6 +22,14 @@ const TOPIC_GRADIENTS: Record<string, string> = {
 };
 
 const GAME_ICONS: Record<string, any> = {
+  // New play-to-learn games
+  sdlc_sorter: Layers,
+  req_sorter: Boxes,
+  usecase_builder: Workflow,
+  erd_doctor: Database,
+  dfd_detective: Activity,
+  sequence_stacker: ListOrdered,
+  // Legacy
   wordle: Hash,
   matcher: Link2,
   emoji_cipher: Smile,

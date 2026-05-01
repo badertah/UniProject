@@ -168,9 +168,10 @@ app.use((req, res, next) => {
     await pool.end();
     log("Database schema ready", "db");
 
-    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges } = await import("./seed");
+    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedSADPlayToLearn } = await import("./seed");
     await seedDatabase();
     await seedNewGameTypes();
+    await seedSADPlayToLearn();
     await removeFakeSeedUsers();
     await seedBadges();
   } catch (e) {

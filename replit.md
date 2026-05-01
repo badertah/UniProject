@@ -1,7 +1,10 @@
-# EduQuest — Gamified Educational App
+# IKUGAMES — Gamified Learning for COM4061
 
 ## Overview
-Full-stack gamified educational web app with a dark futuristic cyberpunk aesthetic.
+Full-stack gamified learning platform for **COM4061 — System Analysis & Design** at Istanbul Kültür University. Dark futuristic cyberpunk aesthetic. **Have fun · Learn · Play.**
+
+## Focus Mode (current)
+The platform is currently focused exclusively on the **System Analysis & Design** course. Other topics remain in the database but are filtered out of the public API (`/api/topics` + `/api/topics/:id`). The 6 levels are now **interactive play-to-learn games** (not quizzes) — no prior knowledge required. Each level shows a brief definition + how-to-play card, then drops the player into the game.
 
 ## Stack
 - **Frontend**: React 18 + TypeScript + Vite (port 5000)
@@ -20,14 +23,17 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 1. **JWT Auth** — register/login without email, streak bonuses on daily login
 2. **XP/Level system** — level = floor(xp/150)+1
 3. **Tier system** — Rookie (0) → Scholar (500) → Expert (1500) → Master (3500) → Legend (7000)
-4. **6 Topics** — all freely selectable, no locking; System Analysis, Programming, Data Structures, Database, Networks, Software Engineering
-5. **6 Mini-games per topic** (3 original + 3 new):
-   - Wordle: 5-letter keyword guesser (6 attempts, keyboard + on-screen)
-   - Matcher: click-to-pair terms and definitions (shuffle mechanic)
-   - Emoji Cipher: multiple choice 4-option clue decoder
-   - Speed Blitz: rapid-fire quiz with 9-second countdown timer (SVG circle), score based on speed
-   - Bubble Pop: floating term bubbles in a dark arena — pop the right one for the definition shown at top
-   - Memory Flip: 4×4 card grid (8 pairs), 3D flip animation, match terms to definitions
+4. **1 Focus Topic (public)** — System Analysis & Design only. (Other 5 topics still exist in DB, hidden via API filter `isSADTopic` in `server/routes.ts`.)
+5. **6 Play-to-Learn SAD Games** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`):
+   - **SDLC Sorter** (`sdlc_sorter`) — drag SDLC phases into the right order using Framer `Reorder`. 3 rounds (Waterfall, Requirements Engineering, Agile Sprint).
+   - **Requirements Sorter** (`req_sorter`) — sort each statement as Functional vs Non-Functional. 8 rounds.
+   - **Use Case Connector** (`usecase_builder`) — assign each use case to its actor. 2 multi-step rounds (Library, Online Shop).
+   - **ER Diagram Doctor** (`erd_doctor`) — pick the correct cardinality (1:1 / 1:N / N:N) for each scenario. 5 rounds.
+   - **Data Flow Detective** (`dfd_detective`) — choose the correct from→to nodes for the missing arrow in a DFD. 3 rounds.
+   - **Sequence Stacker** (`sequence_stacker`) — re-order the messages of a sequence diagram in chronological order. 3 rounds (Login, ATM, Online Order).
+   - Puzzle data lives in `questions.options` JSONB; `content` is the scenario; `answer` is canonical (joined string or marker).
+   - Each game shows an intro card with definition (`SAD_GAMES[type].short`), did-you-know (`detail`), and how-to-play (`howTo`) before play starts.
+   - Legacy quiz games (Wordle, Matcher, Emoji Cipher, Speed Blitz, Bubble Pop, Memory Flip) are kept in `game.tsx` for back-compat but no current level uses them.
 6. **Cosmetics Shop** — 14 items (avatars, frames, themes), purchase/equip with EduCoins; emoji avatar previews, frame corner accents, swatch grids for themes; rarity shimmer effects; detail modal
 7. **Badges System** — 20 badges across 5 categories (XP milestones, streaks, levels completed, game type achievements); auto-awarded on progress save and login; `/badges` page with filter, progress bar, tooltip previews
 8. **Global Leaderboard** — top 20, podium display for top 3
@@ -80,10 +86,10 @@ Full-stack gamified educational web app with a dark futuristic cyberpunk aesthet
 
 ## Seed Data
 - Admin user: `admin` / `admin123`
-- 6 topics × 6 levels = 36 levels (all game types covered)
-- 20 badges (XP milestones, streaks, level completion, game type achievements)
-- 14 cosmetics (common/rare/epic/legendary avatars/frames/themes)
-- Seed guards: all seeders skip if data already exists
+- **System Analysis & Design** topic with 6 play-to-learn levels (seeded by `seedSADPlayToLearn()` in `server/seed.ts`, idempotent via gameType count check). The seeder also wipes any legacy quiz-style SAD levels (and their questions + user_progress rows) on first run.
+- Other 5 topics still exist in the DB (Programming, Data Structures, Database, Networks, Software Engineering) but are hidden by the public API filter.
+- 20 badges, 14 cosmetics — unchanged.
+- Seed guards: all seeders skip if data already exists.
 
 ## Run
 ```bash

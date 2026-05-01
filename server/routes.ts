@@ -202,11 +202,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============ TOPICS ============
+  // For now we focus the platform on the System Analysis & Design course only.
+  // Other topics remain in the DB but are filtered out of the public API.
+  function isSADTopic(name: string) {
+    return /system\s*analysis/i.test(name);
+  }
+
   app.get("/api/topics", async (req, res) => {
     try {
       const allTopics = await storage.getAllTopics();
+      const visible = allTopics.filter(t => isSADTopic(t.name));
       const topicsWithCount = await Promise.all(
-        allTopics.map(async (topic) => {
+        visible.map(async (topic) => {
           const lvls = await storage.getLevelsByTopic(topic.id);
           return { ...topic, levelCount: lvls.length, levels: lvls };
         })
@@ -221,6 +228,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const topic = await storage.getTopic(req.params.id);
       if (!topic) return res.status(404).json({ error: "Topic not found" });
+      if (!isSADTopic(topic.name)) {
+        return res.status(404).json({ error: "Topic not available" });
+      }
       const topicLevels = await storage.getLevelsByTopic(topic.id);
       res.json({ ...topic, levels: topicLevels });
     } catch {

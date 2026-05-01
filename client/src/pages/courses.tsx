@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, ChevronRight, Lock } from "lucide-react";
+import { BookOpen, ChevronRight, Lock, Sparkles, Gamepad2, Trophy } from "lucide-react";
 
 const TOPIC_GRADIENTS: Record<string, string> = {
   "from-violet-600 to-purple-800": "linear-gradient(135deg, #7c3aed, #6b21a8)",
@@ -37,7 +37,7 @@ export default function CoursesPage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg bg-primary/20 border border-primary/40 flex items-center justify-center">
             <BookOpen className="w-5 h-5 text-primary" />
           </div>
@@ -45,7 +45,18 @@ export default function CoursesPage() {
             <h1 className="text-2xl font-bold tracking-wider" style={{ fontFamily: "Oxanium, sans-serif" }}>
               COURSE <span className="text-primary">CATALOG</span>
             </h1>
-            <p className="text-sm text-muted-foreground">Choose a subject to master</p>
+            <p className="text-sm text-muted-foreground">Have fun · Learn · Play</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 flex items-start gap-3">
+          <Sparkles className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold mb-0.5">Welcome to IKUGAMES — focused mode</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              We're focusing on the <strong className="text-foreground">System Analysis &amp; Design</strong> course.
+              Every level is a small interactive game — no prior knowledge needed. Just read the quick intro and start playing.
+            </p>
           </div>
         </div>
       </motion.div>

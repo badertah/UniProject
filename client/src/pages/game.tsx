@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
+import { SAD_GAMES, isSADGame, SADGameRunner } from "@/components/sad-games";
 
 // ===================== WORDLE GAME =====================
 type LetterState = "correct" | "present" | "absent" | "empty" | "tbd";
@@ -1158,7 +1159,73 @@ export default function GamePage() {
 
         {/* Game Container */}
         <AnimatePresence mode="wait">
-          {gameState === "idle" && (
+          {gameState === "idle" && isSADGame(level.gameType) && (() => {
+            const meta = SAD_GAMES[level.gameType];
+            const Icon = meta.icon;
+            return (
+              <motion.div
+                key="idle-sad"
+                className="text-center py-8"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+              >
+                <div className="glass-strong rounded-2xl p-7 border border-primary/20 max-w-lg mx-auto text-left">
+                  <div className="flex items-start gap-4 mb-5">
+                    <div
+                      className={`w-14 h-14 rounded-xl bg-gradient-to-br ${meta.gradient} flex items-center justify-center flex-shrink-0 shadow-lg`}
+                    >
+                      <Icon className="w-7 h-7 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-xs font-mono tracking-widest text-muted-foreground mb-1">
+                        PLAY · LEARN · {meta.emoji}
+                      </div>
+                      <h2 className="text-xl font-bold leading-tight" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                        {meta.title}
+                      </h2>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-card/60 border border-border/40 p-4 mb-3">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                      <p className="text-sm leading-relaxed">{meta.short}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-primary/5 border border-primary/20 p-4 mb-3">
+                    <p className="text-xs text-primary font-mono tracking-wider mb-1">DID YOU KNOW</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{meta.detail}</p>
+                  </div>
+
+                  <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4 mb-5">
+                    <p className="text-xs text-emerald-300 font-mono tracking-wider mb-1">HOW TO PLAY</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{meta.howTo}</p>
+                  </div>
+
+                  {prevProgress?.completed && (
+                    <div className="flex items-center gap-2 justify-center mb-3 text-sm text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Best score: {prevProgress.score} — play again for fun!
+                    </div>
+                  )}
+
+                  <Button
+                    size="lg"
+                    onClick={() => setGameState("playing")}
+                    className="w-full"
+                    data-testid="button-start-game"
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    {prevProgress?.completed ? "Play Again" : "Start Playing"}
+                  </Button>
+                </div>
+              </motion.div>
+            );
+          })()}
+
+          {gameState === "idle" && !isSADGame(level.gameType) && (
             <motion.div
               key="idle"
               className="text-center py-12"
@@ -1244,6 +1311,13 @@ export default function GamePage() {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center"
             >
+              {isSADGame(level.gameType) && (
+                <SADGameRunner
+                  gameType={level.gameType}
+                  questions={questions}
+                  onComplete={handleGameComplete}
+                />
+              )}
               {level.gameType === "wordle" && (
                 <WordleGame questions={questions} onComplete={handleGameComplete} />
               )}
