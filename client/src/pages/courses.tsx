@@ -143,7 +143,13 @@ export default function CoursesPage() {
                       <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-border/30">
                         <span className="text-xs text-muted-foreground">Games:</span>
                         {Array.from(new Set((topic.levels || []).map((l: any) => {
-                          const labels: Record<string, string> = { word_scramble: "Word", term_matcher: "Match", emoji_cipher: "Cipher", speed_blitz: "Blitz", bubble_pop: "Bubble", memory_flip: "Memory" };
+                          const labels: Record<string, string> = {
+                            word_scramble: "Word", term_matcher: "Match", emoji_cipher: "Cipher",
+                            speed_blitz: "Blitz", bubble_pop: "Bubble", memory_flip: "Memory",
+                            wordle: "Wordle", matcher: "Match",
+                            sdlc_sorter: "Sorter", req_sorter: "Sorter", usecase_builder: "Connect",
+                            erd_doctor: "Doctor", dfd_detective: "Detective", sequence_stacker: "Stack",
+                          };
                           return labels[l.gameType] || l.gameType;
                         }))).slice(0, 4).map((g: any) => (
                           <span key={g} className="text-xs px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground font-mono">{g}</span>
