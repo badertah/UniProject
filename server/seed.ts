@@ -340,11 +340,11 @@ export async function seedSADPlayToLearn() {
     );
   }
 
-  // ---------- L1: SDLC Sorter ----------
-  const l1 = await createLevel(1, "SDLC Sorter", "sdlc_sorter", 60, 18, "easy");
+  // ---------- L1: SDLC Sorter (Phase Runner) ----------
+  const l1 = await createLevel(1, "Phase Runner", "sdlc_sorter", 60, 18, "easy");
   const sdlcRounds = [
     {
-      content: "A small team is starting a brand-new banking app from scratch. Put the classic SDLC phases in order.",
+      content: "A small team is starting a brand-new banking app from scratch. Survive all 6 SDLC phases in order.",
       methodology: "Classic Waterfall",
       phases: ["Planning", "Analysis", "Design", "Implementation", "Testing", "Maintenance"],
       explanation: "The classic SDLC follows: plan it, analyze needs, design the solution, build it, test it, then maintain it in production.",
@@ -361,14 +361,20 @@ export async function seedSADPlayToLearn() {
       phases: ["Sprint Planning", "Daily Standup", "Development", "Sprint Review", "Sprint Retrospective"],
       explanation: "An Agile sprint starts with planning, runs daily standups during development, ends with a review of the work, and a retrospective to improve.",
     },
+    {
+      content: "A startup is prototyping a social media feature. Put the rapid prototype cycle in order.",
+      methodology: "Prototype Cycle",
+      phases: ["Identify Need", "Build Prototype", "User Review", "Refine", "Integrate"],
+      explanation: "Prototyping is iterative: identify the need, build a quick prototype, get user feedback, refine, and integrate the best ideas.",
+    },
   ];
   for (let i = 0; i < sdlcRounds.length; i++) {
     const r = sdlcRounds[i];
     await addRound(l1, r.content, r.phases.join("|"), r, i);
   }
 
-  // ---------- L2: Requirements Sorter ----------
-  const l2 = await createLevel(2, "Requirements Sorter", "req_sorter", 65, 20, "easy");
+  // ---------- L2: Requirements Sorter (Requirement Hunter) ----------
+  const l2 = await createLevel(2, "Requirement Hunter", "req_sorter", 65, 20, "easy");
   const reqRounds = [
     { content: "The user must be able to log in with their email and password.", answer: "functional", explanation: "Login is something the system DOES — that's a functional requirement." },
     { content: "The system must respond to every page request in under 2 seconds.", answer: "non_functional", explanation: "Response time is a quality attribute (performance) — non-functional." },
@@ -378,16 +384,18 @@ export async function seedSADPlayToLearn() {
     { content: "The website must be available 99.9% of the time.", answer: "non_functional", explanation: "Availability/uptime is a non-functional quality requirement." },
     { content: "Admins can ban users who violate the terms of service.", answer: "functional", explanation: "Banning users is an admin feature — functional." },
     { content: "The interface must follow WCAG 2.1 accessibility guidelines.", answer: "non_functional", explanation: "Accessibility is a usability quality — non-functional." },
+    { content: "Users can export their data as a CSV file.", answer: "functional", explanation: "Exporting data is a direct system action — functional." },
+    { content: "The system must handle 10,000 concurrent users without degradation.", answer: "non_functional", explanation: "Scalability is a performance quality — non-functional." },
   ];
   for (let i = 0; i < reqRounds.length; i++) {
     await addRound(l2, reqRounds[i].content, reqRounds[i].answer, { explanation: reqRounds[i].explanation }, i);
   }
 
-  // ---------- L3: Use Case Connector ----------
-  const l3 = await createLevel(3, "Use Case Connector", "usecase_builder", 75, 22, "medium");
+  // ---------- L3: Use Case Connector (Use Case Defense) ----------
+  const l3 = await createLevel(3, "Use Case Defense", "usecase_builder", 75, 22, "medium");
   const ucRounds = [
     {
-      content: "Online Library System — figure out which actor is responsible for each use case.",
+      content: "Online Library System — figure out which actor stops which system failure.",
       actors: [
         { id: "reader",    label: "Reader",    emoji: "📖" },
         { id: "librarian", label: "Librarian", emoji: "🧑‍💼" },
@@ -402,7 +410,7 @@ export async function seedSADPlayToLearn() {
       explanation: "Readers borrow, return and search. Librarians manage the catalogue and memberships.",
     },
     {
-      content: "Online Shop — match each use case to the right actor.",
+      content: "Online Shop — match each defense to the right actor.",
       actors: [
         { id: "customer", label: "Customer", emoji: "🛒" },
         { id: "admin",    label: "Admin",    emoji: "🛠️" },
@@ -417,13 +425,29 @@ export async function seedSADPlayToLearn() {
       ],
       explanation: "Customers place orders and see their history. Admins manage products and discounts. Couriers update delivery status.",
     },
+    {
+      content: "Hospital Management — identify the actors for each critical use case.",
+      actors: [
+        { id: "doctor",   label: "Doctor",   emoji: "🩺" },
+        { id: "patient",  label: "Patient",  emoji: "🤒" },
+        { id: "reception", label: "Reception", emoji: "📋" },
+      ],
+      useCases: [
+        { label: "Prescribe Medication",  actorId: "doctor" },
+        { label: "Book Appointment",      actorId: "patient" },
+        { label: "Check In Patient",      actorId: "reception" },
+        { label: "View Medical Records",  actorId: "doctor" },
+        { label: "Pay Bill",              actorId: "patient" },
+      ],
+      explanation: "Doctors prescribe and view records. Patients book and pay. Reception handles check-ins.",
+    },
   ];
   for (let i = 0; i < ucRounds.length; i++) {
     await addRound(l3, ucRounds[i].content, "see_options", ucRounds[i], i);
   }
 
-  // ---------- L4: ER Diagram Doctor ----------
-  const l4 = await createLevel(4, "ER Diagram Doctor", "erd_doctor", 80, 24, "medium");
+  // ---------- L4: ER Diagram Doctor (ER City Builder) ----------
+  const l4 = await createLevel(4, "ER City Builder", "erd_doctor", 80, 24, "medium");
   const erdRounds = [
     { content: "In an online shop, every Customer can place many Orders, but each Order belongs to exactly one Customer. What's the cardinality?",
       answer: "1:N", left: "Customer", right: "Order",
@@ -440,14 +464,20 @@ export async function seedSADPlayToLearn() {
     { content: "A Movie can be tagged with many Genres, and a Genre can apply to many Movies.",
       answer: "N:N", left: "Movie", right: "Genre",
       explanation: "Movies and genres connect freely — many-to-many." },
+    { content: "An Employee manages exactly one Department, and each Department has exactly one Manager.",
+      answer: "1:1", left: "Employee", right: "Department",
+      explanation: "Both sides are exactly one manager-to-department. One-to-one." },
+    { content: "A Category can contain many Products, but each Product belongs to exactly one Category.",
+      answer: "1:N", left: "Category", right: "Product",
+      explanation: "One category has many products. Each product has one category. 1-to-many." },
   ];
   for (let i = 0; i < erdRounds.length; i++) {
     const r = erdRounds[i];
     await addRound(l4, r.content, r.answer, { left: r.left, right: r.right, explanation: r.explanation }, i);
   }
 
-  // ---------- L5: Data Flow Detective ----------
-  const l5 = await createLevel(5, "Data Flow Detective", "dfd_detective", 85, 26, "medium");
+  // ---------- L5: Data Flow Detective (Data Flow Plumber) ----------
+  const l5 = await createLevel(5, "Data Flow Plumber", "dfd_detective", 85, 26, "medium");
   const dfdRounds = [
     {
       content: "Online Order System — the diagram is missing the flow that delivers the receipt to the customer.",
@@ -502,14 +532,31 @@ export async function seedSADPlayToLearn() {
       correctTo: "emp",
       explanation: "After 'Send Pay Slip' formats the slip, it flows back to the Employee — who is both the source of hours and the sink for the slip.",
     },
+    {
+      content: "Registration System — the flow that validates the email against the Users DB is missing.",
+      missingLabel: "Email check",
+      nodes: [
+        { id: "user",   label: "New User",      type: "source" },
+        { id: "reg",    label: "Register",     type: "process" },
+        { id: "users",  label: "Users DB",      type: "store" },
+        { id: "notify", label: "Send Welcome", type: "process" },
+      ],
+      existingFlows: [
+        { from: "user",  to: "reg",    label: "Form data" },
+        { from: "reg",   to: "notify", label: "User data" },
+      ],
+      correctFrom: "reg",
+      correctTo: "users",
+      explanation: "The Register process must check the Users DB to see if the email already exists before creating the account.",
+    },
   ];
   for (let i = 0; i < dfdRounds.length; i++) {
     const r = dfdRounds[i];
     await addRound(l5, r.content, `${r.correctFrom}->${r.correctTo}`, r, i);
   }
 
-  // ---------- L6: Sequence Stacker ----------
-  const l6 = await createLevel(6, "Sequence Stacker", "sequence_stacker", 90, 28, "medium");
+  // ---------- L6: Sequence Stacker (Sequence Rhythm) ----------
+  const l6 = await createLevel(6, "Sequence Rhythm", "sequence_stacker", 90, 28, "medium");
   const seqRounds = [
     {
       content: "User Login Flow — order the messages from earliest (top) to latest (bottom).",
@@ -551,6 +598,20 @@ export async function seedSADPlayToLearn() {
         "Web App shows order confirmation to Customer",
       ],
       explanation: "Order creation comes before payment, payment before shipment, and confirmation only at the end once everything succeeded.",
+    },
+    {
+      content: "Upload Profile Picture — order the messages in time.",
+      objects: ["User", "Frontend", "ImageService", "CDN"],
+      steps: [
+        "User selects an image file",
+        "Frontend validates file type and size",
+        "Frontend sends image to ImageService",
+        "ImageService resizes and compresses the image",
+        "ImageService uploads optimized image to CDN",
+        "CDN returns the public URL",
+        "Frontend displays the new profile picture",
+      ],
+      explanation: "Validation happens before upload, processing happens before CDN storage, and the URL must exist before the UI can display it.",
     },
   ];
   for (let i = 0; i < seqRounds.length; i++) {
