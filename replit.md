@@ -4,7 +4,7 @@
 Full-stack gamified learning platform for **COM4061 — System Analysis & Design** at Istanbul Kültür University. Dark futuristic cyberpunk aesthetic. **Have fun · Learn · Play.**
 
 ## Focus Mode (current)
-The platform is currently focused exclusively on the **System Analysis & Design** course. Other topics remain in the database but are filtered out of the public API (`/api/topics` + `/api/topics/:id`). The 6 levels are now **interactive play-to-learn games** (not quizzes) — no prior knowledge required. Each level shows a brief definition + how-to-play card, then drops the player into the game.
+The platform is currently focused exclusively on the **System Analysis & Design** course. Other topics remain in the database but are filtered out of the public API (`/api/topics` + `/api/topics/:id`). The 6 levels are now **genuinely fun arcade-style mini-games** (not quizzes) — no prior knowledge required. Each level shows a brief definition + how-to-play card, then drops the player into the game.
 
 ## Stack
 - **Frontend**: React 18 + TypeScript + Vite (port 5000)
@@ -24,13 +24,13 @@ The platform is currently focused exclusively on the **System Analysis & Design*
 2. **XP/Level system** — level = floor(xp/150)+1
 3. **Tier system** — Rookie (0) → Scholar (500) → Expert (1500) → Master (3500) → Legend (7000)
 4. **1 Focus Topic (public)** — System Analysis & Design only. (Other 5 topics still exist in DB, hidden via API filter `isSADTopic` in `server/routes.ts`.)
-5. **6 Play-to-Learn SAD Games** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`):
-   - **SDLC Sorter** (`sdlc_sorter`) — drag SDLC phases into the right order using Framer `Reorder`. 3 rounds (Waterfall, Requirements Engineering, Agile Sprint).
-   - **Requirements Sorter** (`req_sorter`) — sort each statement as Functional vs Non-Functional. 8 rounds.
-   - **Use Case Connector** (`usecase_builder`) — assign each use case to its actor. 2 multi-step rounds (Library, Online Shop).
-   - **ER Diagram Doctor** (`erd_doctor`) — pick the correct cardinality (1:1 / 1:N / N:N) for each scenario. 5 rounds.
-   - **Data Flow Detective** (`dfd_detective`) — choose the correct from→to nodes for the missing arrow in a DFD. 3 rounds.
-   - **Sequence Stacker** (`sequence_stacker`) — re-order the messages of a sequence diagram in chronological order. 3 rounds (Login, ATM, Online Order).
+5. **6 Arcade-Style SAD Games** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`):
+   - **Phase Runner** (`sdlc_sorter`) — Lane-switching infinite runner. Switch lanes to collect deliverables in the correct SDLC phase and dodge bugs. Arrow keys / tap controls.
+   - **Requirement Hunter** (`req_sorter`) — Hidden object + falling frenzy. Explore an office to discover requirements, then sort falling requirement cards into Functional vs Non-Functional baskets.
+   - **Use Case Defense** (`usecase_builder`) — Tower defense. Place Actor towers on a grid. Each enemy wave represents a system failure weak against a specific actor-use-case combo.
+   - **ER City Builder** (`erd_doctor`) — City-building puzzle. Connect entity buildings with roads of different widths (1 lane = 1:1, multi-lane = 1:N, highway = N:N). Start traffic to see data cars flow.
+   - **Data Flow Plumber** (`dfd_detective`) — Pipe Dream grid puzzle. Place and rotate pipe pieces to connect the Source to the Sink. Start the flow and watch data orbs travel.
+   - **Sequence Rhythm** (`sequence_stacker`) — Rhythm game (Guitar Hero style). Press D/F/J/K as message arrows fall in sequence-diagram order. Combo multiplier for consecutive hits.
    - Puzzle data lives in `questions.options` JSONB; `content` is the scenario; `answer` is canonical (joined string or marker).
    - Each game shows an intro card with definition (`SAD_GAMES[type].short`), did-you-know (`detail`), and how-to-play (`howTo`) before play starts.
    - Legacy quiz games (Wordle, Matcher, Emoji Cipher, Speed Blitz, Bubble Pop, Memory Flip) are kept in `game.tsx` for back-compat but no current level uses them.
