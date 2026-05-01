@@ -53,12 +53,12 @@ export function getDifficultyConfig(difficulty: string) {
 
 const GAME_TYPE_CONFIG = {
   // New play-to-learn SAD games
-  sdlc_sorter:      { label: "SDLC Sorter",         icon: "Layers",     color: "text-violet-300",  description: "Drag SDLC phases into the right order" },
-  req_sorter:       { label: "Requirements Sorter", icon: "Boxes",      color: "text-emerald-300", description: "Sort requirements: Functional vs Non-functional" },
-  usecase_builder:  { label: "Use Case Connector",  icon: "Workflow",   color: "text-cyan-300",    description: "Connect each actor to their use cases" },
-  erd_doctor:       { label: "ER Diagram Doctor",   icon: "Database",   color: "text-amber-300",   description: "Diagnose & fix ER cardinalities" },
-  dfd_detective:    { label: "Data Flow Detective", icon: "Activity",   color: "text-pink-300",    description: "Repair the missing arrow in a DFD" },
-  sequence_stacker: { label: "Sequence Stacker",    icon: "ListOrdered",color: "text-indigo-300",  description: "Re-order messages in a sequence diagram" },
+  sdlc_sorter:      { label: "Phase Runner",        icon: "Layers",     color: "text-violet-300",  description: "Survive all SDLC phases in order" },
+  req_sorter:       { label: "Requirement Hunter",  icon: "Boxes",      color: "text-emerald-300", description: "Hunt & classify Functional vs Non-functional" },
+  usecase_builder:  { label: "Use Case Defense",    icon: "Workflow",   color: "text-cyan-300",    description: "Defend — match each use case to its actor" },
+  erd_doctor:       { label: "ER City Builder",     icon: "Database",   color: "text-amber-300",   description: "Fix ER relationships & build the data city" },
+  dfd_detective:    { label: "Data Flow Plumber",   icon: "Activity",   color: "text-pink-300",    description: "Patch the missing flow in the DFD pipes" },
+  sequence_stacker: { label: "Sequence Rhythm",     icon: "ListOrdered",color: "text-indigo-300",  description: "Stack messages in the right time order" },
   // Legacy quiz games (kept for back-compat with any old levels)
   wordle: { label: "Word Guesser", icon: "Hash", color: "text-violet-400", description: "Guess the 5-letter keyword" },
   matcher: { label: "Definition Matcher", icon: "Link2", color: "text-cyan-400", description: "Match terms to definitions" },

@@ -147,8 +147,8 @@ export default function CoursesPage() {
                             word_scramble: "Word", term_matcher: "Match", emoji_cipher: "Cipher",
                             speed_blitz: "Blitz", bubble_pop: "Bubble", memory_flip: "Memory",
                             wordle: "Wordle", matcher: "Match",
-                            sdlc_sorter: "Sorter", req_sorter: "Sorter", usecase_builder: "Connect",
-                            erd_doctor: "Doctor", dfd_detective: "Detective", sequence_stacker: "Stack",
+                            sdlc_sorter: "Runner", req_sorter: "Hunter", usecase_builder: "Defense",
+                            erd_doctor: "Builder", dfd_detective: "Plumber", sequence_stacker: "Rhythm",
                           };
                           return labels[l.gameType] || l.gameType;
                         }))).slice(0, 4).map((g: any) => (
