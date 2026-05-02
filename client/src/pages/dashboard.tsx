@@ -58,7 +58,23 @@ export default function Dashboard() {
 
   const tierInfo = getTierInfo(user.xp);
   const xpProgress = getXpToNextLevel(user.xp);
-  const completedLevels = progress?.filter(p => p.completed).length || 0;
+
+  // A level is "completed" only when every one of its stages has a completed row.
+  // Fall back to questionCount=1 for legacy single-shot games.
+  const allLevels: any[] = (topics || []).flatMap((t: any) => t.levels || []);
+  const stageCountByLevel = new Map<string, number>(
+    allLevels.map((l: any) => [l.id, Math.max(l.questionCount ?? 1, 1)])
+  );
+  const completedStagesByLevel = new Map<string, Set<number>>();
+  (progress || []).forEach((p: any) => {
+    if (!p.completed) return;
+    const set = completedStagesByLevel.get(p.levelId) || new Set<number>();
+    set.add(p.stageIndex ?? 0);
+    completedStagesByLevel.set(p.levelId, set);
+  });
+  const completedLevels = Array.from(completedStagesByLevel.entries()).filter(
+    ([levelId, set]) => set.size >= (stageCountByLevel.get(levelId) ?? 1)
+  ).length;
   const totalScore = progress?.reduce((sum, p) => sum + (p.score || 0), 0) || 0;
 
   const userRank = leaderboard?.findIndex(u => u.id === user.id) ?? -1;
@@ -218,9 +234,14 @@ export default function Dashboard() {
             animate="show"
           >
             {topics?.slice(0, 6).map((topic: any, i) => {
-              const topicProgress = progress?.filter(p => p.topic?.id === topic.id) || [];
-              const completedCount = topicProgress.filter(p => p.completed).length;
-              const totalLevels = topic.levelCount || topic.levels?.length || 1;
+              // Count fully-completed levels in this topic (every stage cleared).
+              const topicLevels: any[] = topic.levels || [];
+              const completedCount = topicLevels.filter((l: any) => {
+                const need = Math.max(l.questionCount ?? 1, 1);
+                const done = completedStagesByLevel.get(l.id);
+                return done ? done.size >= need : false;
+              }).length;
+              const totalLevels = topic.levelCount || topicLevels.length || 1;
               const progressPct = topics ? Math.min(100, Math.round((completedCount / totalLevels) * 100)) : 0;
 
               return (

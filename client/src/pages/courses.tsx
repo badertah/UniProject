@@ -75,9 +75,22 @@ export default function CoursesPage() {
           animate="show"
         >
           {topics?.map((topic: any, i) => {
+            // Build {levelId -> completed stage indexes} for this topic.
             const topicProgress = progress?.filter((p: any) => p.topic?.id === topic.id || p.level?.topicId === topic.id) || [];
-            const completedCount = topicProgress.filter((p: any) => p.completed).length;
-            const totalLevels = topic.levelCount || topic.levels?.length || 1;
+            const stagesDoneByLevel = new Map<string, Set<number>>();
+            topicProgress.forEach((p: any) => {
+              if (!p.completed) return;
+              const set = stagesDoneByLevel.get(p.levelId) || new Set<number>();
+              set.add(p.stageIndex ?? 0);
+              stagesDoneByLevel.set(p.levelId, set);
+            });
+            const topicLevels: any[] = topic.levels || [];
+            const completedCount = topicLevels.filter((l: any) => {
+              const need = Math.max(l.questionCount ?? 1, 1);
+              const done = stagesDoneByLevel.get(l.id);
+              return done ? done.size >= need : false;
+            }).length;
+            const totalLevels = topic.levelCount || topicLevels.length || 1;
             const progressPct = Math.min(100, Math.round((completedCount / totalLevels) * 100));
             const gradient = TOPIC_GRADIENTS[topic.color] || "linear-gradient(135deg, #7c3aed, #6b21a8)";
 

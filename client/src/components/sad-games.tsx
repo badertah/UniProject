@@ -352,9 +352,6 @@ function ScreenShake({ trigger, children }: { trigger: number; children: React.R
 // 1. PHASE RUNNER — lane runner; deliverables tagged by phase
 // ============================================================
 
-const ROUND_DURATION_SEC = 48;
-const SPAWN_EVERY_SEC = 0.85;
-const OBJECT_SPEED = 32; // % per sec, right→left
 const LANE_HEIGHT_PX = 56;
 
 interface PRObject {
@@ -365,11 +362,18 @@ interface PRObject {
   phaseLabel?: string;
 }
 
-function PhaseRunner({ questions, onComplete }: SADGameProps) {
+function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.sdlc_sorter;
   const [howSeen, dismissHow] = useHowTo("sdlc_sorter");
   const [showHowOverlay, setShowHowOverlay] = useState(!howSeen);
+
+  // Difficulty-scaled knobs (component remounts per stage so these stay constant per game).
+  const _d = Math.max(0, Math.min(1, difficulty));
+  const ROUND_DURATION_SEC = Math.round(48 - _d * 14); // 48 → 34s
+  const SPAWN_EVERY_SEC = 0.85 - _d * 0.40;            // 0.85 → 0.45s
+  const OBJECT_SPEED = 32 + _d * 22;                   // 32 → 54 %/s
+  const PR_HEARTS = Math.max(1, 3 - Math.floor(_d * 2)); // 3, 3, 2, 1
 
   const [round, setRound] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
@@ -390,7 +394,7 @@ function PhaseRunner({ questions, onComplete }: SADGameProps) {
 
   const [lane, setLane] = useState(0);
   const [objects, setObjects] = useState<PRObject[]>([]);
-  const [hearts, setHearts] = useState(3);
+  const [hearts, setHearts] = useState(PR_HEARTS);
   const [collected, setCollected] = useState(0);
   const [missed, setMissed] = useState(0);
   const [target, setTarget] = useState(0); // total deliverables expected
@@ -423,7 +427,7 @@ function PhaseRunner({ questions, onComplete }: SADGameProps) {
   useEffect(() => {
     setLane(0);
     setObjects([]);
-    setHearts(3);
+    setHearts(PR_HEARTS);
     setCollected(0);
     setMissed(0);
     setTarget(0);
@@ -1074,12 +1078,16 @@ interface UCDEnemy {
 }
 
 const UCD_LANES = 3;
-const UCD_SPEED = 5; // % per sec (slow for tap accuracy)
-const UCD_SPAWN_GAP_SEC = 1.6;
 
-function UseCaseDefense({ questions, onComplete }: SADGameProps) {
+function UseCaseDefense({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.usecase_builder;
+
+  // Difficulty-scaled knobs.
+  const _d = Math.max(0, Math.min(1, difficulty));
+  const UCD_SPEED = 5 + _d * 4;                       // 5 → 9 %/s
+  const UCD_SPAWN_GAP_SEC = 1.6 - _d * 0.65;          // 1.6 → 0.95 s
+  const UCD_BASE_HP = Math.max(1, 2 - Math.floor(_d)); // 2, 2, 1, 1
   const [howSeen, dismissHow] = useHowTo("usecase_builder");
   const [showHow, setShowHow] = useState(!howSeen);
 
@@ -1120,7 +1128,7 @@ function UseCaseDefense({ questions, onComplete }: SADGameProps) {
   const enemiesRef = useRef<UCDEnemy[]>([]);
   const comboRef = useRef(0);
   const maxComboRef = useRef(0);
-  const baseHp = 2; // 2 enemies allowed to reach base
+  const baseHp = UCD_BASE_HP; // enemies allowed to reach base (scales with difficulty)
   const lostBase = reachedBase >= baseHp;
   const allCleared = spawned >= useCases.length && enemies.length === 0;
   const waveOver = stage === "wave" && (lostBase || allCleared);
@@ -1465,9 +1473,13 @@ function UseCaseDefense({ questions, onComplete }: SADGameProps) {
 const CARDINALITIES = ["1:1", "1:N", "N:N"] as const;
 type Cardinality = typeof CARDINALITIES[number];
 
-function ERCityBuilder({ questions, onComplete }: SADGameProps) {
+function ERCityBuilder({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.erd_doctor;
+  const _d = Math.max(0, Math.min(1, difficulty));
+  // Harder stages: bigger first-try bonus, smaller second-try consolation.
+  const ER_FIRST = Math.round(30 + _d * 10);  // 30 → 40
+  const ER_SECOND = Math.max(0, Math.round(15 - _d * 10)); // 15 → 5
   const [howSeen, dismissHow] = useHowTo("erd_doctor");
   const [showHow, setShowHow] = useState(!howSeen);
 
@@ -1503,7 +1515,7 @@ function ERCityBuilder({ questions, onComplete }: SADGameProps) {
 
   function nextRound() {
     const correct = submitted?.correct ?? false;
-    const delta = correct ? (attempts === 1 ? 30 : 15) : 0;
+    const delta = correct ? (attempts === 1 ? ER_FIRST : ER_SECOND) : 0;
     const newTotal = totalScore + delta;
     setTotalScore(newTotal);
     if (round + 1 >= totalRounds) {
@@ -1728,9 +1740,11 @@ function layoutNodes(rawNodes: { id: string; label: string; type: DFDNode["type"
   return out;
 }
 
-function DataFlowPlumber({ questions, onComplete }: SADGameProps) {
+function DataFlowPlumber({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.dfd_detective;
+  const _d = Math.max(0, Math.min(1, difficulty));
+  const DFD_MAX_ATTEMPTS = Math.max(1, 2 - Math.floor(_d * 0.6)); // 2,2,2,1
   const [howSeen, dismissHow] = useHowTo("dfd_detective");
   const [showHow, setShowHow] = useState(!howSeen);
 
@@ -1768,7 +1782,7 @@ function DataFlowPlumber({ questions, onComplete }: SADGameProps) {
 
   function clickNode(id: string) {
     if (submission?.correct) return;
-    if (attempts >= 2) return;
+    if (attempts >= DFD_MAX_ATTEMPTS) return;
     if (!selectedFrom) {
       setSelectedFrom(id);
       return;
@@ -1825,7 +1839,7 @@ function DataFlowPlumber({ questions, onComplete }: SADGameProps) {
   }
 
   const submittedArrow = submission ? arrowFor(submission.from, submission.to) : null;
-  const correctArrow = (attempts >= 2 || submission?.correct) ? arrowFor(correctFrom, correctTo) : null;
+  const correctArrow = (attempts >= DFD_MAX_ATTEMPTS || submission?.correct) ? arrowFor(correctFrom, correctTo) : null;
 
   return (
     <div className="w-full max-w-xl select-none">
@@ -1987,11 +2001,7 @@ function DataFlowPlumber({ questions, onComplete }: SADGameProps) {
 // 6. SEQUENCE RHYTHM — notes routed to actor lanes by step text
 // ============================================================
 
-const NOTE_FALL_SPEED = 38; // % per sec (top→bottom, 0..100)
-const NOTE_SPAWN_GAP_SEC = 1.45;
 const HIT_LINE_PCT = 86;
-const HIT_WINDOW = 18; // % distance considered a hit
-const PERFECT_WINDOW = 6;
 const SEQ_KEYS = ["d", "f", "j", "k"];
 
 interface SeqNote {
@@ -2024,11 +2034,18 @@ function parseReceiverLane(stepText: string, objects: string[]): number {
   return bestIdx;
 }
 
-function SequenceRhythm({ questions, onComplete }: SADGameProps) {
+function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.sequence_stacker;
   const [howSeen, dismissHow] = useHowTo("sequence_stacker");
   const [showHow, setShowHow] = useState(!howSeen);
+
+  // Difficulty-scaled knobs.
+  const _d = Math.max(0, Math.min(1, difficulty));
+  const NOTE_FALL_SPEED = 38 + _d * 22;        // 38 → 60 %/s
+  const NOTE_SPAWN_GAP_SEC = 1.45 - _d * 0.55; // 1.45 → 0.9 s
+  const HIT_WINDOW = 18 - _d * 6;              // 18 → 12
+  const PERFECT_WINDOW = 6 - _d * 3;           // 6 → 3
 
   const [round, setRound] = useState(0);
   const [totalScore, setTotalScore] = useState(0);

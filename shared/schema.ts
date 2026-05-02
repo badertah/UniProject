@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, serial, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -57,7 +57,10 @@ export const userProgress = pgTable("user_progress", {
   completed: boolean("completed").notNull().default(false),
   score: integer("score").notNull().default(0),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => ({
+  userLevelStageUniq: uniqueIndex("user_progress_user_level_stage_uniq")
+    .on(table.userId, table.levelId, table.stageIndex),
+}));
 
 export const cosmetics = pgTable("cosmetics", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

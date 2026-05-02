@@ -46,6 +46,7 @@ export interface IStorage {
   getLevelStages(userId: string, levelId: string): Promise<UserProgress[]>;
   saveProgress(userId: string, levelId: string, stageIndex: number, score: number, completed: boolean): Promise<UserProgress>;
   getCompletedLevelsCount(userId: string): Promise<number>;
+  runWithProgressLock<T>(userId: string, levelId: string, fn: () => Promise<T>): Promise<T>;
 
   // Cosmetics
   getAllCosmetics(): Promise<Cosmetic[]>;
@@ -161,6 +162,19 @@ export class DatabaseStorage implements IStorage {
     return results.map(r => ({ ...r.progress, level: r.level, topic: r.topic }));
   }
 
+  // Serializes the read-modify-write critical section for a (userId, levelId) pair.
+  // Uses a Postgres transaction-scoped advisory lock so concurrent /api/progress
+  // submissions for the same user+level can't double-award first-completion bonuses.
+  // Inner storage calls run on other pool connections — that's fine; the lock just
+  // gates entry to this critical section, not the SQL inside it.
+  async runWithProgressLock<T>(userId: string, levelId: string, fn: () => Promise<T>): Promise<T> {
+    const key = `${userId}|${levelId}`;
+    return db.transaction(async (tx) => {
+      await tx.execute(drizzleSql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
+      return fn();
+    });
+  }
+
   async getStageProgress(userId: string, levelId: string, stageIndex: number): Promise<UserProgress | undefined> {
     const [progress] = await db
       .select().from(userProgress)
@@ -179,22 +193,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async saveProgress(userId: string, levelId: string, stageIndex: number, score: number, completed: boolean): Promise<UserProgress> {
-    const existing = await this.getStageProgress(userId, levelId, stageIndex);
-    if (existing) {
-      const [updated] = await db
-        .update(userProgress)
-        .set({
-          score: Math.max(existing.score, score),
-          completed: existing.completed || completed,
-          completedAt: completed && !existing.completedAt ? new Date() : existing.completedAt,
-        })
-        .where(eq(userProgress.id, existing.id))
-        .returning();
-      return updated;
-    }
+    // Atomic, race-safe upsert keyed by the (user_id, level_id, stage_index) unique index.
+    // Score is monotonically max'd; completed is sticky-true; completedAt is set the first
+    // time the stage transitions to completed, then preserved on later replays.
+    const now = new Date();
     const [progress] = await db
       .insert(userProgress)
-      .values({ userId, levelId, stageIndex, score, completed, completedAt: completed ? new Date() : undefined })
+      .values({ userId, levelId, stageIndex, score, completed, completedAt: completed ? now : null })
+      .onConflictDoUpdate({
+        target: [userProgress.userId, userProgress.levelId, userProgress.stageIndex],
+        set: {
+          score: drizzleSql`GREATEST(${userProgress.score}, EXCLUDED.score)`,
+          completed: drizzleSql`${userProgress.completed} OR EXCLUDED.completed`,
+          completedAt: drizzleSql`COALESCE(${userProgress.completedAt}, EXCLUDED.completed_at)`,
+        },
+      })
       .returning();
     return progress;
   }

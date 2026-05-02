@@ -24,7 +24,7 @@ The platform is currently focused exclusively on the **System Analysis & Design*
 2. **XP/Level system** — level = floor(xp/150)+1
 3. **Tier system** — Rookie (0) → Scholar (500) → Expert (1500) → Master (3500) → Legend (7000)
 4. **1 Focus Topic (public)** — System Analysis & Design only. (Other 5 topics still exist in DB, hidden via API filter `isSADTopic` in `server/routes.ts`.)
-5. **6 Arcade-Style SAD Games** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`). Each game binds directly to seeded question data (`q.content`, `q.answer`, `q.options`) — no random hardcoded content. All games share a small infra layer:
+5. **6 Arcade-Style SAD Games — Per-Question Mini-Stages** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`). Each seeded question is now its own playable mini-stage with its own card / score / XP / checkpoint. URL routing: `/game/:id?stage=N`. Difficulty ramps within each game via `difficulty = stageIndex / (totalStages - 1)` (0..1) → EASY / NORMAL / HARD / EXPERT pill (`difficultyLabel(d)`). Each game scales spawn rate, speed, hit window, hearts, and timer with `difficulty`. Topic page shows 4-up stage chips per SAD level with shimmer-on-completed and primary-border-on-next-up. Backend stores one row per (`userId`, `levelId`, `stageIndex`) — see Per-Stage Progress below. Each game binds directly to seeded question data (`q.content`, `q.answer`, `q.options`) — no random hardcoded content. All games share a small infra layer:
    - `useGameLoop(cb, active)` — single rAF, stable callback ref (no restart on every state change), dt-clamped on tab-switch.
    - `useHowTo(key)` — first-run tutorial overlay, dismissed once and persisted to localStorage (`eduquest_howto_<gametype>`).
    - `usePause(enabled)` — Esc key toggles a `<PauseOverlay>` with Resume / Skip-round buttons.
@@ -99,3 +99,11 @@ The platform is currently focused exclusively on the **System Analysis & Design*
 ```bash
 npm run dev  # starts Express + Vite on port 5000
 ```
+
+## Per-Stage Progress (race-safe)
+- `user_progress` is keyed by composite **unique index** `(user_id, level_id, stage_index)` (`shared/schema.ts`). Drizzle-kit push applied.
+- `storage.saveProgress` uses atomic `INSERT … ON CONFLICT DO UPDATE` with `GREATEST(score, EXCLUDED.score)`, `completed OR EXCLUDED.completed`, and `COALESCE(completedAt, EXCLUDED.completedAt)` so score is monotonic, completion is sticky-true, and the first-completion timestamp is preserved on replays.
+- `storage.runWithProgressLock(userId, levelId, fn)` wraps `fn` in a Postgres transaction with a transaction-scoped advisory lock keyed on `hashtextextended(userId|levelId, 0)`. `/api/progress` runs the entire pre-read → save → reward → user-XP/coin update inside this lock, so concurrent submits for the same user+level cannot both classify themselves as the first completion (no double XP/coin) or both fire the level-clear bonus.
+- `/api/progress` server-side **clamps** incoming `stageIndex` to `[0, totalStages-1]` (defense in depth — `game.tsx` also clamps before submitting), preventing fabricated out-of-range rows.
+- `/api/topics` and `/api/topics/:id` now expose per-level `questionCount`. `topic.tsx` / `dashboard.tsx` / `courses.tsx` use it to compute "level fully completed" as `distinct completed stage indexes >= questionCount`, not raw row count.
+- Reward math (`/api/progress`): `stageXp = ceil(level.xpReward / totalStages)`, `stageCoins = ceil(level.coinReward / totalStages)`. First completion of a stage → full stage reward. Replay → 25% of stage reward. Level-clear (every stage cleared for the first time) → +25% of full level reward as bonus. Response shape: `{ progress, xpGained, coinsGained, stageIndex, totalStages, isFirstStageCompletion, isLevelFullyCompleted, justFinishedLevel, user, newBadges }`.

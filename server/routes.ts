@@ -215,7 +215,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const topicsWithCount = await Promise.all(
         visible.map(async (topic) => {
           const lvls = await storage.getLevelsByTopic(topic.id);
-          return { ...topic, levelCount: lvls.length, levels: lvls };
+          const lvlsWithCount = await Promise.all(lvls.map(async (lvl) => {
+            const qs = await storage.getQuestionsByLevel(lvl.id);
+            return { ...lvl, questionCount: Math.max(qs.length, 1) };
+          }));
+          return { ...topic, levelCount: lvls.length, levels: lvlsWithCount };
         })
       );
       res.json(topicsWithCount);
@@ -232,7 +236,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ error: "Topic not available" });
       }
       const topicLevels = await storage.getLevelsByTopic(topic.id);
-      res.json({ ...topic, levels: topicLevels });
+      const levelsWithQuestions = await Promise.all(topicLevels.map(async (lvl) => {
+        const qs = await storage.getQuestionsByLevel(lvl.id);
+        return { ...lvl, questions: qs, questionCount: Math.max(qs.length, 1) };
+      }));
+      res.json({ ...topic, levels: levelsWithQuestions });
     } catch {
       res.status(500).json({ error: "Failed to fetch topic" });
     }
@@ -329,8 +337,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { levelId, stageIndex: rawStageIndex, score, completed } = req.body;
       if (!levelId) return res.status(400).json({ error: "levelId required" });
 
-      const stageIndex = Number.isFinite(Number(rawStageIndex)) ? Math.max(0, Math.floor(Number(rawStageIndex))) : 0;
-
       const level = await storage.getLevel(levelId);
       if (!level) return res.status(404).json({ error: "Level not found" });
 
@@ -338,56 +344,69 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const allQuestions = await storage.getQuestionsByLevel(levelId);
       const totalStages = Math.max(allQuestions.length, 1);
 
-      // Look up prior state for THIS stage and the level overall.
-      const prevStage = await storage.getStageProgress(req.userId!, levelId, stageIndex);
-      const prevStages = await storage.getLevelStages(req.userId!, levelId);
-      const prevCompletedStages = new Set(prevStages.filter(p => p.completed).map(p => p.stageIndex));
-      const wasLevelFullyCompleted = prevCompletedStages.size >= totalStages;
+      // Clamp stageIndex to the level's real range so callers can't fabricate
+      // out-of-range progress rows (e.g. ?stage=999) to game the level-clear bonus.
+      const requested = Number.isFinite(Number(rawStageIndex)) ? Math.floor(Number(rawStageIndex)) : 0;
+      const stageIndex = Math.min(Math.max(requested, 0), totalStages - 1);
 
-      const isFirstStageCompletion = !prevStage?.completed && completed;
+      // Critical section — serialize per (user, level) so two concurrent submits for
+      // the same stage can't both classify themselves as the first completion (and
+      // double-award XP/coins), and so the "level clear" bonus fires at most once.
+      const rewardOutcome = await storage.runWithProgressLock(req.userId!, levelId, async () => {
+        const prevStage = await storage.getStageProgress(req.userId!, levelId, stageIndex);
+        const prevStages = await storage.getLevelStages(req.userId!, levelId);
+        const prevCompletedStages = new Set(prevStages.filter(p => p.completed).map(p => p.stageIndex));
+        const wasLevelFullyCompleted = prevCompletedStages.size >= totalStages;
 
-      const progress = await storage.saveProgress(req.userId!, levelId, stageIndex, score, completed);
+        const isFirstStageCompletion = !prevStage?.completed && completed;
 
-      // Recompute level-completion state after the save.
-      if (completed) prevCompletedStages.add(stageIndex);
-      const isLevelFullyCompleted = prevCompletedStages.size >= totalStages;
-      const justFinishedLevel = isLevelFullyCompleted && !wasLevelFullyCompleted;
+        const saved = await storage.saveProgress(req.userId!, levelId, stageIndex, score, completed);
 
-      // Reward math: split level reward across stages; full bonus on first-completion of
-      // the stage (rounded up so 4 stages of a 50 XP level = 13 + 13 + 13 + 13 = 52);
-      // small replay bonus otherwise; extra "level clear" bonus when the last stage seals it.
-      const stageXp = Math.max(1, Math.ceil(level.xpReward / totalStages));
-      const stageCoins = Math.max(1, Math.ceil(level.coinReward / totalStages));
+        // Recompute level-completion state after the save.
+        if (completed) prevCompletedStages.add(stageIndex);
+        const isLevelFullyCompleted = prevCompletedStages.size >= totalStages;
+        const justFinishedLevel = isLevelFullyCompleted && !wasLevelFullyCompleted;
 
-      let xpGained = 0;
-      let coinsGained = 0;
+        // Reward math: split level reward across stages; full bonus on first-completion of
+        // the stage (rounded up so 4 stages of a 50 XP level = 13 + 13 + 13 + 13 = 52);
+        // small replay bonus otherwise; extra "level clear" bonus when the last stage seals it.
+        const stageXp = Math.max(1, Math.ceil(level.xpReward / totalStages));
+        const stageCoins = Math.max(1, Math.ceil(level.coinReward / totalStages));
 
-      if (isFirstStageCompletion) {
-        xpGained += stageXp;
-        coinsGained += stageCoins;
-      } else if (completed) {
-        xpGained += Math.floor(stageXp * 0.25);
-        coinsGained += Math.floor(stageCoins * 0.25);
-      }
+        let xpGained = 0;
+        let coinsGained = 0;
 
-      if (justFinishedLevel) {
-        // Bonus for completing every stage of a level (~25% of total reward).
-        xpGained += Math.max(5, Math.floor(level.xpReward * 0.25));
-        coinsGained += Math.max(1, Math.floor(level.coinReward * 0.25));
-      }
-
-      if (xpGained > 0 || coinsGained > 0) {
-        const user = await storage.getUser(req.userId!);
-        if (user) {
-          const newXp = user.xp + xpGained;
-          const newLevel = calculateLevel(newXp);
-          await storage.updateUser(req.userId!, {
-            xp: newXp,
-            level: newLevel,
-            eduCoins: user.eduCoins + coinsGained,
-          });
+        if (isFirstStageCompletion) {
+          xpGained += stageXp;
+          coinsGained += stageCoins;
+        } else if (completed) {
+          xpGained += Math.floor(stageXp * 0.25);
+          coinsGained += Math.floor(stageCoins * 0.25);
         }
-      }
+
+        if (justFinishedLevel) {
+          // Bonus for completing every stage of a level (~25% of total reward).
+          xpGained += Math.max(5, Math.floor(level.xpReward * 0.25));
+          coinsGained += Math.max(1, Math.floor(level.coinReward * 0.25));
+        }
+
+        if (xpGained > 0 || coinsGained > 0) {
+          const user = await storage.getUser(req.userId!);
+          if (user) {
+            const newXp = user.xp + xpGained;
+            const newLevel = calculateLevel(newXp);
+            await storage.updateUser(req.userId!, {
+              xp: newXp,
+              level: newLevel,
+              eduCoins: user.eduCoins + coinsGained,
+            });
+          }
+        }
+
+        return { progress: saved, xpGained, coinsGained, isFirstStageCompletion, isLevelFullyCompleted, justFinishedLevel };
+      });
+
+      const { progress, xpGained, coinsGained, isFirstStageCompletion, isLevelFullyCompleted, justFinishedLevel } = rewardOutcome;
 
       const newBadges = completed ? await checkAndAwardBadges(req.userId!) : [];
       const updatedUser = await storage.getUser(req.userId!);

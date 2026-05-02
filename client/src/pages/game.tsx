@@ -1092,10 +1092,16 @@ export default function GamePage() {
     setFinalScore(score);
     setGameState("complete");
 
+    // Clamp stageIndex against the loaded level so we never POST an out-of-range
+    // index (URL tampering, stale state, etc). The server clamps too — defense in depth.
+    const totalQs = level?.questions?.length ?? 0;
+    const totalForLevel = isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
+    const submittedStage = Math.min(Math.max(stageIndex, 0), Math.max(totalForLevel - 1, 0));
+
     try {
       const result = await progressMutation.mutateAsync({
         levelId: id!,
-        stageIndex,
+        stageIndex: submittedStage,
         score,
         completed: score > 0,
       });
@@ -1106,7 +1112,7 @@ export default function GamePage() {
             ? `🏆 LEVEL CLEAR — +${result.xpGained} XP!`
             : `+${result.xpGained} XP earned!`,
           description: result.isFirstStageCompletion
-            ? `Stage ${stageIndex + 1} clear · +${result.coinsGained} EduCoins`
+            ? `Stage ${submittedStage + 1} clear · +${result.coinsGained} EduCoins`
             : `Score: ${score}`,
         });
       }
@@ -1142,7 +1148,35 @@ export default function GamePage() {
   const questions = level.questions || [];
   const diffConfig = getDifficultyConfig(level.difficulty);
   const gameConfig = getGameTypeConfig(level.gameType);
-  const prevProgress = progress?.find((p: any) => p.levelId === id);
+
+  // Stage plumbing — only SAD games support multi-stage. Legacy games stay single-shot.
+  const isSAD = isSADGame(level.gameType);
+  const totalStages = isSAD ? Math.max(questions.length, 1) : 1;
+  const safeStageIndex = Math.min(Math.max(stageIndex, 0), Math.max(totalStages - 1, 0));
+  const stageQuestions = isSAD ? [questions[safeStageIndex]].filter(Boolean) : questions;
+  const difficulty = totalStages > 1 ? safeStageIndex / (totalStages - 1) : 0;
+  const diffPill = difficultyLabel(difficulty);
+
+  // Per-level stage progress map (one row per stage).
+  const levelStageRows = (progress || []).filter((p: any) => p.levelId === id);
+  const stagesByIdx = new Map<number, any>(
+    levelStageRows.map((p: any) => [p.stageIndex ?? 0, p])
+  );
+  const prevStageProgress = stagesByIdx.get(safeStageIndex);
+  const completedStages = new Set<number>(
+    levelStageRows.filter((p: any) => p.completed).map((p: any) => p.stageIndex ?? 0)
+  );
+  const levelFullyCompleted = completedStages.size >= totalStages;
+  const nextUnfinishedStage = (() => {
+    for (let i = safeStageIndex + 1; i < totalStages; i++) {
+      if (!completedStages.has(i)) return i;
+    }
+    for (let i = 0; i < totalStages; i++) {
+      if (!completedStages.has(i)) return i;
+    }
+    return -1;
+  })();
+  const hasMoreStagesAfter = isSAD && safeStageIndex + 1 < totalStages;
 
   return (
     <div className="min-h-screen p-4 md:p-6">
@@ -1226,10 +1260,38 @@ export default function GamePage() {
                     <p className="text-xs text-muted-foreground leading-relaxed">{meta.howTo}</p>
                   </div>
 
-                  {prevProgress?.completed && (
+                  {/* Stage badge + progress */}
+                  {totalStages > 1 && (
+                    <div className="rounded-lg bg-background/40 border border-border/40 p-3 mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-mono tracking-widest text-muted-foreground">
+                          STAGE {safeStageIndex + 1} / {totalStages}
+                        </span>
+                        <span className={`text-[11px] font-mono tracking-widest font-bold ${diffPill.color}`} data-testid="text-stage-difficulty">
+                          {diffPill.label}
+                        </span>
+                      </div>
+                      <div className="flex gap-1">
+                        {Array.from({ length: totalStages }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={`flex-1 h-1.5 rounded-full ${
+                              completedStages.has(i)
+                                ? "bg-emerald-400"
+                                : i === safeStageIndex
+                                ? "bg-primary"
+                                : "bg-muted/30"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {prevStageProgress?.completed && (
                     <div className="flex items-center gap-2 justify-center mb-3 text-sm text-emerald-400">
                       <CheckCircle2 className="w-4 h-4" />
-                      Best score: {prevProgress.score} — play again for fun!
+                      Best score this stage: {prevStageProgress.score} — beat it!
                     </div>
                   )}
 
@@ -1240,7 +1302,11 @@ export default function GamePage() {
                     data-testid="button-start-game"
                   >
                     <Sparkles className="w-4 h-4 mr-2" />
-                    {prevProgress?.completed ? "Play Again" : "Start Playing"}
+                    {prevStageProgress?.completed
+                      ? `Replay Stage ${safeStageIndex + 1}`
+                      : totalStages > 1
+                      ? `Start Stage ${safeStageIndex + 1}`
+                      : "Start Playing"}
                   </Button>
                 </div>
               </motion.div>
@@ -1310,16 +1376,16 @@ export default function GamePage() {
                   </div>
                 )}
 
-                {prevProgress?.completed && (
+                {prevStageProgress?.completed && (
                   <div className="flex items-center gap-2 justify-center mb-4 text-sm text-emerald-400">
                     <CheckCircle2 className="w-4 h-4" />
-                    Best score: {prevProgress.score} — play again for fun!
+                    Best score: {prevStageProgress.score} — play again for fun!
                   </div>
                 )}
 
                 <Button size="lg" onClick={() => setGameState("playing")} className="w-full" data-testid="button-start-game">
                   <Zap className="w-4 h-4 mr-2" />
-                  {prevProgress?.completed ? "Play Again" : "Start Game"}
+                  {prevStageProgress?.completed ? "Play Again" : "Start Game"}
                 </Button>
               </div>
             </motion.div>
@@ -1336,8 +1402,11 @@ export default function GamePage() {
               {isSADGame(level.gameType) && (
                 <SADGameRunner
                   gameType={level.gameType}
-                  questions={questions}
+                  questions={stageQuestions}
                   onComplete={handleGameComplete}
+                  difficulty={difficulty}
+                  stageIndex={safeStageIndex}
+                  totalStages={totalStages}
                 />
               )}
               {level.gameType === "wordle" && (
@@ -1361,30 +1430,88 @@ export default function GamePage() {
             </motion.div>
           )}
 
-          {gameState === "complete" && (
+          {gameState === "complete" && (() => {
+            const justFinishedLevel = !!progressMutation.data?.justFinishedLevel;
+            const passed = finalScore > 0;
+            const showNextStage = passed && hasMoreStagesAfter && nextUnfinishedStage > safeStageIndex;
+            const headline = justFinishedLevel
+              ? "🏆 LEVEL CLEAR!"
+              : passed && totalStages > 1
+              ? `STAGE ${safeStageIndex + 1} CLEAR!`
+              : passed
+              ? "LEVEL COMPLETE!"
+              : "GAME OVER";
+            return (
             <motion.div
               key="complete"
               className="text-center py-8 max-w-md mx-auto"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
             >
-              <div className="glass-strong rounded-2xl p-8 border border-primary/20">
+              <div className={`glass-strong rounded-2xl p-8 border ${justFinishedLevel ? "border-yellow-400/50" : "border-primary/20"}`}>
+                {/* Confetti burst on level clear */}
+                {justFinishedLevel && (
+                  <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
+                    {Array.from({ length: 24 }).map((_, i) => {
+                      const colors = ["#fbbf24", "#34d399", "#a78bfa", "#fb7185", "#22d3ee"];
+                      const color = colors[i % colors.length];
+                      const angle = (i / 24) * Math.PI * 2;
+                      return (
+                        <motion.div
+                          key={i}
+                          className="absolute rounded-sm"
+                          style={{ left: "50%", top: "20%", width: 8, height: 14, background: color }}
+                          initial={{ x: 0, y: 0, opacity: 1, rotate: 0 }}
+                          animate={{
+                            x: Math.cos(angle) * 220,
+                            y: Math.sin(angle) * 220 + 100,
+                            opacity: 0,
+                            rotate: 720,
+                          }}
+                          transition={{ duration: 1.4, delay: i * 0.02, ease: "easeOut" }}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+
                 <motion.div
                   animate={{ rotate: [0, -10, 10, -10, 10, 0], scale: [1, 1.2, 1] }}
                   transition={{ duration: 0.8 }}
-                  className="mb-4"
+                  className="mb-4 relative z-10"
                 >
-                  <Trophy className="w-16 h-16 text-yellow-400 mx-auto" />
+                  <Trophy className={`w-16 h-16 mx-auto ${justFinishedLevel ? "text-yellow-300" : passed ? "text-yellow-400" : "text-muted-foreground/40"}`} />
                 </motion.div>
 
-                <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: "Oxanium, sans-serif" }}>
-                  {finalScore > 0 ? "LEVEL COMPLETE!" : "GAME OVER"}
+                <h2 className="text-2xl font-bold mb-2 relative z-10" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                  {headline}
                 </h2>
-                <p className="text-muted-foreground mb-6">
-                  {finalScore > 0 ? "Great work! XP and EduCoins added." : "Don't give up! Try again."}
+                {totalStages > 1 && (
+                  <div className="flex items-center justify-center gap-1 mb-3">
+                    {Array.from({ length: totalStages }).map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-1.5 rounded-full ${
+                          (passed && i === safeStageIndex) || completedStages.has(i)
+                            ? "bg-emerald-400"
+                            : "bg-muted/30"
+                        }`}
+                        style={{ width: 22 }}
+                      />
+                    ))}
+                  </div>
+                )}
+                <p className="text-muted-foreground mb-6 relative z-10">
+                  {justFinishedLevel
+                    ? "Every stage cleared. You're a master of this level!"
+                    : passed && hasMoreStagesAfter
+                    ? "Stage banked. Push on to the next stage when you're ready."
+                    : passed
+                    ? "Great work! XP and EduCoins added."
+                    : "Don't give up! Try again."}
                 </p>
 
-                <div className="flex justify-center gap-6 mb-8">
+                <div className="flex justify-center gap-6 mb-8 relative z-10">
                   <div className="text-center">
                     <div className="text-3xl font-bold font-mono text-primary">{finalScore}</div>
                     <div className="text-xs text-muted-foreground">Score</div>
@@ -1403,24 +1530,37 @@ export default function GamePage() {
                   )}
                 </div>
 
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setGameState("idle")}
-                    data-testid="button-play-again"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-1" /> Play Again
-                  </Button>
-                  <Link href="/courses" className="flex-1">
-                    <Button className="w-full" data-testid="button-next-level">
-                      More Courses <ChevronRight className="w-4 h-4 ml-1" />
+                <div className="flex flex-col gap-2 relative z-10">
+                  {showNextStage && (
+                    <Button
+                      size="lg"
+                      className="w-full bg-gradient-to-r from-primary to-violet-500 text-primary-foreground"
+                      onClick={() => goToStage(nextUnfinishedStage)}
+                      data-testid="button-next-stage"
+                    >
+                      Next Stage {nextUnfinishedStage + 1} <ChevronRight className="w-4 h-4 ml-1" />
                     </Button>
-                  </Link>
+                  )}
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setGameState("idle")}
+                      data-testid="button-play-again"
+                    >
+                      <RotateCcw className="w-4 h-4 mr-1" /> Play Again
+                    </Button>
+                    <Link href={`/courses/${level.topicId || ""}`} className="flex-1">
+                      <Button variant={showNextStage ? "outline" : "default"} className="w-full" data-testid="button-next-level">
+                        Back to Level <ChevronRight className="w-4 h-4 ml-1" />
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               </div>
             </motion.div>
-          )}
+            );
+          })()}
         </AnimatePresence>
       </div>
     </div>

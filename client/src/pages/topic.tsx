@@ -9,8 +9,9 @@ import { Progress } from "@/components/ui/progress";
 import {
   ArrowLeft, Zap, Coins, Hash, Link2, Smile, Lock, CheckCircle2,
   Star, ChevronRight, BookOpen, Gamepad2, Sparkles,
-  Layers, Boxes, Workflow, Database, Activity, ListOrdered
+  Layers, Boxes, Workflow, Database, Activity, ListOrdered, Play
 } from "lucide-react";
+import { isSADGame, difficultyLabel } from "@/components/sad-games";
 
 const TOPIC_GRADIENTS: Record<string, string> = {
   "from-violet-600 to-purple-800": "linear-gradient(135deg, #7c3aed, #6b21a8)",
@@ -70,8 +71,27 @@ export default function TopicPage() {
 
   const gradient = TOPIC_GRADIENTS[topic.color] || "linear-gradient(135deg, #7c3aed, #6b21a8)";
   const levels = topic.levels || [];
-  const completedLevelIds = new Set(progress?.filter((p: any) => p.completed).map((p: any) => p.levelId));
-  const completedCount = levels.filter((l: any) => completedLevelIds.has(l.id)).length;
+
+  // Group progress rows by level — each level can now have multiple stage rows.
+  const stageRowsByLevel = new Map<string, any[]>();
+  (progress || []).forEach((p: any) => {
+    const list = stageRowsByLevel.get(p.levelId) || [];
+    list.push(p);
+    stageRowsByLevel.set(p.levelId, list);
+  });
+
+  // A level is fully completed when every one of its question-stages has a completed row.
+  // Prefer the server-provided questionCount; fall back to attached questions, then 1.
+  function totalStagesFor(level: any): number {
+    return Math.max(level.questionCount ?? level.questions?.length ?? 1, 1);
+  }
+  function isLevelFullyCompleted(level: any): boolean {
+    const stageRows = stageRowsByLevel.get(level.id) || [];
+    const completedStages = new Set(stageRows.filter((p: any) => p.completed).map((p: any) => p.stageIndex ?? 0));
+    return completedStages.size >= totalStagesFor(level);
+  }
+
+  const completedCount = levels.filter((l: any) => isLevelFullyCompleted(l)).length;
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
@@ -139,12 +159,84 @@ export default function TopicPage() {
         <h2 className="text-sm font-bold tracking-widest text-muted-foreground font-mono mb-4">AVAILABLE LEVELS</h2>
 
         {levels.map((level: any, index: number) => {
-          const isCompleted = completedLevelIds.has(level.id);
-          const isLocked = false; // All levels unlocked
-          const levelProgress = progress?.find((p: any) => p.levelId === level.id);
+          const stageRows = stageRowsByLevel.get(level.id) || [];
+          const isSAD = isSADGame(level.gameType);
+          const totalStages = isSAD ? totalStagesFor(level) : 1;
+          const completedStages = new Set<number>(
+            stageRows.filter((p: any) => p.completed).map((p: any) => p.stageIndex ?? 0)
+          );
+          const stageScores = new Map<number, number>(
+            stageRows.map((p: any) => [p.stageIndex ?? 0, p.score || 0])
+          );
+          const isFullyCompleted = completedStages.size >= totalStages;
+          const stagesDone = completedStages.size;
+          const totalScore = stageRows.reduce((s: number, p: any) => s + (p.score || 0), 0);
           const GameIcon = GAME_ICONS[level.gameType] || Hash;
           const diffConfig = getDifficultyConfig(level.difficulty);
           const gameConfig = getGameTypeConfig(level.gameType);
+
+          const cardBody = (
+            <div className="flex items-center gap-4">
+              {/* Level number + icon */}
+              <div className="relative flex-shrink-0">
+                <div
+                  className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center border transition-all ${
+                    isFullyCompleted
+                      ? "bg-emerald-500/20 border-emerald-500/40"
+                      : "bg-card border-border/40 group-hover:border-primary/30"
+                  }`}
+                >
+                  {isFullyCompleted ? (
+                    <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                  ) : (
+                    <GameIcon className={`w-5 h-5 ${gameConfig.color}`} />
+                  )}
+                  <span className="text-xs font-mono text-muted-foreground mt-0.5">L{level.levelNumber}</span>
+                </div>
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <h3 className={`font-semibold text-sm ${isFullyCompleted ? "text-emerald-400" : "group-hover:text-primary transition-colors"}`}>
+                    {level.name}
+                  </h3>
+                  <Badge variant="outline" className={`text-xs border ${diffConfig.bg} ${diffConfig.color}`}>
+                    {diffConfig.label}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {gameConfig.label}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mb-2">{gameConfig.description}</p>
+
+                {/* Stage / score summary */}
+                {totalScore > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid={`text-progress-${level.id}`}>
+                    <Star className="w-3 h-3 text-yellow-400" />
+                    {isSAD
+                      ? `${stagesDone}/${totalStages} stages cleared · ${totalScore} pts`
+                      : `Best score: ${totalScore}`}
+                  </div>
+                )}
+              </div>
+
+              {/* Rewards */}
+              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1 text-xs">
+                  <Zap className="w-3 h-3 text-primary" />
+                  <span className="text-primary font-bold">{level.xpReward} XP</span>
+                </div>
+                <div className="flex items-center gap-1 text-xs">
+                  <Coins className="w-3 h-3 text-yellow-400" />
+                  <span className="text-yellow-400 font-bold">{level.coinReward}</span>
+                </div>
+                {!isSAD && (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors mt-1" />
+                )}
+              </div>
+            </div>
+          );
 
           return (
             <motion.div
@@ -153,78 +245,83 @@ export default function TopicPage() {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 + index * 0.08 }}
             >
-              <Link href={`/game/${level.id}`}>
-                <div
-                  className={`relative rounded-xl border p-4 cursor-pointer transition-all duration-200 group ${
-                    isCompleted
-                      ? "border-emerald-500/30 bg-emerald-500/5"
-                      : "border-border/40 bg-card/80 hover:border-primary/30"
-                  }`}
-                  data-testid={`card-level-${level.id}`}
-                >
-                  {/* Completed glow */}
-                  {isCompleted && (
-                    <div className="absolute inset-0 rounded-xl bg-emerald-500/5 pointer-events-none" />
-                  )}
+              <div
+                className={`relative rounded-xl border p-4 transition-all duration-200 group ${
+                  isFullyCompleted
+                    ? "border-emerald-500/30 bg-emerald-500/5"
+                    : "border-border/40 bg-card/80 hover:border-primary/30"
+                }`}
+                data-testid={`card-level-${level.id}`}
+              >
+                {isSAD ? (
+                  cardBody
+                ) : (
+                  <Link href={`/game/${level.id}`}>
+                    <div className="cursor-pointer">{cardBody}</div>
+                  </Link>
+                )}
 
-                  <div className="flex items-center gap-4">
-                    {/* Level number + icon */}
-                    <div className="relative flex-shrink-0">
-                      <div
-                        className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center border transition-all ${
-                          isCompleted
-                            ? "bg-emerald-500/20 border-emerald-500/40"
-                            : "bg-card border-border/40 group-hover:border-primary/30"
-                        }`}
-                      >
-                        {isCompleted ? (
-                          <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                        ) : (
-                          <GameIcon className={`w-5 h-5 ${gameConfig.color}`} />
-                        )}
-                        <span className="text-xs font-mono text-muted-foreground mt-0.5">L{level.levelNumber}</span>
-                      </div>
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <h3 className={`font-semibold text-sm ${isCompleted ? "text-emerald-400" : "group-hover:text-primary transition-colors"}`}>
-                          {level.name}
-                        </h3>
-                        <Badge variant="outline" className={`text-xs border ${diffConfig.bg} ${diffConfig.color}`}>
-                          {diffConfig.label}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {gameConfig.label}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-2">{gameConfig.description}</p>
-
-                      {/* Score display */}
-                      {levelProgress && levelProgress.score > 0 && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Star className="w-3 h-3 text-yellow-400" />
-                          Best score: {levelProgress.score}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Rewards */}
-                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                      <div className="flex items-center gap-1 text-xs">
-                        <Zap className="w-3 h-3 text-primary" />
-                        <span className="text-primary font-bold">{level.xpReward} XP</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-xs">
-                        <Coins className="w-3 h-3 text-yellow-400" />
-                        <span className="text-yellow-400 font-bold">{level.coinReward}</span>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors mt-1" />
+                {/* Stage chips for SAD games — pick a stage to play */}
+                {isSAD && totalStages > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border/30">
+                    <div className="text-[10px] font-mono tracking-widest text-muted-foreground mb-2">PICK A STAGE</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {Array.from({ length: totalStages }).map((_, sIdx) => {
+                        const sDone = completedStages.has(sIdx);
+                        const sScore = stageScores.get(sIdx) || 0;
+                        const sDiff = totalStages > 1 ? sIdx / (totalStages - 1) : 0;
+                        const sLabel = difficultyLabel(sDiff);
+                        const isNextUp = !sDone && completedStages.size === sIdx;
+                        return (
+                          <Link key={sIdx} href={`/game/${level.id}?stage=${sIdx}`}>
+                            <motion.div
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.98 }}
+                              className={`relative overflow-hidden rounded-lg border p-2 cursor-pointer transition-colors ${
+                                sDone
+                                  ? "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-400/70"
+                                  : isNextUp
+                                  ? "border-primary/50 bg-primary/10 hover:border-primary"
+                                  : "border-border/40 bg-background/40 hover:border-primary/40 hover:bg-primary/5"
+                              }`}
+                              data-testid={`chip-stage-${level.id}-${sIdx}`}
+                            >
+                              {/* Shimmer on completed */}
+                              {sDone && (
+                                <motion.div
+                                  className="absolute inset-0 pointer-events-none"
+                                  style={{
+                                    background: "linear-gradient(110deg, transparent 30%, rgba(52,211,153,0.18) 50%, transparent 70%)",
+                                  }}
+                                  initial={{ x: "-100%" }}
+                                  animate={{ x: "100%" }}
+                                  transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.6, ease: "easeInOut" }}
+                                />
+                              )}
+                              <div className="relative flex items-center justify-between mb-1">
+                                <span className="text-xs font-bold font-mono">STAGE {sIdx + 1}</span>
+                                {sDone ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Play className="w-3 h-3 text-muted-foreground" />
+                                )}
+                              </div>
+                              <div className="relative flex items-center justify-between">
+                                <span className={`text-[10px] font-mono tracking-wider font-bold ${sLabel.color}`}>
+                                  {sLabel.label}
+                                </span>
+                                {sScore > 0 && (
+                                  <span className="text-[10px] text-yellow-400 font-mono">★ {sScore}</span>
+                                )}
+                              </div>
+                            </motion.div>
+                          </Link>
+                        );
+                      })}
                     </div>
                   </div>
-                </div>
-              </Link>
+                )}
+              </div>
             </motion.div>
           );
         })}
