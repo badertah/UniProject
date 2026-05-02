@@ -86,7 +86,7 @@ export const SAD_GAMES: Record<string, SADGameMeta> = {
     title: "Sequence Rhythm",
     short: "Sequence Diagrams show messages between objects in time order — top to bottom.",
     detail: "Each vertical line is an object. Horizontal arrows are messages between them. Time flows downward, so the earliest message is at the top.",
-    howTo: "Each message falls toward an actor's lane. Hit the lane key (D / F / J / K) or tap the lane just as the note crosses the line for combo.",
+    howTo: "Each message falls toward an actor's lane. Hit the lane key (Q / W / E / R) or tap the lane just as the note crosses the line for combo.",
     icon: Timer,
     color: "text-indigo-300",
     gradient: "from-indigo-500 to-blue-700",
@@ -2340,7 +2340,7 @@ function DataFlowPlumber({ questions, onComplete, difficulty = 0 }: SADGameProps
 // Hit line is the top of the chunky key pad (Magic Tiles feel — tiles
 // "land" on a clearly visible piano-key strip at the bottom of each lane).
 const HIT_LINE_PCT = 78;
-const SEQ_KEYS = ["d", "f", "j", "k"];
+const SEQ_KEYS = ["q", "w", "e", "r"];
 const LANE_COLORS = ["#a78bfa", "#22d3ee", "#fbbf24", "#f472b6"];
 
 interface SeqNote {
@@ -2612,16 +2612,40 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
 
         {/* Lane tap surfaces — full-height invisible buttons that grab every
             tap or click (anywhere in the lane counts). pointerdown for instant
-            response on touch devices (no 300ms click delay). */}
+            response on touch devices (no 300ms click delay). Each lane has a
+            faint vertical color tint so the player can clearly see which key
+            owns which column. */}
         <div className="absolute inset-0 grid pt-9 z-0" style={{ gridTemplateColumns: `repeat(${objects.length}, 1fr)` }}>
-          {objects.map((obj, i) => (
-            <button
+          {objects.map((obj, i) => {
+            const color = LANE_COLORS[i % 4];
+            return (
+              <button
+                key={i}
+                type="button"
+                className="relative cursor-pointer touch-none focus:outline-none"
+                style={{
+                  background: `linear-gradient(180deg, ${color}10 0%, ${color}05 50%, ${color}15 100%)`,
+                }}
+                onPointerDown={(e) => { e.preventDefault(); pressLane(i); hitLane(i); }}
+                data-testid={`lane-${i}`}
+                aria-label={`Lane ${i + 1}: ${obj}`}
+              />
+            );
+          })}
+        </div>
+
+        {/* Bold vertical lane dividers spanning the whole play area — makes
+            it instantly obvious which column belongs to which key. */}
+        <div className="absolute inset-0 pt-9 z-10 pointer-events-none">
+          {Array.from({ length: objects.length - 1 }).map((_, i) => (
+            <div
               key={i}
-              type="button"
-              className="border-r border-border/20 last:border-r-0 relative cursor-pointer touch-none focus:outline-none bg-gradient-to-b from-white/[0.02] via-transparent to-white/[0.02]"
-              onPointerDown={(e) => { e.preventDefault(); pressLane(i); hitLane(i); }}
-              data-testid={`lane-${i}`}
-              aria-label={`Lane ${i + 1}: ${obj}`}
+              className="absolute top-0 bottom-0 w-px"
+              style={{
+                left: `${((i + 1) / objects.length) * 100}%`,
+                background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.04) 100%)",
+                boxShadow: "0 0 4px rgba(255,255,255,0.08)",
+              }}
             />
           ))}
         </div>
