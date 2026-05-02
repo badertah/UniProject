@@ -251,24 +251,41 @@ const LVL_LABEL = ["", "LV1", "LV2", "LV3★"];
 const CAT_HEX: Record<string, string> = { crops: "#43A047", buildings: "#1565C0", livestock: "#E8730C", equipment: "#7B1FA2" };
 
 // === Camera config ===
-const ZOOM_MIN_FACTOR = 0.55;   // multiplier off the fit-scale
-const ZOOM_MAX_FACTOR = 1.75;
-const PAN_EDGE_PAD    = 0.18;   // keep at least this much of viewport showing the world
+// The farm world is rendered at WORLD_W × WORLD_H. We must NEVER let the
+// camera zoom or pan to a state where its rectangular edges are visible —
+// that's what makes the scene look like a "framed pic" instead of a
+// continuous landscape. Two invariants enforce this:
+//   1. minScale is *at least* the scale needed for the world to cover the
+//      viewport on both axes (computed per-render from viewport size).
+//   2. clampCamera locks pan so the viewport is always entirely inside the
+//      world's transformed bounds (no edge can ever scroll into view).
+const ZOOM_MAX_FACTOR = 2.2;    // upper-zoom multiplier (allow tighter close-ups)
 
 type Camera = { x: number; y: number; scale: number };
 
+// Smallest scale at which world still fully covers the viewport on both axes.
+// Tiny epsilon (0.002 ≈ 0.2%) guards against sub-pixel rounding on some GPUs
+// that could otherwise reveal a 1px seam between world edge and page bg.
+function viewportCoverScale(vw: number, vh: number) {
+  return Math.max(vw / WORLD_W, vh / WORLD_H) + 0.002;
+}
+
 function clampCamera(cam: Camera, vw: number, vh: number, minScale: number, maxScale: number): Camera {
-  const scale = Math.max(minScale, Math.min(maxScale, cam.scale));
+  // Floor minScale to "world covers viewport" so edges can never be revealed.
+  const coverFloor = viewportCoverScale(vw, vh);
+  const effectiveMin = Math.max(minScale, coverFloor);
+  const scale = Math.max(effectiveMin, Math.min(maxScale, cam.scale));
   const wScale = WORLD_W * scale;
   const hScale = WORLD_H * scale;
-  // Allow generous panning but keep at least PAN_EDGE_PAD of viewport showing the world.
-  const minX = vw * (1 - PAN_EDGE_PAD) - wScale;
-  const maxX = vw * PAN_EDGE_PAD;
-  const minY = vh * (1 - PAN_EDGE_PAD) - hScale;
-  const maxY = vh * PAN_EDGE_PAD;
+  // Lock pan: viewport must stay fully inside world bounds (no over-pan).
+  // x range: [-(wScale - vw), 0]  (cam.x is the world-origin in viewport px)
+  const minX = vw - wScale;
+  const maxX = 0;
+  const minY = vh - hScale;
+  const maxY = 0;
   return {
-    x: wScale < vw ? (vw - wScale) / 2 : Math.max(minX, Math.min(maxX, cam.x)),
-    y: hScale < vh ? (vh - hScale) / 2 : Math.max(minY, Math.min(maxY, cam.y)),
+    x: wScale <= vw ? (vw - wScale) / 2 : Math.max(minX, Math.min(maxX, cam.x)),
+    y: hScale <= vh ? (vh - hScale) / 2 : Math.max(minY, Math.min(maxY, cam.y)),
     scale,
   };
 }
@@ -420,10 +437,15 @@ export default function FarmPage() {
   const fitScale = useMemo(() => {
     const widthFit  = (viewSize.w * (isMobile ? 1.0 : 0.92)) / CLUSTER_W;
     const heightFit = (viewSize.h * (isMobile ? 0.78 : 0.72)) / CLUSTER_H;
-    return Math.max(0.30, Math.min(widthFit, heightFit, 1.0));
+    // Floor at viewport-cover scale so the world always fills the screen even
+    // at the default fit zoom — no edges, no "framed picture" feel.
+    const cover = viewportCoverScale(viewSize.w, viewSize.h);
+    return Math.max(cover, Math.min(widthFit, heightFit, 1.6));
   }, [viewSize.w, viewSize.h, isMobile]);
-  const minScale = useMemo(() => Math.max(0.28, fitScale * ZOOM_MIN_FACTOR), [fitScale]);
-  const maxScale = useMemo(() => Math.min(1.75, fitScale * ZOOM_MAX_FACTOR), [fitScale]);
+  // minScale = the cover scale (cannot zoom out further). maxScale allows
+  // tighter close-ups than fit so users can inspect individual buildings.
+  const minScale = useMemo(() => viewportCoverScale(viewSize.w, viewSize.h), [viewSize.w, viewSize.h]);
+  const maxScale = useMemo(() => Math.max(fitScale * ZOOM_MAX_FACTOR, 1.6), [fitScale]);
 
   const computeDefaultCam = useCallback((vw: number, vh: number, scale: number): Camera => {
     return clampCamera({
