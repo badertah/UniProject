@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import {
-  useAtmosphere, skyGradient, CelestialBody, Stars, WeatherLayer,
+  useAtmosphere, skyGradient, CelestialBody, Stars, WeatherLayer, SkyBalloon,
   AmbientCreatures, TickProgress, BankMeter, WeatherBadge,
   GoldenCropOverlay, useGoldenCropSpawner, HarvestBurst, LightningFlash,
 } from "@/components/farm-extras";
@@ -653,6 +653,7 @@ export default function FarmPage() {
       {/* === SKY ATMOSPHERE — fixed in viewport, behind the world === */}
       <Stars phase={atm.phase} />
       <CelestialBody phase={atm.phase} />
+      <SkyBalloon phase={atm.phase} />
       <WeatherLayer weather={atm.weather} phase={atm.phase} />
       <LightningFlash weather={atm.weather} />
 
@@ -1005,13 +1006,6 @@ export default function FarmPage() {
         onClaim={claimQuest}
         isPending={claimQuestMutation.isPending}
       />
-
-      {/* === Footer hint === */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 text-center pb-2 pointer-events-none">
-        <p className="text-[10px] sm:text-[11px] font-medium px-3 py-1 rounded-full inline-block" style={{ background: "rgba(20,12,4,0.65)", color: "rgba(220,200,160,0.85)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,215,0,0.15)" }}>
-          <span className="hidden sm:inline">Drag to pan · Pinch / scroll to zoom · </span>Tap a plot to build · Income every 30s
-        </p>
-      </div>
 
       {/* Building modal */}
       <AnimatePresence>

@@ -131,15 +131,91 @@ export function CelestialBody({ phase }: { phase: number }) {
     );
   }
   // Moon at night (phase 0.78..1 and 0..0.22)
+  // Larger, brighter crescent with a soft halo + a sprinkle of nearby stars
+  // — gives the night sky a clear focal point matching the polished design.
   return (
     <div className="absolute pointer-events-none" style={{ left: x, top, transform: "translate(-50%, 0)", zIndex: 1 }}>
-      <div style={{ filter: "drop-shadow(0 0 18px rgba(180,200,255,0.55))" }}>
-        <svg width={48} height={48} viewBox="0 0 48 48">
-          <circle cx={24} cy={24} r={16} fill="#E8EAF6"/>
-          <circle cx={20} cy={22} r={14} fill="#0a1430"/>
-          <circle cx={31} cy={20} r={2} fill="#C5CAE9" opacity={0.6}/>
-          <circle cx={28} cy={28} r={1.5} fill="#C5CAE9" opacity={0.5}/>
-          <circle cx={33} cy={26} r={1} fill="#C5CAE9" opacity={0.5}/>
+      <div style={{ filter: "drop-shadow(0 0 28px rgba(200,215,255,0.75)) drop-shadow(0 0 12px rgba(255,255,255,0.45))" }}>
+        <svg width={84} height={84} viewBox="0 0 84 84">
+          {/* Soft outer halo */}
+          <circle cx={42} cy={42} r={36} fill="rgba(220,230,255,0.06)"/>
+          <circle cx={42} cy={42} r={28} fill="rgba(220,230,255,0.10)"/>
+          {/* Crescent: bright disc + offset dark disc carving the bite */}
+          <circle cx={42} cy={42} r={22} fill="#F5F7FF"/>
+          <circle cx={42} cy={42} r={22} fill="url(#moonShade)"/>
+          <circle cx={34} cy={38} r={20} fill="#0a1430"/>
+          {/* A couple of subtle craters on the lit edge */}
+          <circle cx={56} cy={36} r={1.6} fill="#C5CAE9" opacity={0.55}/>
+          <circle cx={52} cy={48} r={1.2} fill="#C5CAE9" opacity={0.45}/>
+          <circle cx={58} cy={46} r={0.9} fill="#C5CAE9" opacity={0.45}/>
+          <defs>
+            <radialGradient id="moonShade" cx="0.7" cy="0.4" r="0.7">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.0)"/>
+              <stop offset="80%" stopColor="rgba(120,140,200,0.18)"/>
+              <stop offset="100%" stopColor="rgba(80,100,160,0.30)"/>
+            </radialGradient>
+          </defs>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SkyBalloon — a friendly hot-air balloon drifting across the upper sky.
+// Lives in the fixed-viewport sky overlay (NOT the panning world) so it
+// stays visible no matter where the camera is. Faintly fades during the day
+// when the sun washes out the sky and is fully opaque at night.
+// ============================================================================
+export function SkyBalloon({ phase }: { phase: number }) {
+  // Brighter at night, softer at noon
+  const isNightish = phase < 0.28 || phase > 0.72;
+  const opacity = isNightish ? 0.95 : 0.7;
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{
+        top: "6%",
+        left: "-12%",
+        zIndex: 2,
+        animation: "skyBalloonDrift 55s linear infinite",
+        opacity,
+      }}
+    >
+      <style>{`
+        @keyframes skyBalloonDrift {
+          0%   { transform: translate(0vw, 0px); }
+          25%  { transform: translate(28vw, -10px); }
+          50%  { transform: translate(56vw, 6px); }
+          75%  { transform: translate(86vw, -6px); }
+          100% { transform: translate(120vw, 4px); }
+        }
+        @keyframes skyBalloonBob {
+          0%, 100% { transform: translateY(0); }
+          50%      { transform: translateY(-6px); }
+        }
+      `}</style>
+      <div style={{ animation: "skyBalloonBob 4.5s ease-in-out infinite", filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.45))" }}>
+        <svg width={68} height={104} viewBox="0 0 68 104">
+          {/* Ropes */}
+          <line x1={14} y1={62} x2={26} y2={86} stroke="#5D4037" strokeWidth={1.2}/>
+          <line x1={54} y1={62} x2={42} y2={86} stroke="#5D4037" strokeWidth={1.2}/>
+          <line x1={26} y1={62} x2={30} y2={86} stroke="#5D4037" strokeWidth={1.0}/>
+          <line x1={42} y1={62} x2={38} y2={86} stroke="#5D4037" strokeWidth={1.0}/>
+          {/* Envelope */}
+          <ellipse cx={34} cy={36} rx={26} ry={32} fill="#E91E63"/>
+          <path d="M8 38 Q8 8 34 0 Q60 8 60 38 Z" fill="#F06292"/>
+          {/* Vertical stripes */}
+          <path d="M34 4 Q22 16 22 42 Q22 58 34 66" fill="none" stroke="#FFEB3B" strokeWidth={3} opacity={0.85}/>
+          <path d="M34 4 Q46 16 46 42 Q46 58 34 66" fill="none" stroke="#FFEB3B" strokeWidth={3} opacity={0.85}/>
+          {/* Sheen */}
+          <ellipse cx={22} cy={22} rx={6} ry={12} fill="rgba(255,255,255,0.35)"/>
+          {/* Basket */}
+          <rect x={22} y={86} width={24} height={14} rx={2} fill="#7B5028"/>
+          <rect x={24} y={88} width={20} height={10} rx={1.5} fill="#A0724E"/>
+          <line x1={28} y1={88} x2={28} y2={98} stroke="#5D4037" strokeWidth={0.6}/>
+          <line x1={34} y1={88} x2={34} y2={98} stroke="#5D4037" strokeWidth={0.6}/>
+          <line x1={40} y1={88} x2={40} y2={98} stroke="#5D4037" strokeWidth={0.6}/>
         </svg>
       </div>
     </div>
