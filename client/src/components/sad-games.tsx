@@ -1471,18 +1471,50 @@ function UseCaseDefense({ questions, onComplete, difficulty = 0 }: SADGameProps)
     if (stage !== "wave" || paused) return;
 
     // 1) Spawn next enemy if any left.
+    //    To prevent labels overlapping (each pill is ~100px wide), pick the
+    //    lane whose trailing enemy is FURTHEST from the spawn edge — i.e. the
+    //    lane with the most headroom. If every lane still has an enemy too
+    //    close to the spawn point, hold the spawn this tick instead of forcing
+    //    a visual collision.
     let spawnedEnemy: UCDEnemy | null = null;
     if (spawned < waveOrder.current.length) {
       spawnAcc.current += dt;
       if (spawnAcc.current >= UCD_SPAWN_GAP_SEC) {
-        spawnAcc.current = 0;
-        const uc = waveOrder.current[spawned];
-        const lane = Math.floor(Math.random() * UCD_LANES);
-        const id = nextEnemyId.current++;
-        spawnedEnemy = {
-          id, label: uc.label, actorId: uc.actorId, lane,
-          x: 100, hp: 1, defeated: false,
-        };
+        // Find the smallest x (closest to base) among ALIVE enemies in each lane.
+        // The lane whose nearest-to-spawn enemy is FURTHEST left (smallest x)
+        // has the most headroom near x=100.
+        const minXByLane: number[] = Array(UCD_LANES).fill(Infinity);
+        for (const e of enemiesRef.current) {
+          if (e.defeated) continue;
+          // We care about how close each lane's TRAILING (right-most) enemy is
+          // to the spawn edge. So track MAX x per lane, then pick the lane with
+          // the lowest max — that lane has its trailing enemy furthest left.
+          if (e.x > (minXByLane[e.lane] === Infinity ? -1 : minXByLane[e.lane])) {
+            minXByLane[e.lane] = e.x;
+          }
+        }
+        // Empty lanes (Infinity) become best candidates (no trailing enemy at all).
+        let bestLane = 0;
+        let bestX = Infinity;
+        for (let i = 0; i < UCD_LANES; i++) {
+          // Empty lane → headroom is "infinite". Treat as -Infinity so it wins.
+          const trailX = minXByLane[i] === Infinity ? -Infinity : minXByLane[i];
+          if (trailX < bestX) { bestX = trailX; bestLane = i; }
+        }
+        // Need at least ~22% gap between spawn (x=100) and the trailing enemy
+        // so the new pill doesn't visually butt against the previous one.
+        const MIN_GAP = 22;
+        const canSpawn = bestX === -Infinity || (100 - bestX) >= MIN_GAP;
+        if (canSpawn) {
+          spawnAcc.current = 0;
+          const uc = waveOrder.current[spawned];
+          const id = nextEnemyId.current++;
+          spawnedEnemy = {
+            id, label: uc.label, actorId: uc.actorId, lane: bestLane,
+            x: 100, hp: 1, defeated: false,
+          };
+        }
+        // else: leave spawnAcc above the threshold so we re-try next tick.
       }
     }
 
@@ -1654,13 +1686,15 @@ function UseCaseDefense({ questions, onComplete, difficulty = 0 }: SADGameProps)
                       style={{ left: `${e.x}%`, top: laneTop, width: 100, marginLeft: -50, height: 48 }}
                       data-testid={`enemy-${e.id}`}
                     >
-                      <div className={`px-2 py-1 rounded-lg border-2 backdrop-blur shadow-lg flex items-center gap-1 transition-colors ${
+                      <div className={`px-2 py-1 rounded-lg border-2 backdrop-blur shadow-lg flex items-center gap-1 transition-colors whitespace-nowrap ${
                         e.defeated
-                          ? "bg-emerald-500/40 border-emerald-300"
-                          : "bg-rose-500/30 border-rose-400/70 hover:bg-rose-500/50"
-                      }`}>
+                          ? "bg-emerald-500/50 border-emerald-300"
+                          : "bg-rose-600/70 border-rose-300 hover:bg-rose-500/80"
+                      }`}
+                      style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4)" }}
+                      >
                         <span className="text-base">{e.defeated ? "💥" : "👾"}</span>
-                        <span className="text-[10px] font-bold text-rose-100 leading-tight max-w-20 truncate">
+                        <span className="text-[10px] font-bold text-white leading-tight max-w-20 truncate" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}>
                           {e.label}
                         </span>
                       </div>
