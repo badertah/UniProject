@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -6,13 +6,17 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft } from "lucide-react";
+import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, Plus, Minus, Maximize2 } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import {
   useAtmosphere, skyGradient, CelestialBody, Stars, WeatherLayer,
   AmbientCreatures, TickProgress, BankMeter, WeatherBadge,
   GoldenCropOverlay, useGoldenCropSpawner, HarvestBurst, LightningFlash,
 } from "@/components/farm-extras";
+import {
+  WORLD_W, WORLD_H, BOARD_W, BOARD_H, BOARD_OFFSET_X, BOARD_OFFSET_Y,
+  WorldGround, Minimap,
+} from "@/components/farm-world";
 
 const TICK_INTERVAL_MS = 30_000;
 const MAX_FARM_BANK    = 500;
@@ -23,8 +27,8 @@ const ISO_HALF_W = 120;
 const ISO_HALF_H = 60;
 const CENTER_X = 560;
 const START_Y = 80;
-const CANVAS_W = 1120;
-const CANVAS_H = 600;
+const CANVAS_W = BOARD_W;
+const CANVAS_H = BOARD_H;
 
 interface BuildingDef {
   id: string; name: string; emoji: string;
@@ -56,10 +60,6 @@ function isoPos(col: number, row: number) {
     x: CENTER_X + (col - row) * ISO_HALF_W,
     y: START_Y + (col + row) * ISO_HALF_H,
   };
-}
-
-function diamondPoints(cx: number, cy: number, hw = ISO_HALF_W, hh = ISO_HALF_H) {
-  return `${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}`;
 }
 
 type FarmSave = {
@@ -100,13 +100,29 @@ function processTicks(state: FarmSave, n: number, silent = false) {
 
 const LVL_LABEL = ["", "LV1", "LV2", "LV3★"];
 const CAT_HEX: Record<string, string> = { crops: "#43A047", buildings: "#1565C0", livestock: "#E8730C", equipment: "#7B1FA2" };
-const PLOT_COLORS: Record<string, { fill: string; stroke: string; locked: string }> = {
-  crops:     { fill: "#8B6914", stroke: "#6B4F10", locked: "#7a6a55" },
-  livestock: { fill: "#7CB342", stroke: "#558B2F", locked: "#6a7a55" },
-  buildings: { fill: "#9E9E9E", stroke: "#757575", locked: "#8a8a7a" },
-  equipment: { fill: "#78909C", stroke: "#546E7A", locked: "#7a8080" },
-};
-const CAT_PLOT_ID: Record<string, string> = { crops: "plotCrops", livestock: "plotLive", buildings: "plotBuild", equipment: "plotEquip" };
+
+// === Camera config ===
+const ZOOM_MIN_FACTOR = 0.55;   // multiplier off the fit-scale
+const ZOOM_MAX_FACTOR = 1.75;
+const PAN_EDGE_PAD    = 0.18;   // keep at least this much of viewport showing the world
+
+type Camera = { x: number; y: number; scale: number };
+
+function clampCamera(cam: Camera, vw: number, vh: number, minScale: number, maxScale: number): Camera {
+  const scale = Math.max(minScale, Math.min(maxScale, cam.scale));
+  const wScale = WORLD_W * scale;
+  const hScale = WORLD_H * scale;
+  // Allow generous panning but keep at least PAN_EDGE_PAD of viewport showing the world.
+  const minX = vw * (1 - PAN_EDGE_PAD) - wScale;
+  const maxX = vw * PAN_EDGE_PAD;
+  const minY = vh * (1 - PAN_EDGE_PAD) - hScale;
+  const maxY = vh * PAN_EDGE_PAD;
+  return {
+    x: wScale < vw ? (vw - wScale) / 2 : Math.max(minX, Math.min(maxX, cam.x)),
+    y: hScale < vh ? (vh - hScale) / 2 : Math.max(minY, Math.min(maxY, cam.y)),
+    scale,
+  };
+}
 
 export default function FarmPage() {
   const { user, updateUser } = useAuth();
@@ -116,14 +132,12 @@ export default function FarmPage() {
   const [selected, setSelected] = useState<BuildingDef | null>(null);
   const [isHarvesting, setIsHarvesting] = useState(false);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
-  // Keep user id accessible inside tick closure without re-creating the interval
   const userIdRef = useRef<string | null>(null);
   const loadedForRef = useRef<string | null>(null);
 
-  // Load the correct farm state whenever the logged-in user changes
   useEffect(() => {
     if (!user) return;
-    if (loadedForRef.current === user.id) return; // already loaded for this user
+    if (loadedForRef.current === user.id) return;
     loadedForRef.current = user.id;
     userIdRef.current = user.id;
     const saved = loadState(user.id);
@@ -200,39 +214,229 @@ export default function FarmPage() {
 
   const [, setLocation] = useLocation();
 
-  const [viewSize, setViewSize] = useState({ w: window.innerWidth, h: window.innerHeight });
-  useEffect(() => { const r = () => setViewSize({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
+  const [viewSize, setViewSize] = useState({ w: typeof window !== "undefined" ? window.innerWidth : 1024, h: typeof window !== "undefined" ? window.innerHeight : 768 });
+  useEffect(() => {
+    const r = () => setViewSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", r);
+    window.addEventListener("orientationchange", r);
+    return () => { window.removeEventListener("resize", r); window.removeEventListener("orientationchange", r); };
+  }, []);
+
+  // === Camera (pan + zoom) ===
+  // Compute the "fit" scale so the board comfortably fills the viewport on
+  // first render, then derive min/max zoom around it.
+  const isMobile = viewSize.w < 640;
+  const fitScale = useMemo(() => {
+    const widthFit  = (viewSize.w * (isMobile ? 1.0 : 0.92)) / BOARD_W;
+    const heightFit = (viewSize.h * (isMobile ? 0.78 : 0.72)) / BOARD_H;
+    return Math.max(0.35, Math.min(widthFit, heightFit, 1.05));
+  }, [viewSize.w, viewSize.h, isMobile]);
+  const minScale = useMemo(() => Math.max(0.32, fitScale * ZOOM_MIN_FACTOR), [fitScale]);
+  const maxScale = useMemo(() => Math.min(1.75, fitScale * ZOOM_MAX_FACTOR), [fitScale]);
+
+  const computeDefaultCam = useCallback((vw: number, vh: number, scale: number): Camera => {
+    const boardCx = BOARD_OFFSET_X + BOARD_W / 2;
+    const boardCy = BOARD_OFFSET_Y + BOARD_H / 2;
+    return clampCamera({
+      x: vw / 2 - boardCx * scale,
+      y: vh * 0.50 - boardCy * scale + (isMobile ? 24 : 18),
+      scale,
+    }, vw, vh, scale * 0.9, scale * 1.1);
+  }, [isMobile]);
+
+  const [camera, setCameraState] = useState<Camera>(() => computeDefaultCam(viewSize.w, viewSize.h, fitScale));
+  const cameraRef = useRef(camera);
+  const setCamera = useCallback((next: Camera | ((c: Camera) => Camera)) => {
+    setCameraState(prev => {
+      const v = typeof next === "function" ? next(prev) : next;
+      cameraRef.current = v;
+      return v;
+    });
+  }, []);
+
+  // Re-fit camera ONLY on meaningful viewport changes — not on mobile
+  // browser-chrome jitter (URL bar collapse changes innerHeight by ~100px).
+  // We re-fit when:
+  //   • The user has not yet interacted (initial mount / freshly mounted), OR
+  //   • Orientation flipped (landscape ↔ portrait), OR
+  //   • Width changed by > 80px (real resize, not chrome jitter).
+  const userInteractedRef = useRef(false);
+  const lastFitRef = useRef<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const last = lastFitRef.current;
+    if (!last) {
+      lastFitRef.current = { w: viewSize.w, h: viewSize.h };
+      setCamera(computeDefaultCam(viewSize.w, viewSize.h, fitScale));
+      return;
+    }
+    const orientationFlipped = (last.w > last.h) !== (viewSize.w > viewSize.h);
+    const widthChangedSignificantly = Math.abs(viewSize.w - last.w) > 80;
+    if (orientationFlipped || widthChangedSignificantly || !userInteractedRef.current) {
+      lastFitRef.current = { w: viewSize.w, h: viewSize.h };
+      setCamera(computeDefaultCam(viewSize.w, viewSize.h, fitScale));
+    }
+    // Otherwise (mobile address-bar collapse, tiny height jitter) keep the
+    // camera where the user left it. Just re-clamp so it stays in bounds.
+    else {
+      lastFitRef.current = { w: viewSize.w, h: viewSize.h };
+      setCamera(c => clampCamera(c, viewSize.w, viewSize.h, minScale, maxScale));
+    }
+  }, [viewSize.w, viewSize.h, fitScale, minScale, maxScale, computeDefaultCam, setCamera]);
+
+  const recenter = useCallback(() => {
+    userInteractedRef.current = false; // explicit recenter resets the "user moved it" flag
+    setCamera(computeDefaultCam(viewSize.w, viewSize.h, fitScale));
+  }, [computeDefaultCam, viewSize.w, viewSize.h, fitScale, setCamera]);
+
+  // Smoothly nudge zoom toward the viewport center (used by +/- buttons)
+  const nudgeZoom = useCallback((factor: number) => {
+    userInteractedRef.current = true;
+    setCamera(prev => {
+      const ns = Math.max(minScale, Math.min(maxScale, prev.scale * factor));
+      const cx = viewSize.w / 2;
+      const cy = viewSize.h / 2;
+      const wx = (cx - prev.x) / prev.scale;
+      const wy = (cy - prev.y) / prev.scale;
+      return clampCamera({ x: cx - wx * ns, y: cy - wy * ns, scale: ns }, viewSize.w, viewSize.h, minScale, maxScale);
+    });
+  }, [minScale, maxScale, viewSize.w, viewSize.h, setCamera]);
+
+  // === Pan / pinch handlers ===
+  // `moved` tracks the CURRENT in-progress gesture only and is reset on
+  // pointer-end. To still swallow the synthetic click that fires
+  // immediately after a drag (browsers fire `click` after `pointerup` on
+  // the same target), we set `suppressClickUntil` to a short timestamp and
+  // tileClickGuard checks that.
+  const dragRef = useRef({
+    pointers: new Map<number, { x: number; y: number }>(),
+    moved: false,
+    startX: 0, startY: 0,
+    camX: 0, camY: 0,
+    pinchDist: 0,
+    pinchScale: 1,
+    pinchMidX: 0, pinchMidY: 0,
+    pinchCamX: 0, pinchCamY: 0,
+    suppressClickUntil: 0,
+  });
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    // If the user pressed on an interactive element (tile, button), let it handle the click.
+    if (target.closest("[data-no-pan]")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
+    dragRef.current.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (dragRef.current.pointers.size === 1) {
+      dragRef.current.moved = false;
+      dragRef.current.startX = e.clientX;
+      dragRef.current.startY = e.clientY;
+      dragRef.current.camX = cameraRef.current.x;
+      dragRef.current.camY = cameraRef.current.y;
+    } else if (dragRef.current.pointers.size === 2) {
+      const pts = Array.from(dragRef.current.pointers.values());
+      dragRef.current.pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      dragRef.current.pinchScale = cameraRef.current.scale;
+      dragRef.current.pinchMidX = (pts[0].x + pts[1].x) / 2;
+      dragRef.current.pinchMidY = (pts[0].y + pts[1].y) / 2;
+      dragRef.current.pinchCamX = cameraRef.current.x;
+      dragRef.current.pinchCamY = cameraRef.current.y;
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current.pointers.has(e.pointerId)) return;
+    dragRef.current.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (dragRef.current.pointers.size === 1) {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 6) {
+        dragRef.current.moved = true;
+        userInteractedRef.current = true;
+      }
+      if (dragRef.current.moved) {
+        setCamera(c => clampCamera({ x: dragRef.current.camX + dx, y: dragRef.current.camY + dy, scale: c.scale }, viewSize.w, viewSize.h, minScale, maxScale));
+      }
+    } else if (dragRef.current.pointers.size === 2) {
+      const pts = Array.from(dragRef.current.pointers.values());
+      const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (dragRef.current.pinchDist > 0) {
+        const newScale = Math.max(minScale, Math.min(maxScale, dragRef.current.pinchScale * (d / dragRef.current.pinchDist)));
+        const mx = (pts[0].x + pts[1].x) / 2;
+        const my = (pts[0].y + pts[1].y) / 2;
+        // Anchor zoom around the original pinch midpoint in world coords
+        const wx = (dragRef.current.pinchMidX - dragRef.current.pinchCamX) / dragRef.current.pinchScale;
+        const wy = (dragRef.current.pinchMidY - dragRef.current.pinchCamY) / dragRef.current.pinchScale;
+        const newCamX = mx - wx * newScale;
+        const newCamY = my - wy * newScale;
+        setCamera(clampCamera({ x: newCamX, y: newCamY, scale: newScale }, viewSize.w, viewSize.h, minScale, maxScale));
+        dragRef.current.moved = true;
+        userInteractedRef.current = true;
+      }
+    }
+  };
+
+  const endPointer = (e: React.PointerEvent) => {
+    dragRef.current.pointers.delete(e.pointerId);
+    if (dragRef.current.pointers.size < 2) {
+      dragRef.current.pinchDist = 0;
+    }
+    if (dragRef.current.pointers.size === 0) {
+      // If THIS gesture moved, swallow the synthetic click that browsers
+      // fire immediately after pointerup on the same target. After the
+      // brief window expires, normal taps resume — so single taps that
+      // come AFTER a drag still work without requiring a double-tap.
+      if (dragRef.current.moved) {
+        dragRef.current.suppressClickUntil = Date.now() + 350;
+      }
+      dragRef.current.moved = false;
+    }
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    // Zoom toward cursor
+    const delta = -e.deltaY * 0.0018;
+    const prev = cameraRef.current;
+    const ns = Math.max(minScale, Math.min(maxScale, prev.scale * (1 + delta)));
+    if (ns === prev.scale) return;
+    const wx = (e.clientX - prev.x) / prev.scale;
+    const wy = (e.clientY - prev.y) / prev.scale;
+    setCamera(clampCamera({ x: e.clientX - wx * ns, y: e.clientY - wy * ns, scale: ns }, viewSize.w, viewSize.h, minScale, maxScale));
+    userInteractedRef.current = true;
+  };
+
+  // Tile click: only fire if the user just finished a drag gesture.
+  // Uses a short timestamp window (set in endPointer) instead of a
+  // sticky `moved` flag, so single taps after a drag work normally.
+  const tileClickGuard = (cb: () => void) => () => {
+    if (Date.now() < dragRef.current.suppressClickUntil) return;
+    cb();
+  };
 
   if (!user) return null;
 
   const totalOwned = Object.values(farmSave.owned).filter(v => v > 0).length;
   const farmRating = totalOwned === 0 ? "Empty Farm" : totalOwned < 4 ? "Seedling" : totalOwned < 8 ? "Growing" : totalOwned < 12 ? "Thriving" : "Legendary";
   const incomePerMin = BUILDINGS.reduce((s, b) => { const lv = farmSave.owned[b.id] || 0; return lv ? s + (b.incomePerTick[lv - 1] / b.tickMultiplier) * 2 : s; }, 0);
-  const sx = Math.min(1.1, (viewSize.w - 10) / CANVAS_W);
-  const sy = Math.min(1.1, (viewSize.h - 70) / CANVAS_H);
-  const boardScale = Math.min(sx, sy);
 
   const hasChickens = (farmSave.owned["chicken_coop"] || 0) > 0;
   const hasCows = (farmSave.owned["dairy_cows"] || 0) > 0;
 
   const sortedBuildings = [...BUILDINGS].sort((a, b) => (a.col + a.row) - (b.col + b.row));
 
-  // === ATMOSPHERE: dynamic day/night sky + weather + golden crop events ===
+  // === Atmosphere ===
   const atm = useAtmosphere();
   const ownedIds = BUILDINGS.filter(b => (farmSave.owned[b.id] || 0) > 0).map(b => b.id);
   const golden = useGoldenCropSpawner(ownedIds, totalOwned > 0);
   const collectGolden = () => {
+    const spawn = golden.spawn;
+    if (!spawn) return;
     golden.collect((amount) => {
-      // Route the bonus through farmBank so the existing harvest mutation
-      // can pay it out — no new server endpoint needed. Bonus may briefly
-      // exceed MAX_FARM_BANK (a deliberate "treat") and is auto-clipped on
-      // the next regular tick.
       setFarmSave(prev => {
         const next = { ...prev, farmBank: prev.farmBank + amount };
         if (user) saveState(next, user.id);
         return next;
       });
-      setCoinPops(cur => [...cur, { id: `gold-${Date.now()}`, bId: golden.spawn!.bId, amount }]);
+      setCoinPops(cur => [...cur, { id: `gold-${Date.now()}`, bId: spawn.bId, amount }]);
       toast({ title: "🌟 Golden Harvest!", description: `+${amount} coins added to the bank.` });
     });
   };
@@ -251,13 +455,15 @@ export default function FarmPage() {
         @keyframes cowGraze { 0% { transform: translateX(0); } 40% { transform: translateX(40px); } 60% { transform: translateX(40px); } 100% { transform: translateX(0); } }
         @keyframes tractorDrive { 0% { transform: translateX(-30px) scaleX(1); } 50% { transform: translateX(30px) scaleX(1); } 51% { transform: translateX(30px) scaleX(-1); } 99% { transform: translateX(-30px) scaleX(-1); } 100% { transform: translateX(-30px) scaleX(1); } }
         @keyframes birdFly { 0% { transform: translateX(-80px) translateY(0); } 50% { transform: translateX(50vw) translateY(-12px); } 100% { transform: translateX(100vw) translateY(5px); } }
-        @keyframes sunPulse { 0%,100% { filter: drop-shadow(0 0 15px rgba(255,200,50,0.5)); } 50% { filter: drop-shadow(0 0 30px rgba(255,200,50,0.8)); } }
+        @keyframes balloonDrift { 0% { transform: translate(0, 0); } 50% { transform: translate(30px, -8px); } 100% { transform: translate(0, 0); } }
         .iso-tile { cursor: pointer; transition: transform 0.15s ease, filter 0.15s ease; }
         .iso-tile:hover { transform: translateY(-6px) scale(1.03); filter: brightness(1.1); z-index: 100 !important; }
         .iso-tile:active { transform: translateY(-2px) scale(0.98); }
+        .farm-pan-stage { cursor: grab; touch-action: none; }
+        .farm-pan-stage.is-dragging { cursor: grabbing; }
       `}</style>
 
-      {/* === SKY: stars (night) → moving sun/moon → weather (clouds/rain) === */}
+      {/* === SKY ATMOSPHERE — fixed in viewport, behind the world === */}
       <Stars phase={atm.phase} />
       <CelestialBody phase={atm.phase} />
       <WeatherLayer weather={atm.weather} phase={atm.phase} />
@@ -270,378 +476,413 @@ export default function FarmPage() {
         </svg>
       ))}
 
-      {/* Ambient critters: butterflies by day, fireflies by night */}
       <AmbientCreatures isDay={atm.isDay} />
 
-      <div className="absolute inset-0 flex items-center justify-center" style={{ paddingTop: 50 }}>
-        <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${boardScale})`, transformOrigin: "top center" }}>
-
-          <svg className="absolute inset-0" width={CANVAS_W} height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
-            <defs>
-              <linearGradient id="farmGrassGrad" x1="0.5" y1="0" x2="0.5" y2="1">
-                <stop offset="0%" stopColor="#7DB845" stopOpacity="0.25"/>
-                <stop offset="100%" stopColor="#4A7820" stopOpacity="0.45"/>
-              </linearGradient>
-              <radialGradient id="farmEdgeFade" cx="50%" cy="50%" r="50%">
-                <stop offset="50%" stopColor="transparent"/>
-                <stop offset="100%" stopColor="rgba(0,0,0,0.18)"/>
-              </radialGradient>
-              <filter id="roadBlur"><feGaussianBlur stdDeviation="1.5"/></filter>
-            </defs>
-
-            {/* === FARM GROUND: single large organic territory === */}
-            {/* Outer shadow for depth */}
-            <polygon points="570,28 1052,268 678,452 196,208" fill="rgba(0,0,0,0.18)" />
-            {/* Main farm land base */}
-            <polygon points="560,20 1040,260 680,440 200,200" fill="#6B9A36" />
-            {/* Lighter grass variation top-left */}
-            <polygon points="560,20 800,148 560,200 320,200" fill="#78A83F" opacity="0.6"/>
-            {/* Darker soil variation bottom-right */}
-            <polygon points="800,260 1040,260 760,380 680,440" fill="#5A8628" opacity="0.5"/>
-            {/* Gradient overlay */}
-            <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmGrassGrad)" />
-            {/* Edge darkening */}
-            <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmEdgeFade)" opacity="0.5"/>
-
-            {/* === DIRT ROADS: along isometric grid axes === */}
-            {/* Road shadows */}
-            {[0,1,2].flatMap(row => [0,1,2].map(col => {
-              const a = isoPos(col, row); const nb = isoPos(col+1, row);
-              return <line key={`rs-r${row}c${col}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
-            }))}
-            {[0,1,2,3].flatMap(col => [0,1].map(row => {
-              const a = isoPos(col, row); const nb = isoPos(col, row+1);
-              return <line key={`rs-c${col}r${row}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
-            }))}
-            {/* Road surface */}
-            {[0,1,2].flatMap(row => [0,1,2].map(col => {
-              const a = isoPos(col, row); const nb = isoPos(col+1, row);
-              return <line key={`rr${row}c${col}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
-            }))}
-            {[0,1,2,3].flatMap(col => [0,1].map(row => {
-              const a = isoPos(col, row); const nb = isoPos(col, row+1);
-              return <line key={`rc${col}r${row}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
-            }))}
-            {/* Road edge glow */}
-            {[0,1,2].flatMap(row => [0,1,2].map(col => {
-              const a = isoPos(col, row); const nb = isoPos(col+1, row);
-              return <line key={`re-r${row}c${col}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#A07838" strokeWidth="16" strokeLinecap="round" opacity="0.25"/>;
-            }))}
-            {/* Road center dashes */}
-            {[0,1,2].flatMap(row => [0,1,2].map(col => {
-              const a = isoPos(col, row); const nb = isoPos(col+1, row);
-              const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
-              return <line key={`rm-r${row}c${col}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
-            }))}
-            {[0,1,2,3].flatMap(col => [0,1].map(row => {
-              const a = isoPos(col, row); const nb = isoPos(col, row+1);
-              const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
-              return <line key={`rm-c${col}r${row}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
-            }))}
-            {/* Road intersections (roundish squares) */}
-            {[0,1,2,3].flatMap(col => [0,1,2].map(row => {
-              const p = isoPos(col, row);
-              return <ellipse key={`ri-${col}-${row}`} cx={p.x} cy={p.y} rx={10} ry={6} fill="#B88A48" opacity="0.8"/>;
-            }))}
-
-            {/* === SOIL PATCHES under each building plot === */}
-            {BUILDINGS.map(b => {
-              const { x, y } = isoPos(b.col, b.row);
-              const owned = (farmSave.owned[b.id] || 0) > 0;
-              return (
-                <g key={`soil-${b.id}`}>
-                  {/* Outer soil shadow */}
-                  <ellipse cx={x} cy={y+4} rx={76} ry={38} fill="rgba(0,0,0,0.15)"/>
-                  {/* Soil base */}
-                  <ellipse cx={x} cy={y} rx={74} ry={36} fill={owned ? "#7A5A28" : "#6B5040"} opacity={owned ? 0.65 : 0.5}/>
-                  {/* Soil highlight */}
-                  <ellipse cx={x-12} cy={y-6} rx={30} ry={12} fill="rgba(255,255,255,0.07)"/>
-                  {/* Plot border ring */}
-                  <ellipse cx={x} cy={y} rx={74} ry={36} fill="none" stroke={owned ? "#9A7838" : "#5a4a3a"} strokeWidth="1.5" opacity="0.6"/>
-                  {/* Locked cross-hatch lines */}
-                  {!owned && (
-                    <>
-                      <line x1={x-50} y1={y-6} x2={x+50} y2={y-6} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
-                      <line x1={x-40} y1={y+8} x2={x+40} y2={y+8} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
-                    </>
-                  )}
-                </g>
-              );
-            })}
-
-            {/* === FARM DECORATIONS: fence posts along boundary === */}
-            {[
-              [560,20],[680,80],[800,140],[920,200],[1040,260],
-              [920,320],[800,380],[680,440],
-              [560,380],[440,320],[320,260],[200,200],
-              [320,140],[440,80],
-            ].map(([fx,fy],i) => (
-              <g key={`fence-${i}`} opacity="0.7">
-                <rect x={fx-3} y={fy-10} width="6" height="14" rx="1.5" fill="#8B6040"/>
-                <rect x={fx-5} y={fy-12} width="10" height="5" rx="1" fill="#A0724E"/>
-              </g>
-            ))}
-            {/* Fence rails top edge */}
-            <polyline points="560,20 680,80 800,140 920,200 1040,260" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <polyline points="560,20 440,80 320,140 200,200" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
-
-            {/* === GRASS TUFTS scattered inside farm === */}
-            {[
-              {x:640,y:55},{x:720,y:105},{x:840,y:165},{x:960,y:225},
-              {x:480,y:105},{x:390,y:160},{x:300,y:215},
-              {x:770,y:310},{x:630,y:350},{x:500,y:300},{x:420,y:250},
-            ].map((g, i) => (
-              <g key={`gt-${i}`} opacity={0.45 + (i%3)*0.1}>
-                <line x1={g.x-3} y1={g.y} x2={g.x-7} y2={g.y-11} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
-                <line x1={g.x} y1={g.y} x2={g.x} y2={g.y-14} stroke="#5A9028" strokeWidth="1.8" strokeLinecap="round"/>
-                <line x1={g.x+3} y1={g.y} x2={g.x+6} y2={g.y-10} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
-              </g>
-            ))}
-
-            {/* === ROCKS/PEBBLES scattered === */}
-            {[
-              {x:700,y:58,r:4},{x:850,y:175,r:3},{x:430,y:115,r:3.5},
-              {x:740,y:300,r:3},{x:520,y:245,r:4},{x:960,y:240,r:3},
-            ].map((r2, i) => (
-              <ellipse key={`rock-${i}`} cx={r2.x} cy={r2.y} rx={r2.r*1.6} ry={r2.r} fill="#9A8870" opacity="0.6"/>
-            ))}
-
-            {/* === WILDFLOWERS inside farm === */}
-            {[
-              {x:660,y:62,c:"#FFD700"},{x:830,y:155,c:"#FF7043"},
-              {x:460,y:130,c:"#E040FB"},{x:750,y:290,c:"#FFC107"},
-              {x:540,y:260,c:"#FF5722"},{x:910,y:220,c:"#FFD700"},
-            ].map((f, i) => (
-              <g key={`wf-${i}`} opacity="0.65">
-                <line x1={f.x} y1={f.y} x2={f.x} y2={f.y+8} stroke="#4A8020" strokeWidth="1.2"/>
-                <circle cx={f.x} cy={f.y} r="3.5" fill={f.c}/>
-                <circle cx={f.x-3} cy={f.y-2} r="2" fill={f.c} opacity="0.7"/>
-              </g>
-            ))}
-
-            {[
-              { x: 60, y: 200 }, { x: 1060, y: 180 }, { x: 80, y: 400 },
-              { x: 1040, y: 380 }, { x: 160, y: 100 }, { x: 960, y: 90 },
-              { x: 50, y: 320 }, { x: 1070, y: 300 },
-            ].map((t, i) => (
-              <g key={`tree-${i}`} opacity="0.85">
-                <ellipse cx={t.x} cy={t.y + 35} rx={12} ry={4} fill="rgba(0,0,0,0.1)"/>
-                <rect x={t.x - 4} y={t.y + 10} width="8" height="22" rx="3" fill="#5D4037"/>
-                <circle cx={t.x} cy={t.y + 5} r="18" fill="#2E7D32"/>
-                <circle cx={t.x - 5} cy={t.y} r="12" fill="#388E3C"/>
-                <circle cx={t.x + 5} cy={t.y} r="12" fill="#388E3C"/>
-                <circle cx={t.x} cy={t.y - 6} r="10" fill="#43A047"/>
-                <circle cx={t.x - 3} cy={t.y - 9} r="5" fill="#66BB6A" opacity="0.5"/>
-              </g>
-            ))}
-
-            {[
-              { x: 180, y: 520 }, { x: 380, y: 510 }, { x: 600, y: 530 },
-              { x: 800, y: 515 }, { x: 950, y: 525 },
-            ].map((b, i) => (
-              <g key={`bush-${i}`} opacity="0.6">
-                <ellipse cx={b.x} cy={b.y} rx={14 + (i % 3) * 4} ry={8 + (i % 2) * 3} fill="#388E3C"/>
-                <ellipse cx={b.x - 6} cy={b.y - 3} rx={8} ry={5} fill="#43A047"/>
-                <ellipse cx={b.x + 6} cy={b.y - 2} rx={9} ry={5} fill="#43A047"/>
-              </g>
-            ))}
-
-            {[
-              [250, 165], [420, 320], [700, 165], [550, 80], [850, 320],
-            ].map(([fx, fy], i) => (
-              <g key={`flw-${i}`} opacity="0.6">
-                <circle cx={fx} cy={fy} r="2.5" fill={["#FFD700","#FF7043","#E040FB","#FFC107","#FF5722"][i]}/>
-                <circle cx={fx + 6} cy={fy + 2} r="2" fill={["#FF7043","#E040FB","#FFD700","#FF5722","#FFC107"][i]}/>
-              </g>
-            ))}
-          </svg>
-
-          {sortedBuildings.map(b => {
-            const level = farmSave.owned[b.id] || 0;
-            const isOwned = level > 0;
-            const isMaxed = level === 3;
-            const { x, y } = isoPos(b.col, b.row);
-            const bldgW = 170;
-            const bldgH = 130;
-            const depth = b.col + b.row;
-
-            return (
-              <div
-                key={b.id}
-                className="absolute iso-tile"
-                style={{
-                  left: x - bldgW / 2,
-                  top: y - bldgH * 0.7,
-                  width: bldgW,
-                  height: bldgH,
-                  zIndex: 10 + depth * 3,
-                }}
-                onClick={() => setSelected(b)}
-                data-testid={`tile-${b.id}`}
-              >
-                {isOwned ? (
-                  <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
-                    <BuildingSVG buildingId={b.id} level={level}/>
-                  </div>
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>
-                    <div className="flex flex-col items-center gap-1 py-3 px-4 rounded-xl" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(200,180,140,0.7)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                      <span style={{ color: "#FFD700", fontSize: 12, fontWeight: 800 }}>🪙 {b.buyCost}</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1" style={{
-                  top: -20,
-                  padding: "2px 8px",
-                  borderRadius: 12,
-                  fontSize: 10,
-                  fontWeight: 800,
-                  background: "rgba(0,0,0,0.7)",
-                  color: isOwned ? "#FFD700" : "#bbb",
-                  backdropFilter: "blur(4px)",
-                  border: isOwned ? "1px solid rgba(255,215,0,0.3)" : "1px solid rgba(255,255,255,0.1)",
-                }}>
-                  {b.name}
-                  {isOwned && level > 0 && (
-                    <span style={{ fontSize: 8, padding: "0 4px", borderRadius: 6, fontWeight: 900, background: level === 1 ? "#F5A623" : level === 2 ? "#2196F3" : "#9C27B0", color: "white" }}>
-                      {LVL_LABEL[level]}
-                    </span>
-                  )}
-                  {isMaxed && <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-300"/>}
-                </div>
-
-                {isOwned && (
-                  <div className="absolute left-1/2 -translate-x-1/2" style={{
-                    bottom: -4,
-                    background: "rgba(0,0,0,0.7)",
-                    color: "#FFD700",
-                    fontSize: 9,
-                    fontWeight: 800,
-                    padding: "1px 6px",
-                    borderRadius: 8,
-                    border: "1px solid rgba(255,215,0,0.2)",
-                    backdropFilter: "blur(4px)",
-                    whiteSpace: "nowrap",
-                  }}>
-                    +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {hasChickens && [0,1,2].map(i => {
-            const cp = isoPos(0, 1);
-            return (
-              <div key={`ck-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 50 + i * 20, top: cp.y + 20 + i * 5, zIndex: 20 + i, animation: `chickenWalk ${7+i*2}s linear infinite`, animationDelay: `${-i*2}s` }}>
-                <svg width="14" height="12" viewBox="0 0 14 12">
-                  <ellipse cx="7" cy="7" rx="5" ry="4" fill={i===0?"#FFF":i===1?"#FFF5E0":"#DDD"}/>
-                  <circle cx="11" cy="4" r="3.5" fill={i===0?"#FFF":"#FFF5E0"}/>
-                  <polygon points="13,3.5 16,2.5 13,1.5" fill="#E8730C"/>
-                  <circle cx="11.5" cy="3.2" r="1" fill="#1a1a1a"/>
-                  <polygon points="10,1 9,-1 11,-1" fill="#DC2626"/>
-                </svg>
-              </div>
-            );
-          })}
-
-          {hasCows && [0,1].map(i => {
-            const cp = isoPos(1, 1);
-            return (
-              <div key={`cow-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 20 + i * 40, top: cp.y + 15 + i * 8, zIndex: 22, animation: `cowGraze ${12+i*4}s ease-in-out infinite`, animationDelay: `${-i*3}s` }}>
-                <svg width="30" height="20" viewBox="0 0 30 20">
-                  <ellipse cx="15" cy="10" rx="12" ry="7" fill="#FAFAFA"/>
-                  <ellipse cx="9" cy="9" rx="5" ry="4" fill={i===0?"#333":"#8B6914"} opacity="0.6"/>
-                  <rect x="4" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                  <rect x="10" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                  <rect x="16" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                  <rect x="22" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                  <circle cx="26" cy="5" r="5" fill="#FAFAFA"/>
-                  <ellipse cx="28.5" cy="7" rx="2.5" ry="2" fill="#FFB4B4"/>
-                  <circle cx="25" cy="3.5" r="1.3" fill="#333"/>
-                </svg>
-              </div>
-            );
-          })}
-
-
-          {/* Golden crop bonus event — sparkly clickable coin on a random
-              owned plot. Pays out immediately into the farm bank. */}
-          {golden.spawn && goldenPos && (
-            <GoldenCropOverlay
-              x={goldenPos.x}
-              y={goldenPos.y}
-              reward={golden.spawn.reward}
-              expiresAt={golden.spawn.expiresAt}
-              onCollect={collectGolden}
-            />
-          )}
-
-          <AnimatePresence>
-            {coinPops.map(pop => {
-              const b = BUILDINGS.find(bb => bb.id === pop.bId);
-              if (!b) return null;
-              const { x, y } = isoPos(b.col, b.row);
-              return (
-                <motion.div key={pop.id} className="absolute pointer-events-none z-50 flex items-center gap-1" style={{ left: x, top: y - 80, transform: "translate(-50%, 0)" }}
-                  initial={{ opacity: 1, y: 0, scale: 0.8 }} animate={{ opacity: 0, y: -50, scale: 1.3 }} exit={{ opacity: 0 }} transition={{ duration: 1.5, ease: "easeOut" }}
-                  onAnimationComplete={() => setCoinPops(cur => cur.filter(p => p.id !== pop.id))}
-                >
-                  <span className="font-black text-sm" style={{ color: "#FFD700", textShadow: "0 2px 6px rgba(0,0,0,0.7)" }}>+{pop.amount}</span>
-                  <span className="text-base">🪙</span>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      <div className="absolute top-0 left-0 right-0 z-30 px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: "linear-gradient(180deg, rgba(30,20,10,0.85) 0%, rgba(50,35,20,0.65) 70%, transparent 100%)", paddingBottom: 14 }}>
-        <button
-          onClick={() => setLocation("/")}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-bold text-xs transition-all hover:scale-105 active:scale-95"
-          style={{ background: "rgba(255,255,255,0.12)", color: "#FFD700", border: "1px solid rgba(255,215,0,0.35)", backdropFilter: "blur(6px)" }}
-          data-testid="btn-back-to-menu"
+      {/* === PANNABLE WORLD STAGE === */}
+      <div
+        className={`farm-pan-stage absolute inset-0 ${dragRef.current.moved ? "is-dragging" : ""}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
+        onPointerLeave={endPointer}
+        onWheel={onWheel}
+        style={{ zIndex: 5 }}
+        data-testid="farm-stage"
+      >
+        <div
+          className="absolute"
+          style={{
+            top: 0,
+            left: 0,
+            width: WORLD_W,
+            height: WORLD_H,
+            transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})`,
+            transformOrigin: "0 0",
+            willChange: "transform",
+          }}
         >
-          <ChevronLeft className="w-3.5 h-3.5"/> Menu
-        </button>
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #FFD700, #F5A623)", boxShadow: "0 2px 8px rgba(245,166,35,0.4)" }}>
-            <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="#F57F17"/><circle cx="9" cy="9" r="5" fill="#FFD54F"/></svg>
+          {/* World ground: terrain, mountains, water, paths, props */}
+          <WorldGround phase={atm.phase} isDay={atm.isDay} />
+
+          {/* === BOARD CONTAINER === */}
+          <div className="absolute" style={{ left: BOARD_OFFSET_X, top: BOARD_OFFSET_Y, width: CANVAS_W, height: CANVAS_H }}>
+            <svg className="absolute inset-0" width={CANVAS_W} height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
+              <defs>
+                <linearGradient id="farmGrassGrad" x1="0.5" y1="0" x2="0.5" y2="1">
+                  <stop offset="0%" stopColor="#7DB845" stopOpacity="0.25"/>
+                  <stop offset="100%" stopColor="#4A7820" stopOpacity="0.45"/>
+                </linearGradient>
+                <radialGradient id="farmEdgeFade" cx="50%" cy="50%" r="50%">
+                  <stop offset="50%" stopColor="transparent"/>
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.18)"/>
+                </radialGradient>
+              </defs>
+
+              {/* Outer shadow for depth */}
+              <polygon points="570,28 1052,268 678,452 196,208" fill="rgba(0,0,0,0.25)" />
+              {/* Main farm land base */}
+              <polygon points="560,20 1040,260 680,440 200,200" fill="#6B9A36" />
+              {/* Lighter grass variation top-left */}
+              <polygon points="560,20 800,148 560,200 320,200" fill="#78A83F" opacity="0.6"/>
+              {/* Darker soil variation bottom-right */}
+              <polygon points="800,260 1040,260 760,380 680,440" fill="#5A8628" opacity="0.5"/>
+              <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmGrassGrad)" />
+              <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmEdgeFade)" opacity="0.5"/>
+              {/* Land border highlight */}
+              <polygon points="560,20 1040,260 680,440 200,200" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5"/>
+
+              {/* === DIRT ROADS along grid === */}
+              {[0,1,2].flatMap(row => [0,1,2].map(col => {
+                const a = isoPos(col, row); const nb = isoPos(col+1, row);
+                return <line key={`rs-r${row}c${col}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
+              }))}
+              {[0,1,2,3].flatMap(col => [0,1].map(row => {
+                const a = isoPos(col, row); const nb = isoPos(col, row+1);
+                return <line key={`rs-c${col}r${row}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
+              }))}
+              {[0,1,2].flatMap(row => [0,1,2].map(col => {
+                const a = isoPos(col, row); const nb = isoPos(col+1, row);
+                return <line key={`rr${row}c${col}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
+              }))}
+              {[0,1,2,3].flatMap(col => [0,1].map(row => {
+                const a = isoPos(col, row); const nb = isoPos(col, row+1);
+                return <line key={`rc${col}r${row}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
+              }))}
+              {[0,1,2].flatMap(row => [0,1,2].map(col => {
+                const a = isoPos(col, row); const nb = isoPos(col+1, row);
+                const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
+                return <line key={`rm-r${row}c${col}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
+              }))}
+              {[0,1,2,3].flatMap(col => [0,1].map(row => {
+                const a = isoPos(col, row); const nb = isoPos(col, row+1);
+                const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
+                return <line key={`rm-c${col}r${row}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
+              }))}
+              {[0,1,2,3].flatMap(col => [0,1,2].map(row => {
+                const p = isoPos(col, row);
+                return <ellipse key={`ri-${col}-${row}`} cx={p.x} cy={p.y} rx={10} ry={6} fill="#B88A48" opacity="0.8"/>;
+              }))}
+
+              {/* === Soil patches under each plot === */}
+              {BUILDINGS.map(b => {
+                const { x, y } = isoPos(b.col, b.row);
+                const owned = (farmSave.owned[b.id] || 0) > 0;
+                return (
+                  <g key={`soil-${b.id}`}>
+                    <ellipse cx={x} cy={y+4} rx={76} ry={38} fill="rgba(0,0,0,0.15)"/>
+                    <ellipse cx={x} cy={y} rx={74} ry={36} fill={owned ? "#7A5A28" : "#6B5040"} opacity={owned ? 0.65 : 0.5}/>
+                    <ellipse cx={x-12} cy={y-6} rx={30} ry={12} fill="rgba(255,255,255,0.07)"/>
+                    <ellipse cx={x} cy={y} rx={74} ry={36} fill="none" stroke={owned ? "#9A7838" : "#5a4a3a"} strokeWidth="1.5" opacity="0.6"/>
+                    {!owned && (
+                      <>
+                        <line x1={x-50} y1={y-6} x2={x+50} y2={y-6} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
+                        <line x1={x-40} y1={y+8} x2={x+40} y2={y+8} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
+                      </>
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* === Fence posts around the farm border === */}
+              {[
+                [560,20],[680,80],[800,140],[920,200],[1040,260],
+                [920,320],[800,380],[680,440],
+                [560,380],[440,320],[320,260],[200,200],
+                [320,140],[440,80],
+              ].map(([fx,fy],i) => (
+                <g key={`fence-${i}`} opacity="0.75">
+                  <rect x={fx-3} y={fy-10} width="6" height="14" rx="1.5" fill="#8B6040"/>
+                  <rect x={fx-5} y={fy-12} width="10" height="5" rx="1" fill="#A0724E"/>
+                </g>
+              ))}
+              <polyline points="560,20 680,80 800,140 920,200 1040,260" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <polyline points="560,20 440,80 320,140 200,200" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
+
+              {/* Grass tufts inside farm */}
+              {[
+                {x:640,y:55},{x:720,y:105},{x:840,y:165},{x:960,y:225},
+                {x:480,y:105},{x:390,y:160},{x:300,y:215},
+                {x:770,y:310},{x:630,y:350},{x:500,y:300},{x:420,y:250},
+              ].map((g, i) => (
+                <g key={`gt-${i}`} opacity={0.45 + (i%3)*0.1}>
+                  <line x1={g.x-3} y1={g.y} x2={g.x-7} y2={g.y-11} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
+                  <line x1={g.x} y1={g.y} x2={g.x} y2={g.y-14} stroke="#5A9028" strokeWidth="1.8" strokeLinecap="round"/>
+                  <line x1={g.x+3} y1={g.y} x2={g.x+6} y2={g.y-10} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
+                </g>
+              ))}
+
+              {/* Wildflowers inside farm */}
+              {[
+                {x:660,y:62,c:"#FFD700"},{x:830,y:155,c:"#FF7043"},
+                {x:460,y:130,c:"#E040FB"},{x:750,y:290,c:"#FFC107"},
+                {x:540,y:260,c:"#FF5722"},{x:910,y:220,c:"#FFD700"},
+              ].map((f, i) => (
+                <g key={`wf-${i}`} opacity="0.7">
+                  <line x1={f.x} y1={f.y} x2={f.x} y2={f.y+8} stroke="#4A8020" strokeWidth="1.2"/>
+                  <circle cx={f.x} cy={f.y} r="3.5" fill={f.c}/>
+                  <circle cx={f.x-3} cy={f.y-2} r="2" fill={f.c} opacity="0.7"/>
+                </g>
+              ))}
+            </svg>
+
+            {/* === BUILDINGS === */}
+            {sortedBuildings.map(b => {
+              const level = farmSave.owned[b.id] || 0;
+              const isOwned = level > 0;
+              const isMaxed = level === 3;
+              const { x, y } = isoPos(b.col, b.row);
+              const bldgW = 170;
+              const bldgH = 130;
+              const depth = b.col + b.row;
+
+              return (
+                <div
+                  key={b.id}
+                  className="absolute iso-tile"
+                  data-no-pan="true"
+                  style={{
+                    left: x - bldgW / 2,
+                    top: y - bldgH * 0.7,
+                    width: bldgW,
+                    height: bldgH,
+                    zIndex: 10 + depth * 3,
+                  }}
+                  onClick={tileClickGuard(() => setSelected(b))}
+                  data-testid={`tile-${b.id}`}
+                >
+                  {isOwned ? (
+                    <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
+                      <BuildingSVG buildingId={b.id} level={level}/>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>
+                      <div className="flex flex-col items-center gap-1 py-3 px-4 rounded-xl" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(200,180,140,0.7)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <span style={{ color: "#FFD700", fontSize: 12, fontWeight: 800 }}>🪙 {b.buyCost}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1" style={{
+                    top: -20,
+                    padding: "2px 8px",
+                    borderRadius: 12,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    background: "rgba(0,0,0,0.7)",
+                    color: isOwned ? "#FFD700" : "#bbb",
+                    backdropFilter: "blur(4px)",
+                    border: isOwned ? "1px solid rgba(255,215,0,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                  }}>
+                    {b.name}
+                    {isOwned && level > 0 && (
+                      <span style={{ fontSize: 8, padding: "0 4px", borderRadius: 6, fontWeight: 900, background: level === 1 ? "#F5A623" : level === 2 ? "#2196F3" : "#9C27B0", color: "white" }}>
+                        {LVL_LABEL[level]}
+                      </span>
+                    )}
+                    {isMaxed && <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-300"/>}
+                  </div>
+
+                  {isOwned && (
+                    <div className="absolute left-1/2 -translate-x-1/2" style={{
+                      bottom: -4,
+                      background: "rgba(0,0,0,0.7)",
+                      color: "#FFD700",
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: "1px 6px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(255,215,0,0.2)",
+                      backdropFilter: "blur(4px)",
+                      whiteSpace: "nowrap",
+                    }}>
+                      +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Chickens & cows */}
+            {hasChickens && [0,1,2].map(i => {
+              const cp = isoPos(0, 1);
+              return (
+                <div key={`ck-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 50 + i * 20, top: cp.y + 20 + i * 5, zIndex: 20 + i, animation: `chickenWalk ${7+i*2}s linear infinite`, animationDelay: `${-i*2}s` }}>
+                  <svg width="14" height="12" viewBox="0 0 14 12">
+                    <ellipse cx="7" cy="7" rx="5" ry="4" fill={i===0?"#FFF":i===1?"#FFF5E0":"#DDD"}/>
+                    <circle cx="11" cy="4" r="3.5" fill={i===0?"#FFF":"#FFF5E0"}/>
+                    <polygon points="13,3.5 16,2.5 13,1.5" fill="#E8730C"/>
+                    <circle cx="11.5" cy="3.2" r="1" fill="#1a1a1a"/>
+                    <polygon points="10,1 9,-1 11,-1" fill="#DC2626"/>
+                  </svg>
+                </div>
+              );
+            })}
+
+            {hasCows && [0,1].map(i => {
+              const cp = isoPos(1, 1);
+              return (
+                <div key={`cow-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 20 + i * 40, top: cp.y + 15 + i * 8, zIndex: 22, animation: `cowGraze ${12+i*4}s ease-in-out infinite`, animationDelay: `${-i*3}s` }}>
+                  <svg width="30" height="20" viewBox="0 0 30 20">
+                    <ellipse cx="15" cy="10" rx="12" ry="7" fill="#FAFAFA"/>
+                    <ellipse cx="9" cy="9" rx="5" ry="4" fill={i===0?"#333":"#8B6914"} opacity="0.6"/>
+                    <rect x="4" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                    <rect x="10" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                    <rect x="16" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                    <rect x="22" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                    <circle cx="26" cy="5" r="5" fill="#FAFAFA"/>
+                    <ellipse cx="28.5" cy="7" rx="2.5" ry="2" fill="#FFB4B4"/>
+                    <circle cx="25" cy="3.5" r="1.3" fill="#333"/>
+                  </svg>
+                </div>
+              );
+            })}
+
+            {/* Golden crop bonus event */}
+            {golden.spawn && goldenPos && (
+              <GoldenCropOverlay
+                x={goldenPos.x}
+                y={goldenPos.y}
+                reward={golden.spawn.reward}
+                expiresAt={golden.spawn.expiresAt}
+                onCollect={collectGolden}
+              />
+            )}
+
+            <AnimatePresence>
+              {coinPops.map(pop => {
+                const b = BUILDINGS.find(bb => bb.id === pop.bId);
+                if (!b) return null;
+                const { x, y } = isoPos(b.col, b.row);
+                return (
+                  <motion.div key={pop.id} className="absolute pointer-events-none z-50 flex items-center gap-1" style={{ left: x, top: y - 80, transform: "translate(-50%, 0)" }}
+                    initial={{ opacity: 1, y: 0, scale: 0.8 }} animate={{ opacity: 0, y: -50, scale: 1.3 }} exit={{ opacity: 0 }} transition={{ duration: 1.5, ease: "easeOut" }}
+                    onAnimationComplete={() => setCoinPops(cur => cur.filter(p => p.id !== pop.id))}
+                  >
+                    <span className="font-black text-sm" style={{ color: "#FFD700", textShadow: "0 2px 6px rgba(0,0,0,0.7)" }}>+{pop.amount}</span>
+                    <span className="text-base">🪙</span>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
-          <div>
-            <h1 className="text-sm font-black tracking-widest leading-none" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>FARM TYCOON</h1>
-            <p className="text-[10px] font-semibold" style={{ color: "#C8A84E" }}>Day {farmSave.day} · {farmRating}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 flex-1 justify-end flex-wrap">
-          <WeatherBadge atm={atm} />
-          <TickProgress lastTickTime={farmSave.lastTickTime} intervalMs={TICK_INTERVAL_MS} />
-          <BankMeter value={farmSave.farmBank} max={MAX_FARM_BANK} />
-          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(76,175,80,0.2)", color: "#A8D8A8", border: "1px solid rgba(76,175,80,0.3)" }}>⚡ {Math.round(incomePerMin * atm.cropBoost)}/min</div>
-          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(33,150,243,0.2)", color: "#90CAF9", border: "1px solid rgba(33,150,243,0.3)" }}>🏗️ {totalOwned}/12</div>
-          {farmSave.farmBank > 0 && (
-            <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="flex items-center gap-1 px-3 py-1 rounded-xl text-sm font-black" style={{ background: "linear-gradient(135deg, rgba(46,125,50,0.9), rgba(67,160,71,0.9))", color: "white", boxShadow: "0 2px 12px rgba(46,125,50,0.5)", border: "1px solid rgba(255,255,255,0.2)" }}>🌾 {farmSave.farmBank}</motion.div>
-          )}
-          <div className="flex items-center gap-1 px-3 py-1 rounded-xl text-sm font-black" style={{ background: "linear-gradient(135deg, #F5A623, #FFD700)", color: "#5D4037", boxShadow: "0 2px 8px rgba(245,166,35,0.4)" }}><Coins className="w-4 h-4"/>{user.eduCoins}</div>
-          <Button size="sm" className="h-8 px-4 text-xs font-black" style={{ background: farmSave.farmBank > 0 ? "linear-gradient(135deg, #2E7D32, #1B5E20)" : "rgba(255,255,255,0.1)", color: farmSave.farmBank > 0 ? "white" : "rgba(200,168,78,0.5)", border: farmSave.farmBank > 0 ? "2px solid #4CAF50" : "2px solid transparent", boxShadow: farmSave.farmBank > 0 ? "0 2px 12px rgba(46,125,50,0.4)" : "none" }}
-            disabled={farmSave.farmBank === 0 || harvestMutation.isPending}
-            onClick={() => { setIsHarvesting(true); harvestMutation.mutate(farmSave.farmBank); }}
-            data-testid="button-harvest"
-          >
-            {harvestMutation.isPending ? <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7 }}>🔄</motion.span> : `🌾 HARVEST${farmSave.farmBank > 0 ? ` +${farmSave.farmBank}` : ""}`}
-          </Button>
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 z-20 text-center pb-2">
-        <p className="text-[11px] font-medium px-4 py-1 rounded-full inline-block" style={{ background: "rgba(30,20,10,0.5)", color: "rgba(200,180,140,0.7)", backdropFilter: "blur(6px)" }}>
-          Tap any plot to build or upgrade · Income every 30s · Harvest to collect
+      {/* === HUD: TOP BAR === */}
+      <div
+        data-no-pan="true"
+        className="absolute top-0 left-0 right-0 z-30"
+        style={{ background: "linear-gradient(180deg, rgba(20,12,4,0.92) 0%, rgba(40,28,16,0.65) 65%, transparent 100%)", paddingBottom: 14 }}
+      >
+        {/* Row 1: navigation + brand + coins + harvest */}
+        <div className="px-3 pt-2 pb-1 flex items-center gap-2">
+          <button
+            onClick={() => setLocation("/")}
+            data-no-pan="true"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-bold text-xs transition-all hover:scale-105 active:scale-95 flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.12)", color: "#FFD700", border: "1px solid rgba(255,215,0,0.35)", backdropFilter: "blur(6px)" }}
+            data-testid="btn-back-to-menu"
+          >
+            <ChevronLeft className="w-3.5 h-3.5"/> <span className="hidden xs:inline">Menu</span>
+          </button>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, #FFD700, #F5A623)", boxShadow: "0 2px 8px rgba(245,166,35,0.4)" }}>
+              <svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#F57F17"/><circle cx="12" cy="12" r="6" fill="#FFD54F"/><circle cx="9" cy="9" r="2" fill="#FFF59D" opacity="0.8"/></svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-sm sm:text-base font-black tracking-widest leading-none truncate" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>FARM TYCOON</h1>
+              <p className="text-[10px] font-semibold leading-tight truncate" style={{ color: "#C8A84E" }}>Day {farmSave.day} · {farmRating}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="flex items-center gap-1 px-2.5 sm:px-3 py-1 rounded-xl text-xs sm:text-sm font-black" style={{ background: "linear-gradient(135deg, #F5A623, #FFD700)", color: "#5D4037", boxShadow: "0 2px 8px rgba(245,166,35,0.4)" }}>
+              <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4"/>{user.eduCoins}
+            </div>
+            <Button
+              size="sm"
+              data-no-pan="true"
+              className="h-8 px-2.5 sm:px-4 text-xs font-black"
+              style={{
+                background: farmSave.farmBank > 0 ? "linear-gradient(135deg, #2E7D32, #1B5E20)" : "rgba(255,255,255,0.1)",
+                color: farmSave.farmBank > 0 ? "white" : "rgba(200,168,78,0.5)",
+                border: farmSave.farmBank > 0 ? "2px solid #4CAF50" : "2px solid transparent",
+                boxShadow: farmSave.farmBank > 0 ? "0 2px 12px rgba(46,125,50,0.4)" : "none",
+              }}
+              disabled={farmSave.farmBank === 0 || harvestMutation.isPending}
+              onClick={() => { setIsHarvesting(true); harvestMutation.mutate(farmSave.farmBank); }}
+              data-testid="button-harvest"
+            >
+              {harvestMutation.isPending
+                ? <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7 }}>🔄</motion.span>
+                : <span className="whitespace-nowrap">🌾 <span className="hidden xs:inline">HARVEST</span>{farmSave.farmBank > 0 ? ` +${farmSave.farmBank}` : ""}</span>}
+            </Button>
+          </div>
+        </div>
+
+        {/* Row 2: stat chips, scrollable on mobile */}
+        <div className="px-3 pb-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          <style>{`.farm-statrow::-webkit-scrollbar { display: none; }`}</style>
+          <div className="farm-statrow flex items-center gap-1.5 w-max">
+            <WeatherBadge atm={atm} />
+            <TickProgress lastTickTime={farmSave.lastTickTime} intervalMs={TICK_INTERVAL_MS} />
+            <BankMeter value={farmSave.farmBank} max={MAX_FARM_BANK} />
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(76,175,80,0.2)", color: "#A8D8A8", border: "1px solid rgba(76,175,80,0.3)" }}>⚡ {Math.round(incomePerMin * atm.cropBoost)}/min</div>
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(33,150,243,0.2)", color: "#90CAF9", border: "1px solid rgba(33,150,243,0.3)" }}>🏗️ {totalOwned}/12</div>
+            {farmSave.farmBank > 0 && (
+              <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: "linear-gradient(135deg, rgba(46,125,50,0.85), rgba(67,160,71,0.85))", color: "white", boxShadow: "0 2px 8px rgba(46,125,50,0.4)", border: "1px solid rgba(255,255,255,0.2)" }}>🌾 {farmSave.farmBank}</motion.div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* === ZOOM CONTROLS (bottom-right) === */}
+      <div
+        data-no-pan="true"
+        className="absolute z-30 flex flex-col gap-1.5"
+        style={{ right: 10, bottom: 96 }}
+      >
+        <button
+          onClick={() => nudgeZoom(1.18)}
+          className="w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          style={{ background: "rgba(20,30,15,0.78)", border: "1.5px solid rgba(255,215,0,0.4)", color: "#FFD700", backdropFilter: "blur(6px)", boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }}
+          aria-label="Zoom in"
+          data-testid="btn-zoom-in"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => nudgeZoom(0.85)}
+          className="w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          style={{ background: "rgba(20,30,15,0.78)", border: "1.5px solid rgba(255,215,0,0.4)", color: "#FFD700", backdropFilter: "blur(6px)", boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }}
+          aria-label="Zoom out"
+          data-testid="btn-zoom-out"
+        >
+          <Minus className="w-5 h-5" />
+        </button>
+        <button
+          onClick={recenter}
+          className="w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          style={{ background: "rgba(20,30,15,0.78)", border: "1.5px solid rgba(255,215,0,0.4)", color: "#FFD700", backdropFilter: "blur(6px)", boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }}
+          aria-label="Recenter on farm"
+          data-testid="btn-recenter"
+        >
+          <Maximize2 className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* === MINIMAP (bottom-right corner, above zoom controls) === */}
+      <Minimap camX={camera.x} camY={camera.y} scale={camera.scale} vw={viewSize.w} vh={viewSize.h} />
+
+      {/* === Footer hint === */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 text-center pb-2 pointer-events-none">
+        <p className="text-[10px] sm:text-[11px] font-medium px-3 py-1 rounded-full inline-block" style={{ background: "rgba(20,12,4,0.65)", color: "rgba(220,200,160,0.85)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,215,0,0.15)" }}>
+          <span className="hidden sm:inline">Drag to pan · Pinch / scroll to zoom · </span>Tap a plot to build · Income every 30s
         </p>
       </div>
 
+      {/* Building modal */}
       <AnimatePresence>
         {selected && (
           <>
@@ -651,7 +892,7 @@ export default function FarmPage() {
         )}
       </AnimatePresence>
 
-      {/* Harvest burst — wheat icon + golden coin shower radiating outward */}
+      {/* Harvest burst */}
       <HarvestBurst active={isHarvesting} />
     </div>
   );
