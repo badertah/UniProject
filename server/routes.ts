@@ -258,7 +258,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============ LEVELS ============
   app.get("/api/levels/:id", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const level = await storage.getLevel(req.params.id);
+      const level = await storage.getLevel(String(req.params.id));
       if (!level) return res.status(404).json({ error: "Level not found" });
       const qs = await storage.getQuestionsByLevel(level.id);
       res.json({ ...level, questions: qs });
@@ -269,7 +269,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/levels/:id/questions", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
-      const qs = await storage.getQuestionsByLevel(req.params.id);
+      const qs = await storage.getQuestionsByLevel(String(req.params.id));
       res.json(qs);
     } catch {
       res.status(500).json({ error: "Failed to fetch questions" });
@@ -287,7 +287,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.put("/api/levels/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
-      const level = await storage.updateLevel(req.params.id, req.body);
+      const level = await storage.updateLevel(String(req.params.id), req.body);
       res.json(level);
     } catch {
       res.status(500).json({ error: "Failed to update level" });
@@ -296,7 +296,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/levels/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
-      await storage.deleteLevel(req.params.id);
+      await storage.deleteLevel(String(req.params.id));
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: "Failed to delete level" });
@@ -315,7 +315,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.put("/api/questions/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
-      const question = await storage.updateQuestion(req.params.id, req.body);
+      const question = await storage.updateQuestion(String(req.params.id), req.body);
       res.json(question);
     } catch {
       res.status(500).json({ error: "Failed to update question" });
@@ -324,7 +324,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.delete("/api/questions/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
     try {
-      await storage.deleteQuestion(req.params.id);
+      await storage.deleteQuestion(String(req.params.id));
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: "Failed to delete question" });
@@ -469,7 +469,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/badges/user/:userId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const userBadgesList = await storage.getUserBadges(req.params.userId);
+      const userBadgesList = await storage.getUserBadges(String(req.params.userId));
       res.json(userBadgesList.map(ub => ub.badge));
     } catch {
       res.status(500).json({ error: "Failed to fetch user badges" });
@@ -503,7 +503,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (xp !== undefined) { updateData.xp = xp; updateData.level = calculateLevel(xp); }
       if (eduCoins !== undefined) updateData.eduCoins = eduCoins;
       if (isAdmin !== undefined) updateData.isAdmin = isAdmin;
-      const updated = await storage.updateUser(req.params.id, updateData);
+      const updated = await storage.updateUser(String(req.params.id), updateData);
       const { password: _, ...safe } = updated;
       res.json({ ...safe, tier: getTier(safe.xp) });
     } catch {
@@ -525,7 +525,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post("/api/cosmetics/purchase/:cosmeticId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { cosmeticId } = req.params;
+      const cosmeticId = String(req.params.cosmeticId);
       const user = await storage.getUser(req.userId!);
       if (!user) return res.status(404).json({ error: "User not found" });
 
@@ -551,7 +551,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post("/api/cosmetics/equip/:cosmeticId", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { cosmeticId } = req.params;
+      const cosmeticId = String(req.params.cosmeticId);
       const user = await storage.getUser(req.userId!);
       if (!user) return res.status(404).json({ error: "User not found" });
 
@@ -603,7 +603,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         xp: newXp,
         level: newLevel,
         eduCoins: user.eduCoins + coinsReward,
-        tier: getTier(newXp),
       });
       const { password: _, ...safeUser } = updated;
       res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) }, xpReward, coinsReward });

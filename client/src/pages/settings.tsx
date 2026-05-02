@@ -178,8 +178,8 @@ export default function SettingsPage() {
                           style={{
                             background: color.hsl,
                             boxShadow: isActive ? `0 0 12px ${color.glow}88` : undefined,
-                            ringColor: isActive ? color.glow : "transparent",
-                          }}
+                            "--tw-ring-color": isActive ? color.glow : "transparent",
+                          } as React.CSSProperties}
                         />
                         <span className="text-xs leading-tight">{color.label}</span>
                         {isActive && (

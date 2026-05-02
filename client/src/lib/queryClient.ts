@@ -36,8 +36,9 @@ export async function apiRequest(method: string, url: string, data?: unknown): P
   return res.json();
 }
 
-export const getQueryFn: <T>(options?: { on401?: "returnNull" | "throw" }) => QueryFunction<T> =
-  ({ on401 = "throw" } = {}) =>
+export const getQueryFn = <T,>(
+  { on401 = "throw" }: { on401?: "returnNull" | "throw" } = {},
+): QueryFunction<T> =>
   async ({ queryKey }) => {
     const url = queryKey.join("/") as string;
     const headers: Record<string, string> = {};
