@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import SystemArchitect from "@/components/system-architect";
 import {
   CheckCircle2, Lightbulb, Sparkles, ArrowRight, Pause, Play,
   Heart, Database, Activity, Shield, Target, Timer, Zap, X,
@@ -91,6 +92,17 @@ export const SAD_GAMES: Record<string, SADGameMeta> = {
     color: "text-indigo-300",
     gradient: "from-indigo-500 to-blue-700",
     emoji: "🎵",
+  },
+  system_architect: {
+    type: "system_architect",
+    title: "System Architect",
+    short: "System Architecture is how the parts of a software system are arranged so it can handle real users at scale.",
+    detail: "A real architecture has layers: a Firewall protects the network, a Load Balancer spreads work across many Web Servers, and the Database stores data. As traffic grows you must scale horizontally (add more boxes) and vertically (upgrade them).",
+    howTo: "Buy components from the shop, drop them on the grid, wire them up Internet → Firewall → LB → Servers → DB. Don't let any component overheat — traffic only grows from here!",
+    icon: Activity,
+    color: "text-fuchsia-300",
+    gradient: "from-fuchsia-500 to-purple-700",
+    emoji: "🏛️",
   },
 };
 
@@ -2752,6 +2764,7 @@ export function SADGameRunner({
     case "erd_doctor":       return <ERCityBuilder     key={k} {...props} />;
     case "dfd_detective":    return <DataFlowPlumber   key={k} {...props} />;
     case "sequence_stacker": return <SequenceRhythm    key={k} {...props} />;
+    case "system_architect": return <SystemArchitect    key={k} onComplete={onComplete} difficulty={difficulty} />;
     default:
       return (
         <div className="text-center text-muted-foreground p-6">
