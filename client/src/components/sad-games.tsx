@@ -2547,8 +2547,9 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
 
   const hitLane = useCallback((lane: number) => {
     if (stage !== "playing" || paused) return;
-    // Find closest alive note in this lane near the hit line.
     const current = notesRef.current;
+
+    // First, look for a CORRECT-lane note in the hit window.
     let bestIdx = -1;
     let bestDist = Infinity;
     for (let i = 0; i < current.length; i++) {
@@ -2560,7 +2561,36 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
         bestIdx = i;
       }
     }
-    if (bestIdx === -1) return;
+
+    // If no correct-lane note is in range, check whether ANY note is in the
+    // hit window. If so, this is a wrong-lane press — burn the closest such
+    // note as a MISS so players can't spam keys to find the right lane. The
+    // tile then slides to its true receiver lane to teach.
+    if (bestIdx === -1) {
+      let wrongIdx = -1;
+      let wrongDist = Infinity;
+      for (let i = 0; i < current.length; i++) {
+        const n = current[i];
+        if (n.state !== "alive") continue;
+        const d = Math.abs(n.y - HIT_LINE_PCT);
+        if (d < HIT_WINDOW && d < wrongDist) {
+          wrongDist = d;
+          wrongIdx = i;
+        }
+      }
+      if (wrongIdx !== -1) {
+        const n = current[wrongIdx];
+        const updated = [...current];
+        updated[wrongIdx] = { ...n, state: "miss" };
+        notesRef.current = updated;
+        setNotes(updated);
+        setMisses(m => m + 1);
+        comboRef.current = 0;
+        setCombo(0);
+        setFeedback({ kind: "miss", lane: n.lane, trigger: Date.now() });
+      }
+      return;
+    }
 
     const n = current[bestIdx];
     const isPerfect = bestDist < PERFECT_WINDOW;
