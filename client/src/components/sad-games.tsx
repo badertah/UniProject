@@ -3050,14 +3050,20 @@ function pickTeachBack(gameType: string): TeachBackQ | null {
   return c.teachBack[Math.floor(Math.random() * c.teachBack.length)];
 }
 
-// LocalStorage helper — concept card shows once per game type, then the
-// teach-back questions handle ongoing reinforcement.
-function useConceptSeen(gameType: string): [boolean, () => void] {
-  const key = `eduquest_concept_${gameType}`;
+// LocalStorage helper — concept card shows once per (game type, stage), so
+// each new level re-introduces its concept; teach-back quizzes handle the
+// ongoing reinforcement.
+function useConceptSeen(gameType: string, stageIndex: number): [boolean, () => void] {
+  const key = `eduquest_concept_${gameType}_s${stageIndex}`;
   const [seen, setSeen] = useState(() => {
     try { return typeof window !== "undefined" && localStorage.getItem(key) === "1"; }
     catch { return false; }
   });
+  // Re-evaluate when the level changes so the new level's concept card shows.
+  useEffect(() => {
+    try { setSeen(typeof window !== "undefined" && localStorage.getItem(key) === "1"); }
+    catch { setSeen(false); }
+  }, [key]);
   const dismiss = useCallback(() => {
     try { localStorage.setItem(key, "1"); } catch {}
     setSeen(true);
@@ -3071,6 +3077,18 @@ function ConceptCard({ gameType, onContinue }: { gameType: string; onContinue: (
   // Effect-based fallback so we never call setState in a parent during render.
   useEffect(() => {
     if (!c || !meta) onContinue();
+  }, [c, meta, onContinue]);
+  // Keyboard dismissal — Enter / Space advances past the card.
+  useEffect(() => {
+    if (!c || !meta) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onContinue();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [c, meta, onContinue]);
   if (!c || !meta) return null;
   const Icon = meta.icon;
@@ -3268,13 +3286,21 @@ export function SADGameRunner({
   totalStages?: number;
 }) {
   // 3-phase wrapper around every SAD game so they actually TEACH and verify
-  // understanding, not just play. Concept card runs once per game type;
+  // understanding, not just play. Concept card runs once per (game type, stage);
   // teach-back quiz runs every play and awards a small concept bonus.
-  const [conceptSeen, dismissConcept] = useConceptSeen(gameType);
+  const [conceptSeen, dismissConcept] = useConceptSeen(gameType, stageIndex);
   const [phase, setPhase] = useState<"concept" | "play" | "quiz">(
     conceptSeen ? "play" : "concept"
   );
   const [gameScore, setGameScore] = useState(0);
+
+  // Reset the wrapper whenever the user switches to another SAD game OR
+  // moves to another stage of the same game — otherwise stale phase / score
+  // state would carry over and skip the new level's concept card.
+  useEffect(() => {
+    setPhase(conceptSeen ? "play" : "concept");
+    setGameScore(0);
+  }, [gameType, stageIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // If the question pool is empty, just show the friendly empty-state.
   if (!questions || questions.length === 0) {
