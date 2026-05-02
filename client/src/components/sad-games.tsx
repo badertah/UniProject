@@ -2337,8 +2337,11 @@ function DataFlowPlumber({ questions, onComplete, difficulty = 0 }: SADGameProps
 // 6. SEQUENCE RHYTHM — notes routed to actor lanes by step text
 // ============================================================
 
-const HIT_LINE_PCT = 86;
+// Hit line is the top of the chunky key pad (Magic Tiles feel — tiles
+// "land" on a clearly visible piano-key strip at the bottom of each lane).
+const HIT_LINE_PCT = 78;
 const SEQ_KEYS = ["d", "f", "j", "k"];
+const LANE_COLORS = ["#a78bfa", "#22d3ee", "#fbbf24", "#f472b6"];
 
 interface SeqNote {
   id: number;
@@ -2396,7 +2399,7 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
     text,
     lane: parseReceiverLane(text, objects),
     spawnAt: i * NOTE_SPAWN_GAP_SEC,
-  })), [steps, objects]);
+  })), [steps, objects, NOTE_SPAWN_GAP_SEC]);
 
   const [stage, setStage] = useState<"idle" | "playing" | "done">("idle");
   const [notes, setNotes] = useState<SeqNote[]>([]);
@@ -2407,6 +2410,16 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
   const [misses, setMisses] = useState(0);
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState<{ kind: "perfect" | "good" | "miss"; lane: number; trigger: number } | null>(null);
+  // Visual press flash on the key pad — fires for EVERY tap (even if it
+  // doesn't connect with a note) so the player gets instant tactile feedback.
+  const [pressedLane, setPressedLane] = useState<number | null>(null);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressLane = useCallback((lane: number) => {
+    setPressedLane(lane);
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => setPressedLane(null), 140);
+  }, []);
+  useEffect(() => () => { if (pressTimerRef.current) clearTimeout(pressTimerRef.current); }, []);
   const [paused, setPaused] = usePause(stage === "playing" && !showHow);
 
   const elapsedRef = useRef(0);
@@ -2532,25 +2545,28 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
     setFeedback({ kind: isPerfect ? "perfect" : "good", lane, trigger: Date.now() });
   }, [stage, paused]);
 
-  // Keyboard
+  // Keyboard — every press also triggers the visual press flash so the
+  // player sees the lane react even on a mistimed key.
   useEffect(() => {
     if (stage !== "playing") return;
+    const tap = (lane: number) => { pressLane(lane); hitLane(lane); };
     const handler = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
       const idx = SEQ_KEYS.indexOf(k);
       if (idx >= 0 && idx < objects.length) {
         e.preventDefault();
-        hitLane(idx);
+        tap(idx);
+        return;
       }
       // Also support arrow keys
-      if (e.key === "ArrowLeft" && objects.length >= 1) hitLane(0);
-      else if (e.key === "ArrowDown" && objects.length >= 2) hitLane(1);
-      else if (e.key === "ArrowUp" && objects.length >= 3) hitLane(2);
-      else if (e.key === "ArrowRight" && objects.length >= 4) hitLane(3);
+      if (e.key === "ArrowLeft" && objects.length >= 1) tap(0);
+      else if (e.key === "ArrowDown" && objects.length >= 2) tap(1);
+      else if (e.key === "ArrowUp" && objects.length >= 3) tap(2);
+      else if (e.key === "ArrowRight" && objects.length >= 4) tap(3);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [stage, objects.length, hitLane]);
+  }, [stage, objects.length, hitLane, pressLane]);
 
   function nextRound() {
     const newTotal = totalScore + score;
@@ -2594,61 +2610,105 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
           </Badge>
         </div>
 
-        {/* Lanes */}
-        <div className="absolute inset-0 grid pt-9" style={{ gridTemplateColumns: `repeat(${objects.length}, 1fr)` }}>
+        {/* Lane tap surfaces — full-height invisible buttons that grab every
+            tap or click (anywhere in the lane counts). pointerdown for instant
+            response on touch devices (no 300ms click delay). */}
+        <div className="absolute inset-0 grid pt-9 z-0" style={{ gridTemplateColumns: `repeat(${objects.length}, 1fr)` }}>
           {objects.map((obj, i) => (
             <button
               key={i}
-              className="border-r border-border/20 last:border-r-0 relative cursor-pointer active:bg-indigo-500/20"
-              onClick={() => hitLane(i)}
+              type="button"
+              className="border-r border-border/20 last:border-r-0 relative cursor-pointer touch-none focus:outline-none bg-gradient-to-b from-white/[0.02] via-transparent to-white/[0.02]"
+              onPointerDown={(e) => { e.preventDefault(); pressLane(i); hitLane(i); }}
               data-testid={`lane-${i}`}
-            >
-              <div className="absolute bottom-0 left-0 right-0 pb-1 px-1 text-center">
-                <kbd className="px-1.5 py-0.5 rounded bg-muted/60 text-[10px] font-mono mr-1">{SEQ_KEYS[i]?.toUpperCase()}</kbd>
-                <div className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate">{obj}</div>
-              </div>
-            </button>
+              aria-label={`Lane ${i + 1}: ${obj}`}
+            />
           ))}
         </div>
 
-        {/* Hit line */}
+        {/* Visible HIT ZONE BAND — translucent gradient outer (good window)
+            + brighter inner band (perfect window). Players can SEE exactly
+            when a tile is in range. */}
         <div
-          className="absolute left-0 right-0 z-10 border-t-2 border-indigo-400/60 shadow-[0_0_8px_rgba(129,140,248,0.5)]"
-          style={{ top: `${HIT_LINE_PCT}%` }}
+          className="absolute left-0 right-0 z-10 pointer-events-none overflow-hidden"
+          style={{
+            top: `${HIT_LINE_PCT - HIT_WINDOW}%`,
+            height: `${HIT_WINDOW * 2}%`,
+          }}
+        >
+          {/* Outer good-window gradient */}
+          <div className="absolute inset-0 bg-gradient-to-b from-indigo-400/0 via-indigo-400/20 to-indigo-400/0" />
+          {/* Inner perfect band — glowing emerald stripe */}
+          <div
+            className="absolute left-0 right-0 bg-emerald-400/25 border-y border-emerald-300/50"
+            style={{
+              top: `${((HIT_WINDOW - PERFECT_WINDOW) / (HIT_WINDOW * 2)) * 100}%`,
+              height: `${(PERFECT_WINDOW * 2 / (HIT_WINDOW * 2)) * 100}%`,
+              boxShadow: "0 0 18px rgba(52,211,153,0.5) inset",
+            }}
+          />
+        </div>
+
+        {/* The HIT LINE itself — bright white bar that doubles as the top
+            edge of the key pad (so tiles visibly land ON the keys). */}
+        <div
+          className="absolute left-0 right-0 z-20 pointer-events-none"
+          style={{
+            top: `${HIT_LINE_PCT}%`,
+            borderTop: "3px solid rgba(255,255,255,0.95)",
+            boxShadow: "0 0 18px rgba(255,255,255,0.55)",
+          }}
         />
 
-        {/* Notes */}
-        <div className="absolute inset-0 pt-9" style={{ pointerEvents: "none" }}>
+        {/* Falling tiles — Magic Tiles style: nearly-full-lane width, fixed
+            tall height, solid color block with bold border + drop shadow.
+            Drawn ABOVE lane surfaces but BELOW the hit line so they appear
+            to slot into the key pad as they cross. */}
+        <div className="absolute inset-0 pt-9 z-10" style={{ pointerEvents: "none" }}>
           <AnimatePresence>
             {notes.map(n => {
               const laneW = 100 / objects.length;
               const left = n.lane * laneW + laneW / 2;
-              const colorByLane = ["#a78bfa", "#22d3ee", "#fbbf24", "#f472b6"][n.lane % 4];
+              const colorByLane = LANE_COLORS[n.lane % 4];
+              const isPerfect = n.state === "perfect";
+              const isGood = n.state === "good";
+              const tileBg = isPerfect
+                ? "linear-gradient(180deg, #34d399 0%, #10b981 100%)"
+                : isGood
+                ? "linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%)"
+                : `linear-gradient(180deg, ${colorByLane}EE 0%, ${colorByLane}CC 100%)`;
+              const tileBorder = isPerfect ? "#10b981" : isGood ? "#f59e0b" : colorByLane;
               return (
                 <motion.div
                   key={n.id}
-                  initial={{ scale: 0.6, opacity: 0 }}
+                  initial={{ scale: 0.85, opacity: 0 }}
                   animate={{
-                    scale: n.state === "perfect" ? 1.3 : n.state === "good" ? 1.15 : 1,
+                    scale: isPerfect ? 1.18 : isGood ? 1.1 : 1,
                     opacity: n.state === "alive" ? 1 : 0,
                   }}
-                  exit={{ opacity: 0 }}
-                  className="absolute flex items-center justify-center px-1"
+                  exit={{ opacity: 0, scale: 1.4 }}
+                  transition={{ duration: 0.18 }}
+                  className="absolute flex items-center justify-center"
                   style={{
                     top: `${n.y}%`,
                     left: `${left}%`,
-                    width: `${laneW * 0.92}%`,
+                    width: `${laneW * 0.96}%`,
+                    height: 60,
                     transform: "translate(-50%, -50%)",
+                    willChange: "transform, top",
                   }}
                 >
                   <div
-                    className="rounded-md px-2 py-1.5 border-2 shadow-lg backdrop-blur w-full text-center"
+                    className="rounded-lg w-full h-full flex items-center justify-center px-2 text-center"
                     style={{
-                      backgroundColor: n.state === "perfect" ? "#34d39988" : n.state === "good" ? "#fbbf2488" : `${colorByLane}40`,
-                      borderColor: n.state === "perfect" ? "#10b981" : n.state === "good" ? "#f59e0b" : colorByLane,
+                      background: tileBg,
+                      border: `2px solid ${tileBorder}`,
+                      boxShadow: `0 4px 12px rgba(0,0,0,0.45), 0 0 ${isPerfect ? 24 : isGood ? 18 : 8}px ${tileBorder}88, inset 0 1px 0 rgba(255,255,255,0.35)`,
                     }}
                   >
-                    <p className="text-[10px] font-bold leading-tight text-white line-clamp-2">{n.text}</p>
+                    <p className="text-[11px] font-extrabold leading-tight text-white line-clamp-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]">
+                      {n.text}
+                    </p>
                   </div>
                 </motion.div>
               );
@@ -2656,26 +2716,81 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
           </AnimatePresence>
         </div>
 
-        {/* Lane flash on hit */}
-        {feedback && feedback.lane >= 0 && (
-          <motion.div
-            key={feedback.trigger}
-            initial={{ opacity: 0.55 }}
-            animate={{ opacity: 0 }}
-            transition={{ duration: 0.4 }}
-            className={`absolute z-20 pointer-events-none ${feedback.kind === "perfect" ? "bg-emerald-400/40" : "bg-amber-400/30"}`}
-            style={{
-              top: `${HIT_LINE_PCT - 10}%`,
-              bottom: 0,
-              left: `${(feedback.lane / objects.length) * 100}%`,
-              width: `${100 / objects.length}%`,
-            }}
-          />
-        )}
+        {/* KEY PAD — chunky piano-key strip at the bottom of the play area.
+            Pointer-events-none: the lane buttons underneath still receive
+            taps. Pressed lanes flash bright + scale up briefly. */}
+        <div
+          className="absolute left-0 right-0 z-30 pointer-events-none grid"
+          style={{
+            top: `${HIT_LINE_PCT}%`,
+            bottom: 0,
+            gridTemplateColumns: `repeat(${objects.length}, 1fr)`,
+          }}
+        >
+          {objects.map((obj, i) => {
+            const isPressed = pressedLane === i;
+            const color = LANE_COLORS[i % 4];
+            return (
+              <div
+                key={i}
+                className="border-r border-white/10 last:border-r-0 flex flex-col items-center justify-center transition-all duration-100 px-1"
+                style={{
+                  background: isPressed
+                    ? `linear-gradient(180deg, ${color}66 0%, ${color}33 60%, transparent 100%)`
+                    : "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.75) 100%)",
+                  borderTop: `3px solid ${color}`,
+                  boxShadow: isPressed ? `inset 0 8px 20px ${color}88, 0 -2px 16px ${color}66` : "inset 0 1px 0 rgba(255,255,255,0.08)",
+                  transform: isPressed ? "scaleY(0.96)" : "scaleY(1)",
+                  transformOrigin: "top",
+                }}
+              >
+                <kbd
+                  className="text-lg font-mono font-bold text-white rounded-md px-2.5 py-1 mb-1 border"
+                  style={{
+                    background: isPressed ? `${color}AA` : "rgba(255,255,255,0.12)",
+                    borderColor: isPressed ? color : "rgba(255,255,255,0.25)",
+                    boxShadow: isPressed ? `0 0 12px ${color}` : "none",
+                  }}
+                >
+                  {SEQ_KEYS[i]?.toUpperCase()}
+                </kbd>
+                <div className="text-[10px] text-white/85 truncate max-w-full text-center font-medium">
+                  {obj}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Big floating PERFECT! / GOOD / MISS popup over the hit line. */}
+        <AnimatePresence>
+          {feedback && (
+            <motion.div
+              key={feedback.trigger}
+              initial={{ opacity: 1, y: 0, scale: 0.7 }}
+              animate={{ opacity: 0, y: -50, scale: 1.3 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.7, ease: "easeOut" }}
+              className="absolute z-40 pointer-events-none font-extrabold tracking-wide"
+              style={{
+                top: `${HIT_LINE_PCT - 6}%`,
+                left: feedback.lane >= 0
+                  ? `${(feedback.lane + 0.5) * (100 / objects.length)}%`
+                  : "50%",
+                transform: "translate(-50%, -50%)",
+                fontSize: feedback.kind === "perfect" ? "1.5rem" : "1.15rem",
+                color: feedback.kind === "perfect" ? "#34d399" : feedback.kind === "good" ? "#fbbf24" : "#f87171",
+                textShadow: "0 2px 14px rgba(0,0,0,0.85), 0 0 18px currentColor",
+              }}
+            >
+              {feedback.kind === "perfect" ? "PERFECT!" : feedback.kind === "good" ? "GOOD" : "MISS"}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Idle screen */}
         {stage === "idle" && !showHow && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-background/85 backdrop-blur">
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/85 backdrop-blur">
             <Timer className="w-10 h-10 text-indigo-400 mb-2" />
             <p className="text-base font-bold mb-1">{q.content || "Ready?"}</p>
             <p className="text-xs text-muted-foreground mb-3 max-w-xs text-center px-4">
@@ -2700,7 +2815,7 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-background/85 backdrop-blur p-4"
+            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/85 backdrop-blur p-4"
           >
             {won ? <Trophy className="w-12 h-12 text-amber-400 mb-2" /> : <Lightbulb className="w-12 h-12 text-amber-400 mb-2" />}
             <p className="text-xl font-bold">{won ? "Perfect tempo!" : "Keep the beat"}</p>
