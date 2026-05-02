@@ -53,6 +53,7 @@ export const userProgress = pgTable("user_progress", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
   levelId: varchar("level_id").notNull().references(() => levels.id),
+  stageIndex: integer("stage_index").notNull().default(0),
   completed: boolean("completed").notNull().default(false),
   score: integer("score").notNull().default(0),
   completedAt: timestamp("completed_at"),

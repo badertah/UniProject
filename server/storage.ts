@@ -42,8 +42,9 @@ export interface IStorage {
 
   // Progress
   getUserProgress(userId: string): Promise<(UserProgress & { level: Level; topic: Topic })[]>;
-  getLevelProgress(userId: string, levelId: string): Promise<UserProgress | undefined>;
-  saveProgress(userId: string, levelId: string, score: number, completed: boolean): Promise<UserProgress>;
+  getStageProgress(userId: string, levelId: string, stageIndex: number): Promise<UserProgress | undefined>;
+  getLevelStages(userId: string, levelId: string): Promise<UserProgress[]>;
+  saveProgress(userId: string, levelId: string, stageIndex: number, score: number, completed: boolean): Promise<UserProgress>;
   getCompletedLevelsCount(userId: string): Promise<number>;
 
   // Cosmetics
@@ -160,36 +161,58 @@ export class DatabaseStorage implements IStorage {
     return results.map(r => ({ ...r.progress, level: r.level, topic: r.topic }));
   }
 
-  async getLevelProgress(userId: string, levelId: string): Promise<UserProgress | undefined> {
+  async getStageProgress(userId: string, levelId: string, stageIndex: number): Promise<UserProgress | undefined> {
     const [progress] = await db
       .select().from(userProgress)
-      .where(and(eq(userProgress.userId, userId), eq(userProgress.levelId, levelId)));
+      .where(and(
+        eq(userProgress.userId, userId),
+        eq(userProgress.levelId, levelId),
+        eq(userProgress.stageIndex, stageIndex),
+      ));
     return progress;
   }
 
-  async saveProgress(userId: string, levelId: string, score: number, completed: boolean): Promise<UserProgress> {
-    const existing = await this.getLevelProgress(userId, levelId);
+  async getLevelStages(userId: string, levelId: string): Promise<UserProgress[]> {
+    return db
+      .select().from(userProgress)
+      .where(and(eq(userProgress.userId, userId), eq(userProgress.levelId, levelId)));
+  }
+
+  async saveProgress(userId: string, levelId: string, stageIndex: number, score: number, completed: boolean): Promise<UserProgress> {
+    const existing = await this.getStageProgress(userId, levelId, stageIndex);
     if (existing) {
       const [updated] = await db
         .update(userProgress)
-        .set({ score: Math.max(existing.score, score), completed: existing.completed || completed, completedAt: completed ? new Date() : existing.completedAt })
+        .set({
+          score: Math.max(existing.score, score),
+          completed: existing.completed || completed,
+          completedAt: completed && !existing.completedAt ? new Date() : existing.completedAt,
+        })
         .where(eq(userProgress.id, existing.id))
         .returning();
       return updated;
     }
     const [progress] = await db
       .insert(userProgress)
-      .values({ userId, levelId, score, completed, completedAt: completed ? new Date() : undefined })
+      .values({ userId, levelId, stageIndex, score, completed, completedAt: completed ? new Date() : undefined })
       .returning();
     return progress;
   }
 
+  // Counts levels where every question (stage) has at least one completed progress row.
   async getCompletedLevelsCount(userId: string): Promise<number> {
-    const [{ count }] = await db
-      .select({ count: drizzleSql<number>`count(*)` })
-      .from(userProgress)
-      .where(and(eq(userProgress.userId, userId), eq(userProgress.completed, true)));
-    return Number(count);
+    const result = await db.execute(drizzleSql`
+      SELECT COUNT(*)::int AS count FROM (
+        SELECT up.level_id
+        FROM user_progress up
+        WHERE up.user_id = ${userId} AND up.completed = true
+        GROUP BY up.level_id
+        HAVING COUNT(DISTINCT up.stage_index) >=
+          (SELECT GREATEST(COUNT(*), 1) FROM questions q WHERE q.level_id = up.level_id)
+      ) t
+    `);
+    const rows: any[] = (result as any).rows ?? (result as any);
+    return Number(rows?.[0]?.count) || 0;
   }
 
   async getAllCosmetics(): Promise<Cosmetic[]> {

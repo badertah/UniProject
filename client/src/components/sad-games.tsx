@@ -101,6 +101,12 @@ export function isSADGame(type: string) {
 interface SADGameProps {
   questions: any[];
   onComplete: (score: number) => void;
+  /** 0..1 difficulty ramp. 0 = baseline (Stage 1), 1 = max (final stage). */
+  difficulty?: number;
+  /** 0-based stage index inside the parent level (for HUD labelling). */
+  stageIndex?: number;
+  /** Total stages in the parent level. */
+  totalStages?: number;
 }
 
 // ============================================================
@@ -2391,8 +2397,16 @@ function SequenceRhythm({ questions, onComplete }: SADGameProps) {
 // MAIN DISPATCHER
 // ============================================================
 
-export function SADGameRunner({ gameType, questions, onComplete }: {
-  gameType: string; questions: any[]; onComplete: (score: number) => void;
+export function SADGameRunner({
+  gameType, questions, onComplete,
+  difficulty = 0, stageIndex = 0, totalStages = 1,
+}: {
+  gameType: string;
+  questions: any[];
+  onComplete: (score: number) => void;
+  difficulty?: number;
+  stageIndex?: number;
+  totalStages?: number;
 }) {
   if (!questions || questions.length === 0) {
     return (
@@ -2406,13 +2420,19 @@ export function SADGameRunner({ gameType, questions, onComplete }: {
     );
   }
 
+  // Re-mount the game whenever the active stage changes so its internal
+  // round/score/refs are reset cleanly without each game having to re-handle
+  // a `stageIndex` prop change on its own.
+  const k = `${gameType}-s${stageIndex}`;
+  const props = { questions, onComplete, difficulty, stageIndex, totalStages };
+
   switch (gameType) {
-    case "sdlc_sorter":      return <PhaseRunner       questions={questions} onComplete={onComplete} />;
-    case "req_sorter":       return <RequirementHunter questions={questions} onComplete={onComplete} />;
-    case "usecase_builder":  return <UseCaseDefense    questions={questions} onComplete={onComplete} />;
-    case "erd_doctor":       return <ERCityBuilder     questions={questions} onComplete={onComplete} />;
-    case "dfd_detective":    return <DataFlowPlumber   questions={questions} onComplete={onComplete} />;
-    case "sequence_stacker": return <SequenceRhythm    questions={questions} onComplete={onComplete} />;
+    case "sdlc_sorter":      return <PhaseRunner       key={k} {...props} />;
+    case "req_sorter":       return <RequirementHunter key={k} {...props} />;
+    case "usecase_builder":  return <UseCaseDefense    key={k} {...props} />;
+    case "erd_doctor":       return <ERCityBuilder     key={k} {...props} />;
+    case "dfd_detective":    return <DataFlowPlumber   key={k} {...props} />;
+    case "sequence_stacker": return <SequenceRhythm    key={k} {...props} />;
     default:
       return (
         <div className="text-center text-muted-foreground p-6">
@@ -2421,4 +2441,15 @@ export function SADGameRunner({ gameType, questions, onComplete }: {
         </div>
       );
   }
+}
+
+// ============================================================
+// Difficulty helpers — exported so game.tsx + topic.tsx can show labels.
+// ============================================================
+
+export function difficultyLabel(d: number): { label: string; color: string } {
+  if (d < 0.01) return { label: "EASY",   color: "text-emerald-300" };
+  if (d < 0.5)  return { label: "NORMAL", color: "text-cyan-300" };
+  if (d < 0.85) return { label: "HARD",   color: "text-amber-300" };
+  return                 { label: "EXPERT", color: "text-rose-300" };
 }

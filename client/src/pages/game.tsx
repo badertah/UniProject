@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
-import { SAD_GAMES, isSADGame, SADGameRunner } from "@/components/sad-games";
+import { SAD_GAMES, isSADGame, SADGameRunner, difficultyLabel } from "@/components/sad-games";
 
 // ===================== WORDLE GAME =====================
 type LetterState = "correct" | "present" | "absent" | "empty" | "tbd";
@@ -1051,9 +1051,16 @@ function MemoryFlipGame({ questions, onComplete }: { questions: any[]; onComplet
 }
 
 // ===================== MAIN GAME PAGE =====================
+function readStageFromUrl(): number {
+  if (typeof window === "undefined") return 0;
+  const raw = new URLSearchParams(window.location.search).get("stage");
+  const n = parseInt(raw ?? "0", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 export default function GamePage() {
   const { id } = useParams<{ id: string }>();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, updateUser } = useAuth();
   const { toast } = useToast();
 
@@ -1063,8 +1070,16 @@ export default function GamePage() {
   const [gameState, setGameState] = useState<"idle" | "playing" | "complete">("idle");
   const [finalScore, setFinalScore] = useState(0);
 
+  // Track active stage from URL (?stage=N). Re-read on URL change.
+  const [stageIndex, setStageIndex] = useState<number>(() => readStageFromUrl());
+  useEffect(() => {
+    setStageIndex(readStageFromUrl());
+    setGameState("idle");
+    setFinalScore(0);
+  }, [location]);
+
   const progressMutation = useMutation({
-    mutationFn: (data: { levelId: string; score: number; completed: boolean }) =>
+    mutationFn: (data: { levelId: string; stageIndex: number; score: number; completed: boolean }) =>
       apiRequest("POST", "/api/progress", data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/progress"] });
@@ -1080,21 +1095,28 @@ export default function GamePage() {
     try {
       const result = await progressMutation.mutateAsync({
         levelId: id!,
+        stageIndex,
         score,
         completed: score > 0,
       });
 
       if (result.xpGained > 0) {
         toast({
-          title: `+${result.xpGained} XP earned!`,
-          description: result.isFirstCompletion
-            ? `First completion bonus: +${result.coinsGained} EduCoins`
+          title: result.justFinishedLevel
+            ? `🏆 LEVEL CLEAR — +${result.xpGained} XP!`
+            : `+${result.xpGained} XP earned!`,
+          description: result.isFirstStageCompletion
+            ? `Stage ${stageIndex + 1} clear · +${result.coinsGained} EduCoins`
             : `Score: ${score}`,
         });
       }
     } catch (e) {
       // Silently fail progress save
     }
+  }
+
+  function goToStage(nextStage: number) {
+    setLocation(`/game/${id}?stage=${nextStage}`);
   }
 
   if (isLoading) {
