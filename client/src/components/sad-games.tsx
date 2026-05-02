@@ -401,7 +401,6 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const [target, setTarget] = useState(0); // total deliverables expected
   const [timeLeft, setTimeLeft] = useState(ROUND_DURATION_SEC);
   const [roundOver, setRoundOver] = useState(false);
-  const [currentPhaseIdx, setCurrentPhaseIdx] = useState(0); // sweeps through phases as round progresses
   const [paused, setPaused] = usePause(!showHowOverlay && !roundOver);
 
   // Juice
@@ -418,7 +417,6 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   // inside updater functions).
   const objectsRef = useRef<PRObject[]>([]);
   const timeLeftRef = useRef(ROUND_DURATION_SEC);
-  const phaseIdxRef = useRef(0);
   const nextId = useRef(1);
   const spawnAcc = useRef(0);
 
@@ -434,10 +432,8 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
     setTarget(0);
     setTimeLeft(ROUND_DURATION_SEC);
     setRoundOver(false);
-    setCurrentPhaseIdx(0);
     objectsRef.current = [];
     timeLeftRef.current = ROUND_DURATION_SEC;
-    phaseIdxRef.current = 0;
     spawnAcc.current = 0;
     nextId.current = 1;
   }, [round]);
@@ -452,13 +448,10 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
     const timeJustHitZero = newTime === 0 && timeLeftRef.current > 0;
     timeLeftRef.current = newTime;
 
-    // 2) Compute the swept target phase index.
-    const segmentDur = ROUND_DURATION_SEC / laneCount;
-    const newIdx = Math.min(laneCount - 1, Math.floor(elapsedNow / segmentDur));
-    const phaseChanged = newIdx !== phaseIdxRef.current;
-    phaseIdxRef.current = newIdx;
-
-    // 3) Decide whether to spawn this frame.
+    // 2) Decide whether to spawn this frame. (No more "current phase" sweep —
+    //    that auto-telegraphed the answer. The deliverable's own phase label
+    //    IS the question, and the player must read it and switch into the
+    //    correct lane themselves.)
     spawnAcc.current += dt;
     let spawnedObj: PRObject | null = null;
     let targetDelta = 0;
@@ -470,8 +463,9 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
         const bugLane = Math.floor(Math.random() * laneCount);
         spawnedObj = { id, lane: bugLane, type: "bug", x: 102 };
       } else {
-        // 70% of deliverables target the CURRENT phase (teaches order); 30% random for variety.
-        const targetLane = Math.random() < 0.7 ? newIdx : Math.floor(Math.random() * laneCount);
+        // Uniformly random target phase — the player must READ the deliverable
+        // label and choose the matching lane. No more sweep bias to cheese.
+        const targetLane = Math.floor(Math.random() * laneCount);
         spawnedObj = { id, lane: targetLane, type: "deliverable", x: 102, phaseLabel: phases[targetLane] };
         targetDelta = 1;
       }
@@ -516,7 +510,6 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
     // 5) Apply all setStates at the top level (none nested inside an updater).
     setTimeLeft(newTime);
     setObjects(next);
-    if (phaseChanged) setCurrentPhaseIdx(newIdx);
     if (targetDelta) setTarget(t => t + targetDelta);
     if (collectedDelta) setCollected(c => c + collectedDelta);
     if (missedDelta) setMissed(m => m + missedDelta);
@@ -601,9 +594,6 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
                 />
               ))}
             </Badge>
-            <Badge variant="outline" className="bg-violet-500/30 backdrop-blur text-violet-100 border-violet-400/60 font-bold" data-testid="badge-current-phase">
-              ➤ Phase {currentPhaseIdx + 1}/{laneCount}: {phases[currentPhaseIdx]}
-            </Badge>
             <Badge variant="outline" className="bg-background/70 backdrop-blur text-amber-300" data-testid="badge-progress">
               📦 {collected}/{target || "?"}
             </Badge>
@@ -615,24 +605,21 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
           {/* Lanes (clickable for tap-to-jump) — current target phase glows */}
           <div className="absolute inset-0 grid mt-9" style={{ gridTemplateRows: `repeat(${laneCount}, 1fr)` }}>
             {phases.map((phaseLabel, i) => {
-              const isTarget = i === currentPhaseIdx;
               const isPlayerHere = lane === i;
               return (
                 <button
                   key={i}
                   className={`relative border-b border-border/20 transition-all text-left ${
-                    isTarget ? "bg-violet-500/15 ring-1 ring-inset ring-violet-400/40" : ""
-                  } ${isPlayerHere ? "bg-violet-500/20" : "hover:bg-violet-500/5"}`}
+                    isPlayerHere ? "bg-violet-500/20" : "hover:bg-violet-500/5"
+                  }`}
                   onClick={() => setLane(i)}
                   aria-label={`Switch to ${phaseLabel} lane`}
                   data-testid={`lane-${i}`}
                 >
                   <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-mono pointer-events-none ${
-                    isPlayerHere ? "text-violet-100 font-bold" :
-                    isTarget ? "text-violet-200 font-semibold" :
-                    "text-muted-foreground/50"
+                    isPlayerHere ? "text-violet-100 font-bold" : "text-muted-foreground/60"
                   }`}>
-                    {isTarget && "▸ "}{phaseLabel}
+                    {phaseLabel}
                   </span>
                 </button>
               );
@@ -703,7 +690,7 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
               goal={`${opts.methodology ? `Methodology: ${opts.methodology}. ` : ""}The team marches through the SDLC in order. Catch deliverables in the matching phase lane.`}
               controls={[
                 "↑ / ↓ or W / S to switch lane (or tap a lane).",
-                "The HUD shows the current phase — most deliverables come from there.",
+                "READ each deliverable's phase label and switch to the matching lane to catch it.",
                 "Lanes are arranged top-to-bottom in the canonical phase order.",
                 `${PR_HEARTS} hearts. Bugs AND missed deliverables cost 1 each. Catch ≥ 80% to win. Esc to pause.`,
               ]}
@@ -2886,6 +2873,386 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
 }
 
 // ============================================================
+// CONCEPT CONTENT — what each game is *actually* teaching, plus the
+// teach-back questions used to verify the learning landed.
+// Lives in code (not DB) so we don't touch the schema; falls back
+// gracefully if a game type is missing.
+// ============================================================
+
+interface TeachBackQ {
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  why: string;
+}
+
+interface ConceptContent {
+  conceptName: string;
+  bigIdea: string;
+  keyTerms: { term: string; def: string }[];
+  workedExample: string;
+  teachBack: TeachBackQ[];
+}
+
+const CONCEPT_CONTENT: Record<string, ConceptContent> = {
+  sdlc_sorter: {
+    conceptName: "Software Development Life Cycle",
+    bigIdea: "Every software project moves through ordered PHASES. You can't test what you haven't built; you can't build what you haven't designed. Order matters because each phase produces what the next one needs.",
+    keyTerms: [
+      { term: "Phase", def: "A distinct stage of work with its own deliverables (diagrams, code, test reports…)." },
+      { term: "Deliverable", def: "A concrete artifact a phase produces and hands to the next phase." },
+      { term: "Methodology", def: "How phases are sequenced — Waterfall (once, in order) vs Agile (small, repeated cycles)." },
+    ],
+    workedExample: "A team writes a use-case diagram. That's an ANALYSIS deliverable — it captures what users need before any code exists. So it belongs in the Analysis lane, not Implementation.",
+    teachBack: [
+      {
+        prompt: "Your team just wrote a unit test that verifies the login function rejects empty passwords. Which phase did this come from?",
+        options: ["Planning", "Design", "Testing", "Maintenance"],
+        correctIndex: 2,
+        why: "Writing tests that VERIFY existing code is the Testing phase. Designing what the login should do would be Design.",
+      },
+      {
+        prompt: "What's the LAST thing a phase produces before handing off to the next?",
+        options: ["A meeting", "A deliverable", "A bug report", "An idea"],
+        correctIndex: 1,
+        why: "Each phase outputs concrete deliverables (a spec, a diagram, code, a test report) that feed the next phase.",
+      },
+    ],
+  },
+  req_sorter: {
+    conceptName: "Functional vs Non-Functional Requirements",
+    bigIdea: "FUNCTIONAL = WHAT the system does (a feature, an action). NON-FUNCTIONAL = HOW WELL it does it (speed, security, reliability — quality attributes).",
+    keyTerms: [
+      { term: "Functional", def: "A behavior or feature: 'Users can reset their password.' Verbs of action." },
+      { term: "Non-functional", def: "A quality the system must hold to: 'Pages load in under 2s.' Often measurable, but not a feature." },
+      { term: "Tip", def: "Words like 'within X seconds', '99.9% uptime', 'must support N users' usually signal non-functional." },
+    ],
+    workedExample: "'The site must support 1000 simultaneous users' — that's not a feature, it's a scalability quality. Non-functional. Compare: 'The site must let users post comments' — that IS a feature. Functional.",
+    teachBack: [
+      {
+        prompt: "'All passwords must be hashed with bcrypt before being saved.' — what kind of requirement?",
+        options: ["Functional — saving is an action", "Non-functional — security/encryption is a quality"],
+        correctIndex: 1,
+        why: "Encryption is a security QUALITY of how data is stored, not a user-facing feature. Non-functional.",
+      },
+      {
+        prompt: "'Customers can filter products by price range.' — what kind?",
+        options: ["Functional — it's a feature the user invokes", "Non-functional — it's about the UI"],
+        correctIndex: 0,
+        why: "Filtering is a concrete user-facing action. Functional. (UI accessibility would be non-functional.)",
+      },
+    ],
+  },
+  usecase_builder: {
+    conceptName: "Actors and Use Cases",
+    bigIdea: "An ACTOR is anyone OUTSIDE the system that interacts with it. A USE CASE is one task the actor performs. The diagram answers: 'who can do what?'",
+    keyTerms: [
+      { term: "Actor", def: "External role — a person or another system. Drawn as a stick figure." },
+      { term: "Use Case", def: "A goal the actor wants to achieve with the system. Drawn as an oval." },
+      { term: "Ownership", def: "A use case connects to the actor(s) who can trigger it. Different actors usually have different use cases." },
+    ],
+    workedExample: "In a library, only a Librarian can 'Add a New Book' — Readers don't have that power. So 'Add Book' connects to Librarian, not Reader.",
+    teachBack: [
+      {
+        prompt: "In an online shop, who is the actor for 'Process Refund Manually'?",
+        options: ["Customer", "Admin / Support staff", "Shopping cart"],
+        correctIndex: 1,
+        why: "Customers REQUEST refunds, but PROCESSING them is an admin/support task. The shopping cart is part of the system, not an actor.",
+      },
+      {
+        prompt: "Which of these is NOT a valid actor in a use case diagram?",
+        options: ["A delivery driver", "A bank's payment API", "The 'orders' database table"],
+        correctIndex: 2,
+        why: "Database tables are INSIDE the system. Actors are external. Drivers and external APIs are external = actors.",
+      },
+    ],
+  },
+  erd_doctor: {
+    conceptName: "Cardinality (1:1, 1:N, N:N)",
+    bigIdea: "Cardinality answers TWO questions per relationship: 'How many on the LEFT for one on the RIGHT?' and vice versa. 1:1 means one-to-one. 1:N is one-to-many. N:N is many-to-many — and needs a junction table.",
+    keyTerms: [
+      { term: "1:1", def: "Each side has exactly one of the other. Rare. Example: Person ↔ Passport." },
+      { term: "1:N", def: "One side has many on the other. Most common. Example: Customer → Orders." },
+      { term: "N:N", def: "Both sides have many. Needs a join table. Example: Students ↔ Courses (via Enrolments)." },
+    ],
+    workedExample: "A Doctor sees many Patients; a Patient is seen by many Doctors over time. Both sides → many. That's N:N — model it with an Appointments table linking the two.",
+    teachBack: [
+      {
+        prompt: "An Author can write many Books. Each Book has exactly one Author. What's the cardinality?",
+        options: ["1:1", "1:N", "N:N"],
+        correctIndex: 1,
+        why: "One author → many books, but each book → one author. Classic 1-to-many.",
+      },
+      {
+        prompt: "Books can be borrowed by many readers over time. Each reader can borrow many books. How would you model the relationship?",
+        options: ["1:1 between Book and Reader", "1:N from Book to Reader", "N:N — needs a junction table (Loans)"],
+        correctIndex: 2,
+        why: "Both sides have many → N:N. You can't store this in either table directly; you need a Loans table linking them.",
+      },
+    ],
+  },
+  dfd_detective: {
+    conceptName: "Data Flow Diagram Rules",
+    bigIdea: "A DFD shows DATA moving through a system. Arrows always carry data. Two unbreakable rules: (1) A store NEVER connects directly to another store — a process must sit between. (2) Sources and sinks (external) connect via processes, not directly to stores.",
+    keyTerms: [
+      { term: "Process", def: "A circle / oval — transforms incoming data into outgoing data." },
+      { term: "Store", def: "An open box — passively holds data. Cannot transform it." },
+      { term: "Source / Sink", def: "A box — external entity that data comes from or goes to." },
+      { term: "Flow", def: "An arrow — labeled with the data it carries." },
+    ],
+    workedExample: "Customer → 'Save Order' → Orders DB ✓ (source → process → store).  Orders DB → Invoices DB ✗ — that's store-to-store. Insert a 'Generate Invoice' process between them.",
+    teachBack: [
+      {
+        prompt: "Which connection is INVALID in a DFD?",
+        options: ["Customer → Process Order", "Users DB → Sessions DB", "Login Process → Users DB"],
+        correctIndex: 1,
+        why: "Users DB → Sessions DB is store-to-store. A process (e.g. 'Create Session') must sit between them.",
+      },
+      {
+        prompt: "Why must arrows in a DFD be LABELED?",
+        options: ["So they look pretty", "Because the label IS the data being moved", "It's optional"],
+        correctIndex: 1,
+        why: "Every arrow carries some specific data (an order, a credit-card #, a session token). The label names that data.",
+      },
+    ],
+  },
+  sequence_stacker: {
+    conceptName: "Sequence Diagrams — Time Flows Down",
+    bigIdea: "Each vertical line is one OBJECT. Horizontal arrows are MESSAGES between objects. Time flows TOP→BOTTOM. A message can only be sent AFTER everything it depends on has happened.",
+    keyTerms: [
+      { term: "Lifeline", def: "The vertical dashed line under each object — represents that object across time." },
+      { term: "Message", def: "An arrow from sender to receiver. THE RECEIVER decides which lane the message lands in." },
+      { term: "Causality", def: "A reply can't come before the request. Use this to put steps in order." },
+    ],
+    workedExample: "'AuthService asks Database for user' → the message GOES TO Database, so it lands in the Database lane. The Database can only REPLY in a later step, never before being asked.",
+    teachBack: [
+      {
+        prompt: "In a flow with [User, LoginPage, AuthService, Database], the message 'AuthService verifies the password hash' lands in which lane?",
+        options: ["User", "LoginPage", "AuthService — it's doing the work on itself", "Database"],
+        correctIndex: 2,
+        why: "When an object does work on ITSELF (a self-message), it lands in its OWN lane. AuthService is verifying — it stays in AuthService's lane.",
+      },
+      {
+        prompt: "Why can't 'Database returns user record' come BEFORE 'AuthService asks Database for user'?",
+        options: ["It's just style", "Causality — you can't reply to a question that hasn't been asked", "Random ordering is fine"],
+        correctIndex: 1,
+        why: "Sequence diagrams enforce causality. A reply must come after the request that triggers it. Always.",
+      },
+    ],
+  },
+};
+
+// Pick ONE teach-back question per session so it stays fast but the active
+// recall happens every play.
+function pickTeachBack(gameType: string): TeachBackQ | null {
+  const c = CONCEPT_CONTENT[gameType];
+  if (!c || c.teachBack.length === 0) return null;
+  return c.teachBack[Math.floor(Math.random() * c.teachBack.length)];
+}
+
+// LocalStorage helper — concept card shows once per game type, then the
+// teach-back questions handle ongoing reinforcement.
+function useConceptSeen(gameType: string): [boolean, () => void] {
+  const key = `eduquest_concept_${gameType}`;
+  const [seen, setSeen] = useState(() => {
+    try { return typeof window !== "undefined" && localStorage.getItem(key) === "1"; }
+    catch { return false; }
+  });
+  const dismiss = useCallback(() => {
+    try { localStorage.setItem(key, "1"); } catch {}
+    setSeen(true);
+  }, [key]);
+  return [seen, dismiss];
+}
+
+function ConceptCard({ gameType, onContinue }: { gameType: string; onContinue: () => void }) {
+  const c = CONCEPT_CONTENT[gameType];
+  const meta = SAD_GAMES[gameType];
+  // Effect-based fallback so we never call setState in a parent during render.
+  useEffect(() => {
+    if (!c || !meta) onContinue();
+  }, [c, meta, onContinue]);
+  if (!c || !meta) return null;
+  const Icon = meta.icon;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="w-full max-w-xl"
+      data-testid="card-concept"
+    >
+      <div className="glass-strong rounded-2xl border border-border/40 overflow-hidden">
+        <div className={`bg-gradient-to-br ${meta.gradient} p-4 flex items-center gap-3`}>
+          <div className="w-12 h-12 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center flex-shrink-0">
+            <Icon className="w-6 h-6 text-white" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-mono text-white/70 tracking-widest">CONCEPT — {meta.title.toUpperCase()}</p>
+            <h2 className="text-lg font-bold text-white truncate">{c.conceptName}</h2>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground tracking-widest mb-1">THE BIG IDEA</p>
+            <p className="text-sm text-foreground/95 leading-relaxed">{c.bigIdea}</p>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground tracking-widest mb-1.5">KEY TERMS</p>
+            <div className="space-y-1.5">
+              {c.keyTerms.map((t, i) => (
+                <div key={i} className="rounded-lg border border-border/30 bg-card/40 px-3 py-2">
+                  <span className="text-xs font-bold text-primary">{t.term}</span>
+                  <span className="text-xs text-muted-foreground"> — {t.def}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+            <div className="flex items-start gap-2">
+              <Lightbulb className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[10px] font-mono text-amber-300/80 tracking-widest mb-1">WORKED EXAMPLE</p>
+                <p className="text-xs text-foreground/90 leading-relaxed">{c.workedExample}</p>
+              </div>
+            </div>
+          </div>
+
+          <Button className="w-full min-h-11" onClick={onContinue} data-testid="button-concept-continue">
+            Got it — let me try it <ArrowRight className="w-4 h-4 ml-1" />
+          </Button>
+          <p className="text-[10px] text-muted-foreground text-center">
+            (You'll see this concept card once per game. The quick check at the end runs every play.)
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function TeachBackQuiz({
+  gameType, baseScore, onDone,
+}: {
+  gameType: string;
+  baseScore: number;
+  onDone: (finalScore: number, passed: boolean) => void;
+}) {
+  // Pick a question once and freeze it so re-renders don't shuffle.
+  const question = useMemo(() => pickTeachBack(gameType), [gameType]);
+  const meta = SAD_GAMES[gameType];
+  const [picked, setPicked] = useState<number | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+
+  // Hooks must run unconditionally — gate the side-effect on missing content
+  // INSIDE the effect rather than around an early return.
+  useEffect(() => {
+    if (!question || !meta) onDone(baseScore, true);
+  }, [question, meta, baseScore, onDone]);
+
+  if (!question || !meta) return null;
+
+  const passed = submitted && picked === question.correctIndex;
+  const bonus = passed ? 30 : 0;
+  const finalScore = baseScore + bonus;
+  const Icon = meta.icon;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="w-full max-w-xl"
+      data-testid="card-teachback"
+    >
+      <div className="glass-strong rounded-2xl border border-border/40 overflow-hidden">
+        <div className={`bg-gradient-to-br ${meta.gradient} p-4 flex items-center gap-3`}>
+          <div className="w-12 h-12 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center flex-shrink-0">
+            <Icon className="w-6 h-6 text-white" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-mono text-white/70 tracking-widest">QUICK CHECK — {meta.title.toUpperCase()}</p>
+            <h2 className="text-base font-bold text-white">Did the concept land?</h2>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-foreground/95 leading-relaxed" data-testid="text-teachback-prompt">
+            {question.prompt}
+          </p>
+
+          <div className="space-y-2">
+            {question.options.map((opt, i) => {
+              const isPicked = picked === i;
+              const isCorrect = submitted && i === question.correctIndex;
+              const isWrongPick = submitted && isPicked && i !== question.correctIndex;
+              return (
+                <button
+                  key={i}
+                  onClick={() => !submitted && setPicked(i)}
+                  disabled={submitted}
+                  className={`w-full text-left rounded-lg border-2 px-3 py-2.5 transition-all min-h-12 ${
+                    isCorrect ? "border-emerald-400 bg-emerald-500/15 text-emerald-100" :
+                    isWrongPick ? "border-rose-400 bg-rose-500/15 text-rose-100" :
+                    isPicked ? "border-primary bg-primary/15" :
+                    "border-border/40 bg-card/40 hover:border-primary/50"
+                  }`}
+                  data-testid={`option-teachback-${i}`}
+                >
+                  <span className="text-sm font-medium">{opt}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {submitted && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`rounded-lg border p-3 ${passed ? "border-emerald-500/40 bg-emerald-500/10" : "border-amber-500/40 bg-amber-500/10"}`}
+            >
+              <div className="flex items-start gap-2">
+                {passed
+                  ? <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  : <Lightbulb className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />}
+                <div>
+                  <p className={`text-xs font-bold ${passed ? "text-emerald-300" : "text-amber-300"}`}>
+                    {passed ? "Concept confirmed!" : "Not quite — here's why:"}
+                  </p>
+                  <p className="text-xs text-foreground/85 mt-1 leading-relaxed">{question.why}</p>
+                  {passed && (
+                    <p className="text-xs text-emerald-300 mt-1.5 font-mono">+{bonus} concept-bonus pts</p>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {!submitted ? (
+            <Button
+              className="w-full min-h-11"
+              onClick={() => setSubmitted(true)}
+              disabled={picked === null}
+              data-testid="button-teachback-submit"
+            >
+              Submit answer
+            </Button>
+          ) : (
+            <Button
+              className="w-full min-h-11"
+              onClick={() => onDone(finalScore, passed)}
+              data-testid="button-teachback-finish"
+            >
+              {passed ? "Claim reward" : "Continue"} <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ============================================================
 // MAIN DISPATCHER
 // ============================================================
 
@@ -2900,6 +3267,16 @@ export function SADGameRunner({
   stageIndex?: number;
   totalStages?: number;
 }) {
+  // 3-phase wrapper around every SAD game so they actually TEACH and verify
+  // understanding, not just play. Concept card runs once per game type;
+  // teach-back quiz runs every play and awards a small concept bonus.
+  const [conceptSeen, dismissConcept] = useConceptSeen(gameType);
+  const [phase, setPhase] = useState<"concept" | "play" | "quiz">(
+    conceptSeen ? "play" : "concept"
+  );
+  const [gameScore, setGameScore] = useState(0);
+
+  // If the question pool is empty, just show the friendly empty-state.
   if (!questions || questions.length === 0) {
     return (
       <div className="glass-strong rounded-xl p-6 border border-amber-500/30 text-center max-w-md">
@@ -2912,11 +3289,40 @@ export function SADGameRunner({
     );
   }
 
+  if (phase === "concept") {
+    return (
+      <ConceptCard
+        gameType={gameType}
+        onContinue={() => { dismissConcept(); setPhase("play"); }}
+      />
+    );
+  }
+
+  if (phase === "quiz") {
+    return (
+      <TeachBackQuiz
+        gameType={gameType}
+        baseScore={gameScore}
+        onDone={(finalScore) => onComplete(finalScore)}
+      />
+    );
+  }
+
   // Re-mount the game whenever the active stage changes so its internal
-  // round/score/refs are reset cleanly without each game having to re-handle
-  // a `stageIndex` prop change on its own.
+  // round/score/refs are reset cleanly. The wrapped onComplete diverts to
+  // the teach-back quiz before propagating the final score.
   const k = `${gameType}-s${stageIndex}`;
-  const props = { questions, onComplete, difficulty, stageIndex, totalStages };
+  const handleGameComplete = (s: number) => {
+    setGameScore(s);
+    setPhase("quiz");
+  };
+  const props = {
+    questions,
+    onComplete: handleGameComplete,
+    difficulty,
+    stageIndex,
+    totalStages,
+  };
 
   switch (gameType) {
     case "sdlc_sorter":      return <PhaseRunner        key={k} {...props} />;
