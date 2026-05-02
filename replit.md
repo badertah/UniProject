@@ -24,16 +24,20 @@ The platform is currently focused exclusively on the **System Analysis & Design*
 2. **XP/Level system** — level = floor(xp/150)+1
 3. **Tier system** — Rookie (0) → Scholar (500) → Expert (1500) → Master (3500) → Legend (7000)
 4. **1 Focus Topic (public)** — System Analysis & Design only. (Other 5 topics still exist in DB, hidden via API filter `isSADTopic` in `server/routes.ts`.)
-5. **6 Arcade-Style SAD Games** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`):
-   - **Phase Runner** (`sdlc_sorter`) — Lane-switching infinite runner. Switch lanes to collect deliverables in the correct SDLC phase and dodge bugs. Arrow keys / tap controls.
-   - **Requirement Hunter** (`req_sorter`) — Hidden object + falling frenzy. Explore an office to discover requirements, then sort falling requirement cards into Functional vs Non-Functional baskets.
-   - **Use Case Defense** (`usecase_builder`) — Tower defense. Place Actor towers on a grid. Each enemy wave represents a system failure weak against a specific actor-use-case combo.
-   - **ER City Builder** (`erd_doctor`) — City-building puzzle. Connect entity buildings with roads of different widths (1 lane = 1:1, multi-lane = 1:N, highway = N:N). Start traffic to see data cars flow.
-   - **Data Flow Plumber** (`dfd_detective`) — Pipe Dream grid puzzle. Place and rotate pipe pieces to connect the Source to the Sink. Start the flow and watch data orbs travel.
-   - **Sequence Rhythm** (`sequence_stacker`) — Rhythm game (Guitar Hero style). Press D/F/J/K as message arrows fall in sequence-diagram order. Combo multiplier for consecutive hits.
-   - Puzzle data lives in `questions.options` JSONB; `content` is the scenario; `answer` is canonical (joined string or marker).
-   - Each game shows an intro card with definition (`SAD_GAMES[type].short`), did-you-know (`detail`), and how-to-play (`howTo`) before play starts.
-   - Legacy quiz games (Wordle, Matcher, Emoji Cipher, Speed Blitz, Bubble Pop, Memory Flip) are kept in `game.tsx` for back-compat but no current level uses them.
+5. **6 Arcade-Style SAD Games** (all in `client/src/components/sad-games.tsx`, dispatched via `SADGameRunner`). Each game binds directly to seeded question data (`q.content`, `q.answer`, `q.options`) — no random hardcoded content. All games share a small infra layer:
+   - `useGameLoop(cb, active)` — single rAF, stable callback ref (no restart on every state change), dt-clamped on tab-switch.
+   - `useHowTo(key)` — first-run tutorial overlay, dismissed once and persisted to localStorage (`eduquest_howto_<gametype>`).
+   - `usePause(enabled)` — Esc key toggles a `<PauseOverlay>` with Resume / Skip-round buttons.
+   - `<RoundHeader>`, `<RoundSummary>` (correct/wrong + `options.explanation` + Next), `<JuiceBurst>` (8-particle pulse on correct hits), `<ScreenShake>` (on wrong hits / damage).
+   - `<HowToOverlay>` shows goal + control hints + "Got it" before round 1.
+   - **Phase Runner** (`sdlc_sorter`) — Lane runner. Lane count = `options.phases.length` (4–6). Each spawned deliverable is labeled with the phase of its lane; player switches into the matching lane to collect. Bugs cost a heart. Round is finite (~42s timer); win at ≥60% caught.
+   - **Requirement Hunter** (`req_sorter`) — Two-stage. Stage 1 (Hunt): 6 office hotspots reveal real seeded requirements into a notebook. Stage 2 (Sort): each card animates into Functional / Non-Functional bucket. +15 first try, +5 retry, wrong twice = move on; win at 70%.
+   - **Use Case Defense** (`usecase_builder`) — Pre-game lineup screen lists `options.actors` and which `options.useCases[]` each handles. Then a finite wave: one enemy per use case (shuffled), labeled with the use-case text, marching toward the base. Player selects an actor in the toolbar and taps the enemy. Combo system; base HP = 2.
+   - **ER City Builder** (`erd_doctor`) — One round per question. Two entity buildings (`options.left`/`options.right`) on a road. Tap 1:1 / 1:N / N:N then Connect. Correct answer triggers a traffic animation matching the cardinality (1 car for 1:1, multiple one-way for 1:N, both ways for N:N). Two attempts before reveal.
+   - **Data Flow Plumber** (`dfd_detective`) — Renders `options.nodes` in 4 columns by `type` (source / process / store / sink) with `options.existingFlows` as labeled gray arrows. Player taps FROM-node then TO-node to draw the missing flow (`options.missingLabel`); validated against `correctFrom`/`correctTo`. Two tries then answer reveals.
+   - **Sequence Rhythm** (`sequence_stacker`) — Lanes = `options.objects` (3–4). Each `options.steps[]` entry becomes a falling note routed to the lane of the step's last-mentioned actor (parsed via word-boundary regex, e.g. "AuthService asks Database…" → Database lane). Hit window: ~18% (Perfect inside 6%). Keys D/F/J/K + arrow keys + tap. Combo doubles bonus; win at 60% notes hit.
+   - Each game still shows the host intro card (definition `SAD_GAMES[type].short`, did-you-know `detail`, how-to-play `howTo`) before play, and the in-game `<HowToOverlay>` once.
+   - Legacy quiz games (Wordle, Matcher, Emoji Cipher, Speed Blitz, Bubble Pop, Memory Flip) are kept in `game.tsx` for back-compat. Any legacy SAD level rows still in the DB will dispatch to those.
 6. **Cosmetics Shop** — 14 items (avatars, frames, themes), purchase/equip with EduCoins; emoji avatar previews, frame corner accents, swatch grids for themes; rarity shimmer effects; detail modal
 7. **Badges System** — 20 badges across 5 categories (XP milestones, streaks, levels completed, game type achievements); auto-awarded on progress save and login; `/badges` page with filter, progress bar, tooltip previews
 8. **Global Leaderboard** — top 20, podium display for top 3
