@@ -402,6 +402,12 @@ function PhaseRunner({ questions, onComplete }: SADGameProps) {
   useEffect(() => { laneRef.current = lane; }, [lane]);
   const heartsRef = useRef(hearts);
   useEffect(() => { heartsRef.current = hearts; }, [hearts]);
+  // Authoritative copies kept in refs so the rAF tick can run as a pure
+  // function with all setStates applied at top-level (no nested setState
+  // inside updater functions).
+  const objectsRef = useRef<PRObject[]>([]);
+  const timeLeftRef = useRef(ROUND_DURATION_SEC);
+  const phaseIdxRef = useRef(0);
   const nextId = useRef(1);
   const spawnAcc = useRef(0);
 
@@ -418,80 +424,95 @@ function PhaseRunner({ questions, onComplete }: SADGameProps) {
     setTimeLeft(ROUND_DURATION_SEC);
     setRoundOver(false);
     setCurrentPhaseIdx(0);
+    objectsRef.current = [];
+    timeLeftRef.current = ROUND_DURATION_SEC;
+    phaseIdxRef.current = 0;
     spawnAcc.current = 0;
     nextId.current = 1;
   }, [round]);
 
   // Game loop — sweeps through phases in q.answer order, biases spawns toward current phase.
+  // The tick is structured as a PURE computation that reads from refs and applies all
+  // setStates at the top level, so no setState ever runs inside another updater function.
   useGameLoop((dt) => {
-    // Time
-    let elapsedNow = 0;
-    setTimeLeft(t => {
-      const nt = Math.max(0, t - dt);
-      if (nt === 0) setRoundOver(true);
-      elapsedNow = ROUND_DURATION_SEC - nt;
-      return nt;
-    });
+    // 1) Tick the timer (ref first, then setState).
+    const newTime = Math.max(0, timeLeftRef.current - dt);
+    const elapsedNow = ROUND_DURATION_SEC - newTime;
+    const timeJustHitZero = newTime === 0 && timeLeftRef.current > 0;
+    timeLeftRef.current = newTime;
 
-    // Sweep current target phase across the round duration to teach phase ORDER.
+    // 2) Compute the swept target phase index.
     const segmentDur = ROUND_DURATION_SEC / laneCount;
-    const idx = Math.min(laneCount - 1, Math.floor(elapsedNow / segmentDur));
-    setCurrentPhaseIdx(prev => prev === idx ? prev : idx);
+    const newIdx = Math.min(laneCount - 1, Math.floor(elapsedNow / segmentDur));
+    const phaseChanged = newIdx !== phaseIdxRef.current;
+    phaseIdxRef.current = newIdx;
 
-    // Spawn
+    // 3) Decide whether to spawn this frame.
     spawnAcc.current += dt;
+    let spawnedObj: PRObject | null = null;
+    let targetDelta = 0;
     if (spawnAcc.current >= SPAWN_EVERY_SEC) {
       spawnAcc.current = 0;
       const isBug = Math.random() < 0.32;
       const id = nextId.current++;
       if (isBug) {
         const bugLane = Math.floor(Math.random() * laneCount);
-        setObjects(prev => [...prev, { id, lane: bugLane, type: "bug", x: 102 }]);
+        spawnedObj = { id, lane: bugLane, type: "bug", x: 102 };
       } else {
         // 70% of deliverables target the CURRENT phase (teaches order); 30% random for variety.
-        const targetLane = Math.random() < 0.7
-          ? idx
-          : Math.floor(Math.random() * laneCount);
-        setObjects(prev => [...prev, { id, lane: targetLane, type: "deliverable", x: 102, phaseLabel: phases[targetLane] }]);
-        setTarget(t => t + 1);
+        const targetLane = Math.random() < 0.7 ? newIdx : Math.floor(Math.random() * laneCount);
+        spawnedObj = { id, lane: targetLane, type: "deliverable", x: 102, phaseLabel: phases[targetLane] };
+        targetDelta = 1;
       }
     }
 
-    // Move + collide
+    // 4) Move + collide — fold deltas into locals.
     const PLAYER_X = 12;
     const HIT_W = 7;
-    setObjects(prev => {
-      const next: PRObject[] = [];
-      for (const o of prev) {
-        const nx = o.x - OBJECT_SPEED * dt;
-        if (nx < -8) {
-          // Off-screen left = missed deliverable
-          if (o.type === "deliverable") setMissed(m => m + 1);
-          continue;
-        }
-        const inHitX = nx > PLAYER_X - HIT_W && nx < PLAYER_X + HIT_W;
-        if (inHitX && o.lane === laneRef.current) {
-          if (o.type === "deliverable") {
-            setCollected(c => c + 1);
-            setBurst({
-              x: 60,
-              y: o.lane * LANE_HEIGHT_PX + LANE_HEIGHT_PX / 2,
-              color: "#34d399",
-              trigger: Date.now(),
-            });
-          } else {
-            // Bug
-            const newHearts = Math.max(0, heartsRef.current - 1);
-            setHearts(newHearts);
-            setShake(Date.now());
-            if (newHearts === 0) setRoundOver(true);
-          }
-          continue; // consumed
-        }
-        next.push({ ...o, x: nx });
+    const next: PRObject[] = [];
+    let collectedDelta = 0;
+    let missedDelta = 0;
+    let heartLoss = 0;
+    let burstY = 0;
+    let burstFired = false;
+    for (const o of objectsRef.current) {
+      const nx = o.x - OBJECT_SPEED * dt;
+      if (nx < -8) {
+        if (o.type === "deliverable") missedDelta++;
+        continue;
       }
-      return next;
-    });
+      const inHitX = nx > PLAYER_X - HIT_W && nx < PLAYER_X + HIT_W;
+      if (inHitX && o.lane === laneRef.current) {
+        if (o.type === "deliverable") {
+          collectedDelta++;
+          burstY = o.lane * LANE_HEIGHT_PX + LANE_HEIGHT_PX / 2;
+          burstFired = true;
+        } else {
+          heartLoss++;
+        }
+        continue; // consumed
+      }
+      next.push({ ...o, x: nx });
+    }
+    if (spawnedObj) next.push(spawnedObj);
+    objectsRef.current = next;
+
+    // 5) Apply all setStates at the top level (none nested inside an updater).
+    setTimeLeft(newTime);
+    setObjects(next);
+    if (phaseChanged) setCurrentPhaseIdx(newIdx);
+    if (targetDelta) setTarget(t => t + targetDelta);
+    if (collectedDelta) setCollected(c => c + collectedDelta);
+    if (missedDelta) setMissed(m => m + missedDelta);
+    if (burstFired) setBurst({ x: 60, y: burstY, color: "#34d399", trigger: Date.now() });
+    if (heartLoss) {
+      const newHearts = Math.max(0, heartsRef.current - heartLoss);
+      heartsRef.current = newHearts;
+      setHearts(newHearts);
+      setShake(Date.now());
+      if (newHearts === 0) setRoundOver(true);
+    }
+    if (timeJustHitZero) setRoundOver(true);
   }, active);
 
   // Controls
@@ -509,11 +530,11 @@ function PhaseRunner({ questions, onComplete }: SADGameProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [moveLane]);
 
-  // Round result
+  // Round result — task spec requires ≥80% collection to win.
   const ratio = target > 0 ? collected / target : 0;
   const won = !roundOver
     ? false
-    : hearts > 0 && ratio >= 0.6;
+    : hearts > 0 && ratio >= 0.8;
   const roundDelta = roundOver
     ? collected * 10 + (won ? 30 : 0) + hearts * 5
     : 0;
@@ -661,7 +682,7 @@ function PhaseRunner({ questions, onComplete }: SADGameProps) {
                 "↑ / ↓ or W / S to switch lane (or tap a lane).",
                 "The HUD shows the current phase — most deliverables come from there.",
                 "Lanes are arranged top-to-bottom in the canonical phase order.",
-                "3 hearts. Bugs cost 1. Catch ≥ 60% to win. Esc to pause.",
+                "3 hearts. Bugs cost 1. Catch ≥ 80% to win. Esc to pause.",
               ]}
               onStart={() => { dismissHow(); setShowHowOverlay(false); }}
             />
@@ -1088,6 +1109,11 @@ function UseCaseDefense({ questions, onComplete }: SADGameProps) {
   const nextEnemyId = useRef(1);
   const spawnAcc = useRef(0);
   const waveOrder = useRef<typeof useCases>([]);
+  // Authoritative copies — game loop reads these and applies all setStates
+  // at the top level, so we never call setState inside another updater fn.
+  const enemiesRef = useRef<UCDEnemy[]>([]);
+  const comboRef = useRef(0);
+  const maxComboRef = useRef(0);
   const baseHp = 2; // 2 enemies allowed to reach base
   const lostBase = reachedBase >= baseHp;
   const allCleared = spawned >= useCases.length && enemies.length === 0;
@@ -1103,6 +1129,9 @@ function UseCaseDefense({ questions, onComplete }: SADGameProps) {
     setCombo(0);
     setMaxCombo(0);
     setSelectedActor(actors[0]?.id || null);
+    enemiesRef.current = [];
+    comboRef.current = 0;
+    maxComboRef.current = 0;
     spawnAcc.current = 0;
     nextEnemyId.current = 1;
     // Shuffle the wave order
@@ -1121,11 +1150,12 @@ function UseCaseDefense({ questions, onComplete }: SADGameProps) {
     }
   }, [waveOver, stage]);
 
-  // Game loop: spawn + march
+  // Game loop: spawn + march. Pure tick — reads refs, applies setStates at top level.
   useGameLoop((dt) => {
     if (stage !== "wave" || paused) return;
 
-    // Spawn next enemy if any left
+    // 1) Spawn next enemy if any left.
+    let spawnedEnemy: UCDEnemy | null = null;
     if (spawned < waveOrder.current.length) {
       spawnAcc.current += dt;
       if (spawnAcc.current >= UCD_SPAWN_GAP_SEC) {
@@ -1133,55 +1163,69 @@ function UseCaseDefense({ questions, onComplete }: SADGameProps) {
         const uc = waveOrder.current[spawned];
         const lane = Math.floor(Math.random() * UCD_LANES);
         const id = nextEnemyId.current++;
-        setEnemies(prev => [...prev, {
+        spawnedEnemy = {
           id, label: uc.label, actorId: uc.actorId, lane,
           x: 100, hp: 1, defeated: false,
-        }]);
-        setSpawned(s => s + 1);
+        };
       }
     }
 
-    // March left
-    setEnemies(prev => {
-      const next: UCDEnemy[] = [];
-      let breached = 0;
-      for (const e of prev) {
-        if (e.defeated) continue;
-        const nx = e.x - UCD_SPEED * dt;
-        if (nx <= 0) {
-          breached++;
-          continue;
-        }
-        next.push({ ...e, x: nx });
+    // 2) March left + count breaches.
+    const next: UCDEnemy[] = [];
+    let breached = 0;
+    for (const e of enemiesRef.current) {
+      if (e.defeated) continue;
+      const nx = e.x - UCD_SPEED * dt;
+      if (nx <= 0) {
+        breached++;
+        continue;
       }
-      if (breached > 0) {
-        setReachedBase(b => b + breached);
-        setShake(Date.now());
-        setCombo(0);
-      }
-      return next;
-    });
+      next.push({ ...e, x: nx });
+    }
+    if (spawnedEnemy) next.push(spawnedEnemy);
+    enemiesRef.current = next;
+
+    // 3) Apply all setStates at top level.
+    setEnemies(next);
+    if (spawnedEnemy) setSpawned(s => s + 1);
+    if (breached > 0) {
+      setReachedBase(b => b + breached);
+      setShake(Date.now());
+      comboRef.current = 0;
+      setCombo(0);
+    }
   }, stage === "wave" && !paused);
 
   function tryDefeat(enemy: UCDEnemy) {
     if (!selectedActor || enemy.defeated) return;
     if (selectedActor === enemy.actorId) {
-      // Correct
+      // Correct — mark defeated and remove. Combo/maxCombo via refs (no nested updater setState).
       setDefeated(d => d + 1);
-      setEnemies(prev => prev.map(e => e.id === enemy.id ? { ...e, defeated: true } : e));
-      // Remove after a brief explosion
-      setTimeout(() => setEnemies(prev => prev.filter(e => e.id !== enemy.id)), 350);
-      setCombo(c => {
-        const nc = c + 1;
-        setMaxCombo(m => Math.max(m, nc));
-        return nc;
-      });
+      const markedDefeated = enemiesRef.current.map(e =>
+        e.id === enemy.id ? { ...e, defeated: true } : e,
+      );
+      enemiesRef.current = markedDefeated;
+      setEnemies(markedDefeated);
+      // Remove after a brief explosion.
+      setTimeout(() => {
+        const filtered = enemiesRef.current.filter(e => e.id !== enemy.id);
+        enemiesRef.current = filtered;
+        setEnemies(filtered);
+      }, 350);
+      const newCombo = comboRef.current + 1;
+      comboRef.current = newCombo;
+      setCombo(newCombo);
+      if (newCombo > maxComboRef.current) {
+        maxComboRef.current = newCombo;
+        setMaxCombo(newCombo);
+      }
       setHitFx({ id: enemy.id, lane: enemy.lane, x: enemy.x, correct: true, trigger: Date.now() });
       const actorLabel = actors.find(a => a.id === enemy.actorId)?.label || "Actor";
       setToast({ text: `✓ ${actorLabel} → ${enemy.label}`, key: Date.now() });
     } else {
       // Wrong actor
       setShake(Date.now());
+      comboRef.current = 0;
       setCombo(0);
       setHitFx({ id: enemy.id, lane: enemy.lane, x: enemy.x, correct: false, trigger: Date.now() });
       const expectedActor = actors.find(a => a.id === enemy.actorId)?.label || "?";
@@ -2009,6 +2053,10 @@ function SequenceRhythm({ questions, onComplete }: SADGameProps) {
   const elapsedRef = useRef(0);
   const spawnedCount = useRef(0);
   const nextId = useRef(1);
+  // Authoritative copies for the rAF loop — keeps all setStates at top level.
+  const notesRef = useRef<SeqNote[]>([]);
+  const comboRef = useRef(0);
+  const maxComboRef = useRef(0);
 
   // Reset on round
   useEffect(() => {
@@ -2023,102 +2071,107 @@ function SequenceRhythm({ questions, onComplete }: SADGameProps) {
     elapsedRef.current = 0;
     spawnedCount.current = 0;
     nextId.current = 1;
+    notesRef.current = [];
+    comboRef.current = 0;
+    maxComboRef.current = 0;
   }, [round]);
 
-  // Game loop
+  // Game loop — pure tick. Reads notesRef, applies all setStates at top level.
   useGameLoop((dt) => {
     if (stage !== "playing" || paused) return;
     elapsedRef.current += dt;
 
-    // Spawn due notes
+    // 1) Spawn any due notes into a local list.
+    const justSpawned: SeqNote[] = [];
     while (spawnedCount.current < noteSpec.length && noteSpec[spawnedCount.current].spawnAt <= elapsedRef.current) {
       const spec = noteSpec[spawnedCount.current];
       const id = nextId.current++;
-      setNotes(prev => [...prev, { id, lane: spec.lane, y: 0, text: spec.text, state: "alive" }]);
+      justSpawned.push({ id, lane: spec.lane, y: 0, text: spec.text, state: "alive" });
       spawnedCount.current++;
     }
 
-    // Move notes
-    setNotes(prev => {
-      const next: SeqNote[] = [];
-      let missed = 0;
-      for (const n of prev) {
-        if (n.state !== "alive") {
-          // Keep finished notes briefly then drop
-          next.push({ ...n, y: n.y + NOTE_FALL_SPEED * dt });
-          continue;
-        }
+    // 2) Move notes + count misses.
+    const next: SeqNote[] = [];
+    let missed = 0;
+    for (const n of notesRef.current) {
+      if (n.state !== "alive") {
         const ny = n.y + NOTE_FALL_SPEED * dt;
-        if (ny > HIT_LINE_PCT + HIT_WINDOW) {
-          // Missed
-          missed++;
-          continue;
-        }
-        next.push({ ...n, y: ny });
+        if (ny < 110) next.push({ ...n, y: ny });
+        continue;
       }
-      if (missed > 0) {
-        setMisses(m => m + missed);
-        setCombo(0);
-        setFeedback({ kind: "miss", lane: -1, trigger: Date.now() });
+      const ny = n.y + NOTE_FALL_SPEED * dt;
+      if (ny > HIT_LINE_PCT + HIT_WINDOW) {
+        missed++;
+        continue;
       }
-      return next.filter(n => n.y < 110);
-    });
+      next.push({ ...n, y: ny });
+    }
+    for (const n of justSpawned) next.push(n);
+    notesRef.current = next;
 
-    // End condition: all spawned + no alive notes left.
-    // Guard against empty noteSpec (would yield NaN and never end).
+    // 3) Apply setStates at the top level.
+    setNotes(next);
+    if (missed > 0) {
+      setMisses(m => m + missed);
+      comboRef.current = 0;
+      setCombo(0);
+      setFeedback({ kind: "miss", lane: -1, trigger: Date.now() });
+    }
+
+    // 4) End condition. Guard against empty noteSpec (would yield NaN and never end).
     if (noteSpec.length === 0) {
       setStage("done");
       return;
     }
     if (spawnedCount.current >= noteSpec.length) {
-      setNotes(prev => {
-        const aliveLeft = prev.some(n => n.state === "alive");
-        const lastSpawn = noteSpec[noteSpec.length - 1].spawnAt;
-        if (!aliveLeft && elapsedRef.current > lastSpawn + 3) {
-          setStage("done");
-        }
-        return prev;
-      });
+      const aliveLeft = next.some(n => n.state === "alive");
+      const lastSpawn = noteSpec[noteSpec.length - 1].spawnAt;
+      if (!aliveLeft && elapsedRef.current > lastSpawn + 3) {
+        setStage("done");
+      }
     }
   }, stage === "playing" && !paused);
 
   const hitLane = useCallback((lane: number) => {
     if (stage !== "playing" || paused) return;
-    setNotes(prev => {
-      // Find closest alive note in this lane near the hit line
-      let bestIdx = -1;
-      let bestDist = Infinity;
-      for (let i = 0; i < prev.length; i++) {
-        const n = prev[i];
-        if (n.state !== "alive" || n.lane !== lane) continue;
-        const d = Math.abs(n.y - HIT_LINE_PCT);
-        if (d < HIT_WINDOW && d < bestDist) {
-          bestDist = d;
-          bestIdx = i;
-        }
+    // Find closest alive note in this lane near the hit line.
+    const current = notesRef.current;
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < current.length; i++) {
+      const n = current[i];
+      if (n.state !== "alive" || n.lane !== lane) continue;
+      const d = Math.abs(n.y - HIT_LINE_PCT);
+      if (d < HIT_WINDOW && d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
       }
-      if (bestIdx === -1) {
-        // Nothing to hit — small combo break only if there were notes alive in this lane
-        return prev;
-      }
-      const n = prev[bestIdx];
-      const isPerfect = bestDist < PERFECT_WINDOW;
-      const points = isPerfect ? 30 : 15;
-      const comboBonus = combo * 2;
-      setScore(s => s + points + comboBonus);
-      setHits(h => h + 1);
-      if (isPerfect) setPerfects(p => p + 1);
-      setCombo(c => {
-        const nc = c + 1;
-        setMaxCombo(m => Math.max(m, nc));
-        return nc;
-      });
-      setFeedback({ kind: isPerfect ? "perfect" : "good", lane, trigger: Date.now() });
-      const updated = [...prev];
-      updated[bestIdx] = { ...n, state: isPerfect ? "perfect" : "good" };
-      return updated;
-    });
-  }, [stage, paused, combo]);
+    }
+    if (bestIdx === -1) return;
+
+    const n = current[bestIdx];
+    const isPerfect = bestDist < PERFECT_WINDOW;
+    const points = isPerfect ? 30 : 15;
+    const previousCombo = comboRef.current;
+    const comboBonus = previousCombo * 2;
+    const updated = [...current];
+    updated[bestIdx] = { ...n, state: isPerfect ? "perfect" : "good" };
+    notesRef.current = updated;
+
+    // Apply all setStates at the top level — none nested in another updater.
+    setNotes(updated);
+    setScore(s => s + points + comboBonus);
+    setHits(h => h + 1);
+    if (isPerfect) setPerfects(p => p + 1);
+    const newCombo = previousCombo + 1;
+    comboRef.current = newCombo;
+    setCombo(newCombo);
+    if (newCombo > maxComboRef.current) {
+      maxComboRef.current = newCombo;
+      setMaxCombo(newCombo);
+    }
+    setFeedback({ kind: isPerfect ? "perfect" : "good", lane, trigger: Date.now() });
+  }, [stage, paused]);
 
   // Keyboard
   useEffect(() => {
