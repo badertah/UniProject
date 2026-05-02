@@ -109,6 +109,26 @@ const EDGE_COLOR: Record<Edge["kind"], string> = {
   power:  "#CE93D8",  // purple (energy)
 };
 
+// === Road style by min(level) of its two endpoints ===
+// Level 1: dirt path (narrow, brown). Level 2: gravel (wider, lighter).
+// Level 3: paved with yellow center-lane markings (widest, dark grey).
+// Higher tiers also get faster trucks — players see infrastructure pay off.
+type RoadDash = { color: string; w: number; array: string; opacity: number };
+type RoadStyle = { width: number; base: string; top: string; dash: RoadDash | null; truckDur: number };
+function roadStyleFor(lv: number): RoadStyle {
+  if (lv >= 3) return { width: 26, base: "#3A3A3A", top: "#5A5A5A", dash: { color: "#FFEB3B", w: 1.6, array: "12 8", opacity: 0.8 }, truckDur: 5 };
+  if (lv === 2) return { width: 20, base: "#5E4B2A", top: "#9A7B45", dash: null, truckDur: 7.5 };
+  return { width: 14, base: "#6B5028", top: "#8E6A36", dash: null, truckDur: 10 };
+}
+
+// Truck body color by edge kind so players can read the network at a glance.
+const TRUCK_COLOR: Record<Edge["kind"], string> = {
+  input:  "#1976D2",  // blue tanker (water/equipment in)
+  store:  "#F57C00",  // orange box-truck (storage runs)
+  output: "#388E3C",  // green delivery (finished goods)
+  power:  "#7B1FA2",  // purple service (power/mill)
+};
+
 // === SAD-themed side quests ===
 // Quests reference Systems Analysis & Design concepts so players learn
 // while playing. Each quest is one-time, persisted in completedQuests.
@@ -297,6 +317,17 @@ export default function FarmPage() {
   const [coinPops, setCoinPops] = useState<CoinPop[]>([]);
   const [selected, setSelected] = useState<BuildingDef | null>(null);
   const [isHarvesting, setIsHarvesting] = useState(false);
+  // harvestPulse holds true for ~3s after a harvest click so trucks have time
+  // to be visibly faster + carry gold cargo even though the API call resolves
+  // in <300ms. Decoupled from isHarvesting (which only gates the central flash).
+  const [harvestPulse, setHarvestPulse] = useState(false);
+  const harvestPulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerHarvestPulse = useCallback(() => {
+    setHarvestPulse(true);
+    if (harvestPulseTimerRef.current) clearTimeout(harvestPulseTimerRef.current);
+    harvestPulseTimerRef.current = setTimeout(() => setHarvestPulse(false), 3000);
+  }, []);
+  useEffect(() => () => { if (harvestPulseTimerRef.current) clearTimeout(harvestPulseTimerRef.current); }, []);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
   const userIdRef = useRef<string | null>(null);
   const loadedForRef = useRef<string | null>(null);
@@ -744,34 +775,92 @@ export default function FarmPage() {
               );
             })}
 
-            {/* === Production chains: animated dashed arrows between OWNED endpoints. ===
-                 Visualises a Data Flow Diagram (SAD course concept) — players
-                 see their farm self-organise into a working system as they build. */}
-            {PRODUCTION_EDGES.map((e, i) => {
-              if ((farmSave.owned[e.from] || 0) === 0) return null;
-              if ((farmSave.owned[e.to]   || 0) === 0) return null;
-              const a = bldgPos(e.from);
-              const b = bldgPos(e.to);
-              const dx = b.x - a.x;
-              // Curve control point above the midline so arrows arc gracefully.
-              const mx = (a.x + b.x) / 2;
-              const my = (a.y + b.y) / 2 - Math.min(70, Math.abs(dx) * 0.18 + 24);
-              const d = `M ${a.x} ${a.y - 12} Q ${mx} ${my} ${b.x} ${b.y - 12}`;
-              const color = EDGE_COLOR[e.kind];
+            {/* === ROAD NETWORK — physical paths between owned production-chain
+                 endpoints. Roads are drawn as ground-level curves and visually
+                 upgrade with the lower-level endpoint (dirt → gravel → paved).
+                 Replaces the abstract DFD arrows with concrete infrastructure. */}
+            {(() => {
+              const roads = PRODUCTION_EDGES.map((e, i) => {
+                const fromLv = farmSave.owned[e.from] || 0;
+                const toLv = farmSave.owned[e.to] || 0;
+                if (!fromLv || !toLv) return null;
+                const a = bldgPos(e.from);
+                const b = bldgPos(e.to);
+                const lv = Math.min(fromLv, toLv);
+                const style = roadStyleFor(lv);
+                // Slight pseudo-random midpoint offset so parallel roads don't
+                // overlap perfectly — gives the network an organic feel.
+                const offset = ((i * 31) % 28) - 14;
+                const mx = (a.x + b.x) / 2;
+                const my = (a.y + b.y) / 2 + offset + 6;
+                const ay = a.y + 6;
+                const by = b.y + 6;
+                const d = `M ${a.x} ${ay} Q ${mx} ${my} ${b.x} ${by}`;
+                return { i, edge: e, d, style, lv };
+              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number } => r !== null);
+
               return (
-                <g key={`edge-${i}`}>
-                  {/* Soft halo */}
-                  <path d={d} stroke={color} strokeWidth="9" fill="none" opacity="0.18" strokeLinecap="round"/>
-                  {/* Animated dashed flow line */}
-                  <path d={d} stroke={color} strokeWidth="3" fill="none" strokeDasharray="14 10" strokeLinecap="round" opacity="0.9">
-                    <animate attributeName="stroke-dashoffset" from="0" to="-48" dur="1.4s" repeatCount="indefinite"/>
-                  </path>
-                  {/* Arrow head at sink */}
-                  <circle cx={b.x} cy={b.y - 12} r="6.5" fill={color} opacity="0.95"/>
-                  <circle cx={b.x} cy={b.y - 12} r="3"   fill="white" opacity="0.65"/>
-                </g>
+                <>
+                  {/* Pass 1 — road surfaces (ground level, beneath buildings). */}
+                  {roads.map(r => (
+                    <g key={`road-${r.i}`}>
+                      {/* Soft soil shadow embeds the road into the ground */}
+                      <path d={r.d} stroke="rgba(0,0,0,0.32)" strokeWidth={r.style.width + 6} fill="none" strokeLinecap="round" opacity={0.55}/>
+                      {/* Road base (darker outer edge) */}
+                      <path d={r.d} stroke={r.style.base} strokeWidth={r.style.width} fill="none" strokeLinecap="round"/>
+                      {/* Road top wear (lighter inner) */}
+                      <path d={r.d} stroke={r.style.top} strokeWidth={Math.max(r.style.width - 6, 8)} fill="none" strokeLinecap="round" opacity={0.95}/>
+                      {/* Lane markings — paved roads only (level 3) */}
+                      {r.style.dash && (
+                        <path d={r.d} stroke={r.style.dash.color} strokeWidth={r.style.dash.w} fill="none" strokeDasharray={r.style.dash.array} opacity={r.style.dash.opacity}/>
+                      )}
+                    </g>
+                  ))}
+
+                  {/* Pass 2 — trucks driving along each road. Always-on ambient
+                       loop. During the harvest pulse they get a gold body +
+                       cargo crates and run twice as fast for visible effect. */}
+                  {roads.map(r => {
+                    const baseColor = TRUCK_COLOR[r.edge.kind];
+                    const color = harvestPulse ? "#FFD700" : baseColor;
+                    const dur = (harvestPulse ? r.style.truckDur * 0.5 : r.style.truckDur).toFixed(2) + "s";
+                    // During harvest pulse, every truck dispatches immediately
+                    // so the player sees an instant convoy reaction. Otherwise
+                    // stagger ambient trucks so they don't all bunch at start.
+                    const beginDelay = harvestPulse ? "0s" : (((r.i * 0.43) % 3.0)).toFixed(2) + "s";
+                    return (
+                      <g key={`truck-${r.i}-${harvestPulse ? "h" : "a"}`}>
+                        <g>
+                          {/* Truck body, top-down view, centered at (0,0) */}
+                          <ellipse cx={0} cy={4} rx={14} ry={2.8} fill="rgba(0,0,0,0.4)"/>
+                          <rect x={-13} y={-7} width={22} height={14} rx={2} fill={color} stroke="rgba(0,0,0,0.45)" strokeWidth={0.6}/>
+                          {/* Cab at the right end (front of vehicle) */}
+                          <rect x={5} y={-6} width={8} height={12} rx={1.5} fill="#37474F"/>
+                          <rect x={6.5} y={-4.5} width={5} height={3} fill="#90CAF9" opacity={0.9}/>
+                          {/* Side stripe accent */}
+                          <rect x={-12} y={-1.5} width={17} height={3} fill="rgba(255,255,255,0.18)"/>
+                          {/* Wheels (top-down — visible on both sides) */}
+                          <rect x={-9} y={-9}  width={4} height={2.5} rx={0.4} fill="#1a1a1a"/>
+                          <rect x={-9} y={6.5} width={4} height={2.5} rx={0.4} fill="#1a1a1a"/>
+                          <rect x={1}  y={-9}  width={4} height={2.5} rx={0.4} fill="#1a1a1a"/>
+                          <rect x={1}  y={6.5} width={4} height={2.5} rx={0.4} fill="#1a1a1a"/>
+                          {/* Cargo crates during harvest pulse */}
+                          {harvestPulse && (
+                            <g>
+                              <rect x={-11} y={-4} width={6} height={8} rx={0.6} fill="#A0724E" stroke="#5D4037" strokeWidth={0.5}/>
+                              <rect x={-4}  y={-4} width={6} height={8} rx={0.6} fill="#A0724E" stroke="#5D4037" strokeWidth={0.5}/>
+                              <text x={-8} y={1.5} fontSize={5.5} textAnchor="middle" fill="#FFEB3B" fontWeight="bold">★</text>
+                              <text x={-1} y={1.5} fontSize={5.5} textAnchor="middle" fill="#FFEB3B" fontWeight="bold">★</text>
+                            </g>
+                          )}
+                          <animateMotion dur={dur} begin={beginDelay} repeatCount="indefinite" rotate="auto" path={r.d}/>
+                        </g>
+                      </g>
+                    );
+                  })}
+                </>
               );
-            })}
+            })()}
           </svg>
 
           {/* === BUILDINGS — scattered across the world === */}
@@ -957,7 +1046,7 @@ export default function FarmPage() {
                 boxShadow: farmSave.farmBank > 0 ? "0 2px 12px rgba(46,125,50,0.4)" : "none",
               }}
               disabled={farmSave.farmBank === 0 || harvestMutation.isPending}
-              onClick={() => { setIsHarvesting(true); harvestMutation.mutate(farmSave.farmBank); }}
+              onClick={() => { setIsHarvesting(true); triggerHarvestPulse(); harvestMutation.mutate(farmSave.farmBank); }}
               data-testid="button-harvest"
             >
               {harvestMutation.isPending
