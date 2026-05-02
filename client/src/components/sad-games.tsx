@@ -2207,7 +2207,8 @@ function SequenceRhythm({ questions, onComplete }: SADGameProps) {
   if (done) return null;
 
   const totalNotes = noteSpec.length;
-  const won = stage === "done" && hits >= Math.ceil(totalNotes * 0.6);
+  // Task spec requires ≥70% notes hit to win.
+  const won = stage === "done" && hits >= Math.ceil(totalNotes * 0.7);
   const accuracy = totalNotes > 0 ? Math.round((hits / totalNotes) * 100) : 0;
   const PLAY_H = 440;
 
@@ -2357,7 +2358,7 @@ function SequenceRhythm({ questions, onComplete }: SADGameProps) {
             controls={[
               `Lane keys: ${SEQ_KEYS.slice(0, objects.length).map(k => k.toUpperCase()).join(" / ")} (or tap lanes).`,
               "Perfect inside the line: +30. Good window: +15. Combo doubles bonus.",
-              "Win at 60% notes hit. Esc to pause.",
+              "Win at 70% notes hit. Esc to pause.",
               "Notes appear in the order written in the seed — that's the sequence.",
             ]}
             onStart={() => { dismissHow(); setShowHow(false); }}
@@ -2375,7 +2376,7 @@ function SequenceRhythm({ questions, onComplete }: SADGameProps) {
       {stage === "done" && (
         <RoundSummary
           correct={won}
-          headline={won ? `+${score} pts • ${accuracy}% accuracy` : `+${score} pts • try again for ${Math.ceil(totalNotes * 0.6)}+ hits`}
+          headline={won ? `+${score} pts • ${accuracy}% accuracy` : `+${score} pts • try again for ${Math.ceil(totalNotes * 0.7)}+ hits`}
           explanation={opts.explanation || "Each message targets the actor that receives it. Time flows top to bottom in a sequence diagram."}
           scoreDelta={score}
           onNext={nextRound}
