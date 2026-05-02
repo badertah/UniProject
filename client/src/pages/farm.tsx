@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, Plus, Minus, Maximize2 } from "lucide-react";
+import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import {
   useAtmosphere, skyGradient, CelestialBody, Stars, WeatherLayer,
@@ -14,7 +14,7 @@ import {
   GoldenCropOverlay, useGoldenCropSpawner, HarvestBurst, LightningFlash,
 } from "@/components/farm-extras";
 import {
-  WORLD_W, WORLD_H, BOARD_W, BOARD_H, BOARD_OFFSET_X, BOARD_OFFSET_Y,
+  WORLD_W, WORLD_H,
   WorldGround, Minimap,
 } from "@/components/farm-world";
 
@@ -23,13 +23,6 @@ const MAX_FARM_BANK    = 500;
 const MAX_OFFLINE_TICKS = 20;
 const farmKey = (uid: string) => `farm_v2_state_${uid}`;
 
-const ISO_HALF_W = 120;
-const ISO_HALF_H = 60;
-const CENTER_X = 560;
-const START_Y = 80;
-const CANVAS_W = BOARD_W;
-const CANVAS_H = BOARD_H;
-
 interface BuildingDef {
   id: string; name: string; emoji: string;
   description: string;
@@ -37,29 +30,184 @@ interface BuildingDef {
   buyCost: number; upgradeCost: [number, number];
   incomePerTick: [number, number, number];
   tickMultiplier: number;
-  col: number; row: number;
 }
 
 const BUILDINGS: BuildingDef[] = [
-  { id: "wheat_field",     name: "Wheat Field",     emoji: "🌾", description: "Golden wheat rows — steady income.", category: "crops",     buyCost: 30,  upgradeCost: [60,  120], incomePerTick: [2,  5,  10], tickMultiplier: 1, col: 0, row: 0 },
-  { id: "vegetable_patch", name: "Vegetable Patch",  emoji: "🥕", description: "Fresh vegetables that grow faster.", category: "crops",     buyCost: 50,  upgradeCost: [100, 200], incomePerTick: [3,  7,  14], tickMultiplier: 1, col: 1, row: 0 },
-  { id: "apple_orchard",   name: "Apple Orchard",   emoji: "🍎", description: "Beautiful orchard trees.", category: "crops",     buyCost: 80,  upgradeCost: [150, 300], incomePerTick: [4,  9,  18], tickMultiplier: 1, col: 2, row: 0 },
-  { id: "greenhouse",      name: "Greenhouse",       emoji: "🌿", description: "Year-round glass house.", category: "crops",     buyCost: 120, upgradeCost: [240, 480], incomePerTick: [5,  11, 22], tickMultiplier: 1, col: 3, row: 0 },
-  { id: "chicken_coop",    name: "Chicken Coop",    emoji: "🐔", description: "Free-range hens.", category: "livestock", buyCost: 55,  upgradeCost: [110, 220], incomePerTick: [4,  8,  16], tickMultiplier: 2, col: 0, row: 1 },
-  { id: "dairy_cows",      name: "Dairy Cows",      emoji: "🐄", description: "Happy cows producing milk.", category: "livestock", buyCost: 90,  upgradeCost: [180, 360], incomePerTick: [5,  11, 22], tickMultiplier: 2, col: 1, row: 1 },
-  { id: "farmhouse",       name: "Farmhouse",        emoji: "🏠", description: "Your home base.", category: "buildings", buyCost: 40,  upgradeCost: [90,  180], incomePerTick: [3,  6,  13], tickMultiplier: 2, col: 2, row: 1 },
-  { id: "windmill",        name: "Windmill",         emoji: "⚙️", description: "Harnessing wind power.", category: "buildings", buyCost: 100, upgradeCost: [200, 400], incomePerTick: [6,  12, 24], tickMultiplier: 2, col: 3, row: 1 },
-  { id: "barn",            name: "Red Barn",         emoji: "🏚️", description: "Classic red barn.", category: "buildings", buyCost: 70,  upgradeCost: [140, 280], incomePerTick: [5,  10, 20], tickMultiplier: 3, col: 0, row: 2 },
-  { id: "tractor",         name: "Tractor",          emoji: "🚜", description: "Heavy-duty machine.", category: "equipment", buyCost: 150, upgradeCost: [300, 600], incomePerTick: [8,  16, 32], tickMultiplier: 3, col: 1, row: 2 },
-  { id: "silo",            name: "Grain Silo",       emoji: "🏗️", description: "Store grain in bulk.", category: "equipment", buyCost: 130, upgradeCost: [260, 520], incomePerTick: [7,  14, 28], tickMultiplier: 3, col: 2, row: 2 },
-  { id: "irrigation",      name: "Irrigation",       emoji: "💧", description: "Automated water system.", category: "equipment", buyCost: 110, upgradeCost: [220, 440], incomePerTick: [6,  13, 26], tickMultiplier: 3, col: 3, row: 2 },
+  { id: "wheat_field",     name: "Wheat Field",      emoji: "🌾", description: "Golden wheat rows — steady income.", category: "crops",     buyCost: 30,  upgradeCost: [60,  120], incomePerTick: [2,  5,  10], tickMultiplier: 1 },
+  { id: "vegetable_patch", name: "Vegetable Patch",  emoji: "🥕", description: "Fresh vegetables that grow faster.", category: "crops",     buyCost: 50,  upgradeCost: [100, 200], incomePerTick: [3,  7,  14], tickMultiplier: 1 },
+  { id: "apple_orchard",   name: "Apple Orchard",    emoji: "🍎", description: "Beautiful orchard trees.", category: "crops",     buyCost: 80,  upgradeCost: [150, 300], incomePerTick: [4,  9,  18], tickMultiplier: 1 },
+  { id: "greenhouse",      name: "Greenhouse",       emoji: "🌿", description: "Year-round glass house.", category: "crops",     buyCost: 120, upgradeCost: [240, 480], incomePerTick: [5,  11, 22], tickMultiplier: 1 },
+  { id: "chicken_coop",    name: "Chicken Coop",     emoji: "🐔", description: "Free-range hens.", category: "livestock", buyCost: 55,  upgradeCost: [110, 220], incomePerTick: [4,  8,  16], tickMultiplier: 2 },
+  { id: "dairy_cows",      name: "Dairy Cows",       emoji: "🐄", description: "Happy cows producing milk.", category: "livestock", buyCost: 90,  upgradeCost: [180, 360], incomePerTick: [5,  11, 22], tickMultiplier: 2 },
+  { id: "farmhouse",       name: "Farmhouse",        emoji: "🏠", description: "Your home base — production hub.", category: "buildings", buyCost: 40,  upgradeCost: [90,  180], incomePerTick: [3,  6,  13], tickMultiplier: 2 },
+  { id: "windmill",        name: "Windmill",         emoji: "⚙️", description: "Harnessing wind power.", category: "buildings", buyCost: 100, upgradeCost: [200, 400], incomePerTick: [6,  12, 24], tickMultiplier: 2 },
+  { id: "barn",            name: "Red Barn",         emoji: "🏚️", description: "Classic red barn.", category: "buildings", buyCost: 70,  upgradeCost: [140, 280], incomePerTick: [5,  10, 20], tickMultiplier: 3 },
+  { id: "tractor",         name: "Tractor",          emoji: "🚜", description: "Heavy-duty machine.", category: "equipment", buyCost: 150, upgradeCost: [300, 600], incomePerTick: [8,  16, 32], tickMultiplier: 3 },
+  { id: "silo",            name: "Grain Silo",       emoji: "🏗️", description: "Store grain in bulk.", category: "equipment", buyCost: 130, upgradeCost: [260, 520], incomePerTick: [7,  14, 28], tickMultiplier: 3 },
+  { id: "irrigation",      name: "Irrigation",       emoji: "💧", description: "Automated water system.", category: "equipment", buyCost: 110, upgradeCost: [220, 440], incomePerTick: [6,  13, 26], tickMultiplier: 3 },
 ];
 
-function isoPos(col: number, row: number) {
-  return {
-    x: CENTER_X + (col - row) * ISO_HALF_W,
-    y: START_Y + (col + row) * ISO_HALF_H,
-  };
+// Each building lives at its own world (x,y) — scattered across the 2400x1700
+// world rather than stacked on a tiny grid. Positions are picked to:
+//   • avoid the ponds, river, dirt paths, mountains, scarecrow, sheep, etc.
+//   • cluster thematically (equipment yard north, livestock by pasture)
+//   • give the production-chain arrows readable geometry (no major crossings)
+const BUILDING_POS: Record<string, { x: number; y: number }> = {
+  // North row — equipment yard / mill
+  tractor:         { x: 560,  y: 770 },
+  windmill:        { x: 1200, y: 720 },
+  silo:            { x: 1840, y: 770 },
+  // Center row — utilities + hub
+  irrigation:      { x: 470,  y: 970 },
+  farmhouse:       { x: 1200, y: 970 },
+  barn:            { x: 1900, y: 1000 },
+  // South fields — crops
+  apple_orchard:   { x: 380,  y: 1200 },
+  wheat_field:     { x: 820,  y: 1140 },
+  greenhouse:      { x: 1680, y: 1100 },
+  vegetable_patch: { x: 2010, y: 1200 },
+  // Pasture row — livestock
+  chicken_coop:    { x: 1060, y: 1250 },
+  dairy_cows:      { x: 1500, y: 1250 },
+};
+
+function bldgPos(id: string): { x: number; y: number } {
+  return BUILDING_POS[id] ?? { x: 1200, y: 1000 };
+}
+
+// === Production / data-flow chain (SAD: data flow diagram-style edges) ===
+// Each edge represents a "flow" from a source building to a sink. Visualised
+// as an animated dashed arrow ONLY when both endpoints are owned. Players
+// see their farm self-organise into a working system as they build.
+type Edge = { from: string; to: string; kind: "input" | "store" | "output" | "power" };
+const PRODUCTION_EDGES: Edge[] = [
+  // Inputs (irrigation → all crops)
+  { from: "irrigation", to: "wheat_field",     kind: "input" },
+  { from: "irrigation", to: "vegetable_patch", kind: "input" },
+  { from: "irrigation", to: "apple_orchard",   kind: "input" },
+  { from: "irrigation", to: "greenhouse",      kind: "input" },
+  // Tractor plows the open fields
+  { from: "tractor",    to: "wheat_field",     kind: "input" },
+  { from: "tractor",    to: "vegetable_patch", kind: "input" },
+  // Harvest → storage
+  { from: "wheat_field", to: "silo",           kind: "store" },
+  // Windmill powers the silo (mill the grain)
+  { from: "windmill",    to: "silo",           kind: "power" },
+  // Storage → barn (packaging)
+  { from: "silo",        to: "barn",           kind: "store" },
+  // All producers → farmhouse hub (output pipeline)
+  { from: "chicken_coop",   to: "farmhouse",   kind: "output" },
+  { from: "dairy_cows",     to: "farmhouse",   kind: "output" },
+  { from: "apple_orchard",  to: "farmhouse",   kind: "output" },
+  { from: "vegetable_patch", to: "farmhouse",  kind: "output" },
+];
+
+const EDGE_COLOR: Record<Edge["kind"], string> = {
+  input:  "#4FC3F7",  // cyan-blue (water/equipment input)
+  store:  "#FFB74D",  // amber (raw → stored)
+  output: "#81C784",  // green (finished goods → hub)
+  power:  "#CE93D8",  // purple (energy)
+};
+
+// === SAD-themed side quests ===
+// Quests reference Systems Analysis & Design concepts so players learn
+// while playing. Each quest is one-time, persisted in completedQuests.
+type QuestReq =
+  | { kind: "any_owned"; count: number }
+  | { kind: "all_owned"; ids: string[] }
+  | { kind: "category_coverage"; count: number }
+  | { kind: "max_level" };
+
+type QuestDef = {
+  id: string;
+  title: string;
+  hint: string;
+  sadConcept: string;
+  reward: number;
+  req: QuestReq;
+};
+
+const QUESTS: QuestDef[] = [
+  {
+    id: "boot_up",
+    title: "Boot Up",
+    hint: "Build your first plot to bootstrap the system.",
+    sadConcept: "System Initialization",
+    reward: 25,
+    req: { kind: "any_owned", count: 1 },
+  },
+  {
+    id: "inputs",
+    title: "Define Inputs",
+    hint: "Build a Wheat Field, Chicken Coop, and Dairy Cows.",
+    sadConcept: "Input Sources",
+    reward: 80,
+    req: { kind: "all_owned", ids: ["wheat_field", "chicken_coop", "dairy_cows"] },
+  },
+  {
+    id: "process_store",
+    title: "Process & Store",
+    hint: "Add a storage layer: build the Silo and Barn.",
+    sadConcept: "Storage Layer (Data Store)",
+    reward: 100,
+    req: { kind: "all_owned", ids: ["silo", "barn"] },
+  },
+  {
+    id: "output_pipeline",
+    title: "Output Pipeline",
+    hint: "Build the Farmhouse hub plus 3 producers (any livestock or crop).",
+    sadConcept: "Output Subsystem",
+    reward: 120,
+    req: { kind: "all_owned", ids: ["farmhouse"] }, // also needs ≥3 producers — checked in evaluator
+  },
+  {
+    id: "normalize",
+    title: "Normalize Schema",
+    hint: "Own at least 1 building from each of the 4 categories.",
+    sadConcept: "Schema Normalization",
+    reward: 150,
+    req: { kind: "category_coverage", count: 4 },
+  },
+  {
+    id: "scale",
+    title: "Refactor & Scale",
+    hint: "Upgrade any building to LV3 ★.",
+    sadConcept: "Iterative Refinement",
+    reward: 200,
+    req: { kind: "max_level" },
+  },
+];
+
+function questProgress(q: QuestDef, owned: Record<string, number>): { done: boolean; pct: number; label: string } {
+  switch (q.req.kind) {
+    case "any_owned": {
+      const have = Object.values(owned).filter(v => v > 0).length;
+      const need = q.req.count;
+      return { done: have >= need, pct: Math.min(1, have / need), label: `${Math.min(have, need)} / ${need}` };
+    }
+    case "all_owned": {
+      const ids = q.req.ids;
+      const have = ids.filter(id => (owned[id] || 0) > 0).length;
+      // Special case: output_pipeline needs ALSO ≥3 producers besides farmhouse.
+      if (q.id === "output_pipeline") {
+        const producers = ["wheat_field","vegetable_patch","apple_orchard","greenhouse","chicken_coop","dairy_cows"];
+        const owns = producers.filter(id => (owned[id] || 0) > 0).length;
+        const farmOk = (owned["farmhouse"] || 0) > 0;
+        const total = (farmOk ? 1 : 0) + Math.min(owns, 3);
+        return { done: farmOk && owns >= 3, pct: total / 4, label: `${total} / 4` };
+      }
+      return { done: have >= ids.length, pct: have / ids.length, label: `${have} / ${ids.length}` };
+    }
+    case "category_coverage": {
+      const cats = new Set<string>();
+      BUILDINGS.forEach(b => { if ((owned[b.id] || 0) > 0) cats.add(b.category); });
+      return { done: cats.size >= q.req.count, pct: Math.min(1, cats.size / q.req.count), label: `${cats.size} / ${q.req.count}` };
+    }
+    case "max_level": {
+      const maxed = Object.values(owned).filter(v => v >= 3).length;
+      return { done: maxed >= 1, pct: maxed >= 1 ? 1 : 0, label: maxed >= 1 ? "Done" : "0 / 1" };
+    }
+  }
 }
 
 type FarmSave = {
@@ -68,12 +216,13 @@ type FarmSave = {
   lastTickTime: number;
   tickCounters: Record<string, number>;
   day: number;
+  completedQuests: string[];
 };
 
 function loadState(uid: string): FarmSave {
   try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
-function defaultState(): FarmSave { return { owned: {}, farmBank: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1 }; }
+function defaultState(): FarmSave { return { owned: {}, farmBank: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [] }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 type CoinPop = { id: string; bId: string; amount: number };
@@ -185,6 +334,41 @@ export default function FarmPage() {
     onSuccess: (data: any) => { if (data.user) updateUser(data.user); queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }); },
   });
 
+  // Quest reward = use the existing harvest endpoint (it just adds coins).
+  // We mark the quest done locally first (optimistic) and only credit coins
+  // on server success — if the request fails we roll back the completion.
+  const claimQuestMutation = useMutation({
+    mutationFn: (q: QuestDef) => apiRequest("POST", "/api/farm/harvest", { coins: q.reward }).then(r => r),
+  });
+  const claimQuest = useCallback((q: QuestDef) => {
+    if (!user) return;
+    if (farmSave.completedQuests.includes(q.id)) return;
+    const prog = questProgress(q, farmSave.owned);
+    if (!prog.done) return;
+    // Optimistically mark complete so the button can't be double-clicked.
+    setFarmSave(prev => {
+      const ns = { ...prev, completedQuests: [...prev.completedQuests, q.id] };
+      if (user) saveState(ns, user.id);
+      return ns;
+    });
+    claimQuestMutation.mutate(q, {
+      onSuccess: (data: any) => {
+        if (data.user) updateUser(data.user);
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        toast({ title: `🎓 ${q.title} completed!`, description: `+${q.reward} EduCoins · ${q.sadConcept}` });
+      },
+      onError: () => {
+        // Roll back the optimistic completion
+        setFarmSave(prev => {
+          const ns = { ...prev, completedQuests: prev.completedQuests.filter(id => id !== q.id) };
+          if (user) saveState(ns, user.id);
+          return ns;
+        });
+        toast({ title: "Could not claim reward", variant: "destructive" });
+      },
+    });
+  }, [user, farmSave.owned, farmSave.completedQuests, claimQuestMutation, updateUser, toast]);
+
   const handleBuy = useCallback((b: BuildingDef) => {
     if (!user || user.eduCoins < b.buyCost) { toast({ title: "Not enough EduCoins", variant: "destructive" }); return; }
     spendMutation.mutate(b.buyCost, {
@@ -226,20 +410,25 @@ export default function FarmPage() {
   // Compute the "fit" scale so the board comfortably fills the viewport on
   // first render, then derive min/max zoom around it.
   const isMobile = viewSize.w < 640;
+  // Buildings are scattered across roughly this AABB (matches BUILDING_POS extents).
+  // We size the fit scale so this whole cluster comfortably fills the viewport on
+  // first render, and centre on its centroid.
+  const CLUSTER_W = 1700; // x: ~360..2060
+  const CLUSTER_H = 620;  // y: ~700..1320
+  const CLUSTER_CX = 1200;
+  const CLUSTER_CY = 990;
   const fitScale = useMemo(() => {
-    const widthFit  = (viewSize.w * (isMobile ? 1.0 : 0.92)) / BOARD_W;
-    const heightFit = (viewSize.h * (isMobile ? 0.78 : 0.72)) / BOARD_H;
-    return Math.max(0.35, Math.min(widthFit, heightFit, 1.05));
+    const widthFit  = (viewSize.w * (isMobile ? 1.0 : 0.92)) / CLUSTER_W;
+    const heightFit = (viewSize.h * (isMobile ? 0.78 : 0.72)) / CLUSTER_H;
+    return Math.max(0.30, Math.min(widthFit, heightFit, 1.0));
   }, [viewSize.w, viewSize.h, isMobile]);
-  const minScale = useMemo(() => Math.max(0.32, fitScale * ZOOM_MIN_FACTOR), [fitScale]);
+  const minScale = useMemo(() => Math.max(0.28, fitScale * ZOOM_MIN_FACTOR), [fitScale]);
   const maxScale = useMemo(() => Math.min(1.75, fitScale * ZOOM_MAX_FACTOR), [fitScale]);
 
   const computeDefaultCam = useCallback((vw: number, vh: number, scale: number): Camera => {
-    const boardCx = BOARD_OFFSET_X + BOARD_W / 2;
-    const boardCy = BOARD_OFFSET_Y + BOARD_H / 2;
     return clampCamera({
-      x: vw / 2 - boardCx * scale,
-      y: vh * 0.50 - boardCy * scale + (isMobile ? 24 : 18),
+      x: vw / 2 - CLUSTER_CX * scale,
+      y: vh * 0.50 - CLUSTER_CY * scale + (isMobile ? 24 : 18),
       scale,
     }, vw, vh, scale * 0.9, scale * 1.1);
   }, [isMobile]);
@@ -421,7 +610,8 @@ export default function FarmPage() {
   const hasChickens = (farmSave.owned["chicken_coop"] || 0) > 0;
   const hasCows = (farmSave.owned["dairy_cows"] || 0) > 0;
 
-  const sortedBuildings = [...BUILDINGS].sort((a, b) => (a.col + a.row) - (b.col + b.row));
+  // Sort by world y so further-down buildings render on top (isometric depth).
+  const sortedBuildings = [...BUILDINGS].sort((a, b) => bldgPos(a.id).y - bldgPos(b.id).y);
 
   // === Atmosphere ===
   const atm = useAtmosphere();
@@ -440,10 +630,7 @@ export default function FarmPage() {
       toast({ title: "🌟 Golden Harvest!", description: `+${amount} coins added to the bank.` });
     });
   };
-  const goldenPos = golden.spawn ? (() => {
-    const b = BUILDINGS.find(bb => bb.id === golden.spawn!.bId);
-    return b ? isoPos(b.col, b.row) : null;
-  })() : null;
+  const goldenPos = golden.spawn ? bldgPos(golden.spawn.bId) : null;
 
   return (
     <div className="fixed inset-0 overflow-hidden select-none" style={{ background: skyGradient(atm.phase, atm.weather), transition: "background 1.5s linear" }}>
@@ -505,268 +692,204 @@ export default function FarmPage() {
           {/* World ground: terrain, mountains, water, paths, props */}
           <WorldGround phase={atm.phase} isDay={atm.isDay} />
 
-          {/* === BOARD CONTAINER === */}
-          <div className="absolute" style={{ left: BOARD_OFFSET_X, top: BOARD_OFFSET_Y, width: CANVAS_W, height: CANVAS_H }}>
-            <svg className="absolute inset-0" width={CANVAS_W} height={CANVAS_H} viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}>
-              <defs>
-                <linearGradient id="farmGrassGrad" x1="0.5" y1="0" x2="0.5" y2="1">
-                  <stop offset="0%" stopColor="#7DB845" stopOpacity="0.25"/>
-                  <stop offset="100%" stopColor="#4A7820" stopOpacity="0.45"/>
-                </linearGradient>
-                <radialGradient id="farmEdgeFade" cx="50%" cy="50%" r="50%">
-                  <stop offset="50%" stopColor="transparent"/>
-                  <stop offset="100%" stopColor="rgba(0,0,0,0.18)"/>
-                </radialGradient>
-              </defs>
-
-              {/* Outer shadow for depth */}
-              <polygon points="570,28 1052,268 678,452 196,208" fill="rgba(0,0,0,0.25)" />
-              {/* Main farm land base */}
-              <polygon points="560,20 1040,260 680,440 200,200" fill="#6B9A36" />
-              {/* Lighter grass variation top-left */}
-              <polygon points="560,20 800,148 560,200 320,200" fill="#78A83F" opacity="0.6"/>
-              {/* Darker soil variation bottom-right */}
-              <polygon points="800,260 1040,260 760,380 680,440" fill="#5A8628" opacity="0.5"/>
-              <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmGrassGrad)" />
-              <polygon points="560,20 1040,260 680,440 200,200" fill="url(#farmEdgeFade)" opacity="0.5"/>
-              {/* Land border highlight */}
-              <polygon points="560,20 1040,260 680,440 200,200" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5"/>
-
-              {/* === DIRT ROADS along grid === */}
-              {[0,1,2].flatMap(row => [0,1,2].map(col => {
-                const a = isoPos(col, row); const nb = isoPos(col+1, row);
-                return <line key={`rs-r${row}c${col}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
-              }))}
-              {[0,1,2,3].flatMap(col => [0,1].map(row => {
-                const a = isoPos(col, row); const nb = isoPos(col, row+1);
-                return <line key={`rs-c${col}r${row}`} x1={a.x} y1={a.y+3} x2={nb.x} y2={nb.y+3} stroke="rgba(0,0,0,0.2)" strokeWidth="18" strokeLinecap="round"/>;
-              }))}
-              {[0,1,2].flatMap(row => [0,1,2].map(col => {
-                const a = isoPos(col, row); const nb = isoPos(col+1, row);
-                return <line key={`rr${row}c${col}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
-              }))}
-              {[0,1,2,3].flatMap(col => [0,1].map(row => {
-                const a = isoPos(col, row); const nb = isoPos(col, row+1);
-                return <line key={`rc${col}r${row}`} x1={a.x} y1={a.y} x2={nb.x} y2={nb.y} stroke="#C49A5A" strokeWidth="14" strokeLinecap="round"/>;
-              }))}
-              {[0,1,2].flatMap(row => [0,1,2].map(col => {
-                const a = isoPos(col, row); const nb = isoPos(col+1, row);
-                const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
-                return <line key={`rm-r${row}c${col}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
-              }))}
-              {[0,1,2,3].flatMap(col => [0,1].map(row => {
-                const a = isoPos(col, row); const nb = isoPos(col, row+1);
-                const mx = (a.x + nb.x) / 2; const my = (a.y + nb.y) / 2;
-                return <line key={`rm-c${col}r${row}`} x1={a.x+(mx-a.x)*0.3} y1={a.y+(my-a.y)*0.3} x2={nb.x-(nb.x-mx)*0.3} y2={nb.y-(nb.y-my)*0.3} stroke="#D4B070" strokeWidth="2" strokeLinecap="round" strokeDasharray="8 6" opacity="0.5"/>;
-              }))}
-              {[0,1,2,3].flatMap(col => [0,1,2].map(row => {
-                const p = isoPos(col, row);
-                return <ellipse key={`ri-${col}-${row}`} cx={p.x} cy={p.y} rx={10} ry={6} fill="#B88A48" opacity="0.8"/>;
-              }))}
-
-              {/* === Soil patches under each plot === */}
-              {BUILDINGS.map(b => {
-                const { x, y } = isoPos(b.col, b.row);
-                const owned = (farmSave.owned[b.id] || 0) > 0;
-                return (
-                  <g key={`soil-${b.id}`}>
-                    <ellipse cx={x} cy={y+4} rx={76} ry={38} fill="rgba(0,0,0,0.15)"/>
-                    <ellipse cx={x} cy={y} rx={74} ry={36} fill={owned ? "#7A5A28" : "#6B5040"} opacity={owned ? 0.65 : 0.5}/>
-                    <ellipse cx={x-12} cy={y-6} rx={30} ry={12} fill="rgba(255,255,255,0.07)"/>
-                    <ellipse cx={x} cy={y} rx={74} ry={36} fill="none" stroke={owned ? "#9A7838" : "#5a4a3a"} strokeWidth="1.5" opacity="0.6"/>
-                    {!owned && (
-                      <>
-                        <line x1={x-50} y1={y-6} x2={x+50} y2={y-6} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
-                        <line x1={x-40} y1={y+8} x2={x+40} y2={y+8} stroke="#5a4a3a" strokeWidth="1" opacity="0.25" strokeDasharray="7 5"/>
-                      </>
-                    )}
-                  </g>
-                );
-              })}
-
-              {/* === Fence posts around the farm border === */}
-              {[
-                [560,20],[680,80],[800,140],[920,200],[1040,260],
-                [920,320],[800,380],[680,440],
-                [560,380],[440,320],[320,260],[200,200],
-                [320,140],[440,80],
-              ].map(([fx,fy],i) => (
-                <g key={`fence-${i}`} opacity="0.75">
-                  <rect x={fx-3} y={fy-10} width="6" height="14" rx="1.5" fill="#8B6040"/>
-                  <rect x={fx-5} y={fy-12} width="10" height="5" rx="1" fill="#A0724E"/>
-                </g>
-              ))}
-              <polyline points="560,20 680,80 800,140 920,200 1040,260" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <polyline points="560,20 440,80 320,140 200,200" fill="none" stroke="#8B6040" strokeWidth="2" opacity="0.5" strokeLinecap="round" strokeLinejoin="round"/>
-
-              {/* Grass tufts inside farm */}
-              {[
-                {x:640,y:55},{x:720,y:105},{x:840,y:165},{x:960,y:225},
-                {x:480,y:105},{x:390,y:160},{x:300,y:215},
-                {x:770,y:310},{x:630,y:350},{x:500,y:300},{x:420,y:250},
-              ].map((g, i) => (
-                <g key={`gt-${i}`} opacity={0.45 + (i%3)*0.1}>
-                  <line x1={g.x-3} y1={g.y} x2={g.x-7} y2={g.y-11} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
-                  <line x1={g.x} y1={g.y} x2={g.x} y2={g.y-14} stroke="#5A9028" strokeWidth="1.8" strokeLinecap="round"/>
-                  <line x1={g.x+3} y1={g.y} x2={g.x+6} y2={g.y-10} stroke="#4A8020" strokeWidth="1.8" strokeLinecap="round"/>
-                </g>
-              ))}
-
-              {/* Wildflowers inside farm */}
-              {[
-                {x:660,y:62,c:"#FFD700"},{x:830,y:155,c:"#FF7043"},
-                {x:460,y:130,c:"#E040FB"},{x:750,y:290,c:"#FFC107"},
-                {x:540,y:260,c:"#FF5722"},{x:910,y:220,c:"#FFD700"},
-              ].map((f, i) => (
-                <g key={`wf-${i}`} opacity="0.7">
-                  <line x1={f.x} y1={f.y} x2={f.x} y2={f.y+8} stroke="#4A8020" strokeWidth="1.2"/>
-                  <circle cx={f.x} cy={f.y} r="3.5" fill={f.c}/>
-                  <circle cx={f.x-3} cy={f.y-2} r="2" fill={f.c} opacity="0.7"/>
-                </g>
-              ))}
-            </svg>
-
-            {/* === BUILDINGS === */}
-            {sortedBuildings.map(b => {
-              const level = farmSave.owned[b.id] || 0;
-              const isOwned = level > 0;
-              const isMaxed = level === 3;
-              const { x, y } = isoPos(b.col, b.row);
-              const bldgW = 170;
-              const bldgH = 130;
-              const depth = b.col + b.row;
-
+          {/* === Per-building dirt patches + Production-chain (DFD-style) lines ===
+               Drawn at WORLD scale, BENEATH the building tiles.            */}
+          <svg
+            className="absolute pointer-events-none"
+            width={WORLD_W}
+            height={WORLD_H}
+            viewBox={`0 0 ${WORLD_W} ${WORLD_H}`}
+            style={{ left: 0, top: 0, zIndex: 1 }}
+          >
+            {/* Dirt patch under every plot (owned = warm brown, locked = grey-brown). */}
+            {BUILDINGS.map(b => {
+              const { x, y } = bldgPos(b.id);
+              const owned = (farmSave.owned[b.id] || 0) > 0;
               return (
-                <div
-                  key={b.id}
-                  className="absolute iso-tile"
-                  data-no-pan="true"
-                  style={{
-                    left: x - bldgW / 2,
-                    top: y - bldgH * 0.7,
-                    width: bldgW,
-                    height: bldgH,
-                    zIndex: 10 + depth * 3,
-                  }}
-                  onClick={tileClickGuard(() => setSelected(b))}
-                  data-testid={`tile-${b.id}`}
-                >
-                  {isOwned ? (
-                    <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
-                      <BuildingSVG buildingId={b.id} level={level}/>
-                    </div>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>
-                      <div className="flex flex-col items-center gap-1 py-3 px-4 rounded-xl" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(200,180,140,0.7)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        <span style={{ color: "#FFD700", fontSize: 12, fontWeight: 800 }}>🪙 {b.buyCost}</span>
-                      </div>
-                    </div>
+                <g key={`soil-${b.id}`}>
+                  <ellipse cx={x} cy={y + 12} rx={92} ry={28} fill="rgba(0,0,0,0.22)"/>
+                  <ellipse cx={x} cy={y + 8}  rx={88} ry={24} fill={owned ? "#7A5A28" : "#6B5040"} opacity={owned ? 0.78 : 0.55}/>
+                  <ellipse cx={x - 14} cy={y + 4} rx={36} ry={9} fill="rgba(255,255,255,0.08)"/>
+                  <ellipse cx={x} cy={y + 8}  rx={88} ry={24} fill="none" stroke={owned ? "#9A7838" : "#5a4a3a"} strokeWidth="1.5" opacity="0.7"/>
+                  {!owned && (
+                    <>
+                      <line x1={x - 60} y1={y + 2} x2={x + 60} y2={y + 2} stroke="#5a4a3a" strokeWidth="1" opacity="0.3" strokeDasharray="7 5"/>
+                      <line x1={x - 50} y1={y + 14} x2={x + 50} y2={y + 14} stroke="#5a4a3a" strokeWidth="1" opacity="0.3" strokeDasharray="7 5"/>
+                    </>
                   )}
+                </g>
+              );
+            })}
 
-                  <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1" style={{
-                    top: -20,
-                    padding: "2px 8px",
-                    borderRadius: 12,
-                    fontSize: 10,
-                    fontWeight: 800,
-                    background: "rgba(0,0,0,0.7)",
-                    color: isOwned ? "#FFD700" : "#bbb",
-                    backdropFilter: "blur(4px)",
-                    border: isOwned ? "1px solid rgba(255,215,0,0.3)" : "1px solid rgba(255,255,255,0.1)",
-                  }}>
-                    {b.name}
-                    {isOwned && level > 0 && (
-                      <span style={{ fontSize: 8, padding: "0 4px", borderRadius: 6, fontWeight: 900, background: level === 1 ? "#F5A623" : level === 2 ? "#2196F3" : "#9C27B0", color: "white" }}>
-                        {LVL_LABEL[level]}
-                      </span>
-                    )}
-                    {isMaxed && <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-300"/>}
+            {/* === Production chains: animated dashed arrows between OWNED endpoints. ===
+                 Visualises a Data Flow Diagram (SAD course concept) — players
+                 see their farm self-organise into a working system as they build. */}
+            {PRODUCTION_EDGES.map((e, i) => {
+              if ((farmSave.owned[e.from] || 0) === 0) return null;
+              if ((farmSave.owned[e.to]   || 0) === 0) return null;
+              const a = bldgPos(e.from);
+              const b = bldgPos(e.to);
+              const dx = b.x - a.x;
+              // Curve control point above the midline so arrows arc gracefully.
+              const mx = (a.x + b.x) / 2;
+              const my = (a.y + b.y) / 2 - Math.min(70, Math.abs(dx) * 0.18 + 24);
+              const d = `M ${a.x} ${a.y - 12} Q ${mx} ${my} ${b.x} ${b.y - 12}`;
+              const color = EDGE_COLOR[e.kind];
+              return (
+                <g key={`edge-${i}`}>
+                  {/* Soft halo */}
+                  <path d={d} stroke={color} strokeWidth="9" fill="none" opacity="0.18" strokeLinecap="round"/>
+                  {/* Animated dashed flow line */}
+                  <path d={d} stroke={color} strokeWidth="3" fill="none" strokeDasharray="14 10" strokeLinecap="round" opacity="0.9">
+                    <animate attributeName="stroke-dashoffset" from="0" to="-48" dur="1.4s" repeatCount="indefinite"/>
+                  </path>
+                  {/* Arrow head at sink */}
+                  <circle cx={b.x} cy={b.y - 12} r="6.5" fill={color} opacity="0.95"/>
+                  <circle cx={b.x} cy={b.y - 12} r="3"   fill="white" opacity="0.65"/>
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* === BUILDINGS — scattered across the world === */}
+          {sortedBuildings.map(b => {
+            const level = farmSave.owned[b.id] || 0;
+            const isOwned = level > 0;
+            const isMaxed = level === 3;
+            const { x, y } = bldgPos(b.id);
+            const bldgW = 170;
+            const bldgH = 130;
+
+            return (
+              <div
+                key={b.id}
+                className="absolute iso-tile"
+                data-no-pan="true"
+                style={{
+                  left: x - bldgW / 2,
+                  top: y - bldgH * 0.92,
+                  width: bldgW,
+                  height: bldgH,
+                  // z-index by world-y so further-down buildings render in front
+                  zIndex: 100 + Math.round(y),
+                }}
+                onClick={tileClickGuard(() => setSelected(b))}
+                data-testid={`tile-${b.id}`}
+              >
+                {isOwned ? (
+                  <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
+                    <BuildingSVG buildingId={b.id} level={level}/>
                   </div>
-
-                  {isOwned && (
-                    <div className="absolute left-1/2 -translate-x-1/2" style={{
-                      bottom: -4,
-                      background: "rgba(0,0,0,0.7)",
-                      color: "#FFD700",
-                      fontSize: 9,
-                      fontWeight: 800,
-                      padding: "1px 6px",
-                      borderRadius: 8,
-                      border: "1px solid rgba(255,215,0,0.2)",
-                      backdropFilter: "blur(4px)",
-                      whiteSpace: "nowrap",
-                    }}>
-                      +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>
+                    <div className="flex flex-col items-center gap-1 py-3 px-4 rounded-xl" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(200,180,140,0.7)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      <span style={{ color: "#FFD700", fontSize: 12, fontWeight: 800 }}>🪙 {b.buyCost}</span>
                     </div>
+                  </div>
+                )}
+
+                <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1" style={{
+                  top: -20,
+                  padding: "2px 8px",
+                  borderRadius: 12,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  background: "rgba(0,0,0,0.7)",
+                  color: isOwned ? "#FFD700" : "#bbb",
+                  backdropFilter: "blur(4px)",
+                  border: isOwned ? "1px solid rgba(255,215,0,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                }}>
+                  {b.name}
+                  {isOwned && level > 0 && (
+                    <span style={{ fontSize: 8, padding: "0 4px", borderRadius: 6, fontWeight: 900, background: level === 1 ? "#F5A623" : level === 2 ? "#2196F3" : "#9C27B0", color: "white" }}>
+                      {LVL_LABEL[level]}
+                    </span>
                   )}
+                  {isMaxed && <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-300"/>}
                 </div>
-              );
-            })}
 
-            {/* Chickens & cows */}
-            {hasChickens && [0,1,2].map(i => {
-              const cp = isoPos(0, 1);
+                {isOwned && (
+                  <div className="absolute left-1/2 -translate-x-1/2" style={{
+                    bottom: -4,
+                    background: "rgba(0,0,0,0.7)",
+                    color: "#FFD700",
+                    fontSize: 9,
+                    fontWeight: 800,
+                    padding: "1px 6px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(255,215,0,0.2)",
+                    backdropFilter: "blur(4px)",
+                    whiteSpace: "nowrap",
+                  }}>
+                    +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* === Ambient chickens (around chicken_coop) === */}
+          {hasChickens && [0,1,2].map(i => {
+            const cp = bldgPos("chicken_coop");
+            return (
+              <div key={`ck-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 40 + i * 22, top: cp.y + 24 + i * 4, zIndex: 99 + Math.round(cp.y), animation: `chickenWalk ${7+i*2}s linear infinite`, animationDelay: `${-i*2}s` }}>
+                <svg width="14" height="12" viewBox="0 0 14 12">
+                  <ellipse cx="7" cy="7" rx="5" ry="4" fill={i===0?"#FFF":i===1?"#FFF5E0":"#DDD"}/>
+                  <circle cx="11" cy="4" r="3.5" fill={i===0?"#FFF":"#FFF5E0"}/>
+                  <polygon points="13,3.5 16,2.5 13,1.5" fill="#E8730C"/>
+                  <circle cx="11.5" cy="3.2" r="1" fill="#1a1a1a"/>
+                  <polygon points="10,1 9,-1 11,-1" fill="#DC2626"/>
+                </svg>
+              </div>
+            );
+          })}
+
+          {/* === Ambient cows (around dairy_cows) === */}
+          {hasCows && [0,1].map(i => {
+            const cp = bldgPos("dairy_cows");
+            return (
+              <div key={`cow-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 50 + i * 60, top: cp.y + 22 + i * 6, zIndex: 99 + Math.round(cp.y), animation: `cowGraze ${12+i*4}s ease-in-out infinite`, animationDelay: `${-i*3}s` }}>
+                <svg width="30" height="20" viewBox="0 0 30 20">
+                  <ellipse cx="15" cy="10" rx="12" ry="7" fill="#FAFAFA"/>
+                  <ellipse cx="9" cy="9" rx="5" ry="4" fill={i===0?"#333":"#8B6914"} opacity="0.6"/>
+                  <rect x="4" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                  <rect x="10" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                  <rect x="16" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                  <rect x="22" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
+                  <circle cx="26" cy="5" r="5" fill="#FAFAFA"/>
+                  <ellipse cx="28.5" cy="7" rx="2.5" ry="2" fill="#FFB4B4"/>
+                  <circle cx="25" cy="3.5" r="1.3" fill="#333"/>
+                </svg>
+              </div>
+            );
+          })}
+
+          {/* Golden crop bonus event */}
+          {golden.spawn && goldenPos && (
+            <GoldenCropOverlay
+              x={goldenPos.x}
+              y={goldenPos.y}
+              reward={golden.spawn.reward}
+              expiresAt={golden.spawn.expiresAt}
+              onCollect={collectGolden}
+            />
+          )}
+
+          <AnimatePresence>
+            {coinPops.map(pop => {
+              const { x, y } = bldgPos(pop.bId);
               return (
-                <div key={`ck-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 50 + i * 20, top: cp.y + 20 + i * 5, zIndex: 20 + i, animation: `chickenWalk ${7+i*2}s linear infinite`, animationDelay: `${-i*2}s` }}>
-                  <svg width="14" height="12" viewBox="0 0 14 12">
-                    <ellipse cx="7" cy="7" rx="5" ry="4" fill={i===0?"#FFF":i===1?"#FFF5E0":"#DDD"}/>
-                    <circle cx="11" cy="4" r="3.5" fill={i===0?"#FFF":"#FFF5E0"}/>
-                    <polygon points="13,3.5 16,2.5 13,1.5" fill="#E8730C"/>
-                    <circle cx="11.5" cy="3.2" r="1" fill="#1a1a1a"/>
-                    <polygon points="10,1 9,-1 11,-1" fill="#DC2626"/>
-                  </svg>
-                </div>
+                <motion.div key={pop.id} className="absolute pointer-events-none z-50 flex items-center gap-1" style={{ left: x, top: y - 80, transform: "translate(-50%, 0)" }}
+                  initial={{ opacity: 1, y: 0, scale: 0.8 }} animate={{ opacity: 0, y: -50, scale: 1.3 }} exit={{ opacity: 0 }} transition={{ duration: 1.5, ease: "easeOut" }}
+                  onAnimationComplete={() => setCoinPops(cur => cur.filter(p => p.id !== pop.id))}
+                >
+                  <span className="font-black text-sm" style={{ color: "#FFD700", textShadow: "0 2px 6px rgba(0,0,0,0.7)" }}>+{pop.amount}</span>
+                  <span className="text-base">🪙</span>
+                </motion.div>
               );
             })}
-
-            {hasCows && [0,1].map(i => {
-              const cp = isoPos(1, 1);
-              return (
-                <div key={`cow-${i}`} className="absolute pointer-events-none" style={{ left: cp.x - 20 + i * 40, top: cp.y + 15 + i * 8, zIndex: 22, animation: `cowGraze ${12+i*4}s ease-in-out infinite`, animationDelay: `${-i*3}s` }}>
-                  <svg width="30" height="20" viewBox="0 0 30 20">
-                    <ellipse cx="15" cy="10" rx="12" ry="7" fill="#FAFAFA"/>
-                    <ellipse cx="9" cy="9" rx="5" ry="4" fill={i===0?"#333":"#8B6914"} opacity="0.6"/>
-                    <rect x="4" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                    <rect x="10" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                    <rect x="16" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                    <rect x="22" y="14" width="4" height="6" rx="2" fill="#FAFAFA"/>
-                    <circle cx="26" cy="5" r="5" fill="#FAFAFA"/>
-                    <ellipse cx="28.5" cy="7" rx="2.5" ry="2" fill="#FFB4B4"/>
-                    <circle cx="25" cy="3.5" r="1.3" fill="#333"/>
-                  </svg>
-                </div>
-              );
-            })}
-
-            {/* Golden crop bonus event */}
-            {golden.spawn && goldenPos && (
-              <GoldenCropOverlay
-                x={goldenPos.x}
-                y={goldenPos.y}
-                reward={golden.spawn.reward}
-                expiresAt={golden.spawn.expiresAt}
-                onCollect={collectGolden}
-              />
-            )}
-
-            <AnimatePresence>
-              {coinPops.map(pop => {
-                const b = BUILDINGS.find(bb => bb.id === pop.bId);
-                if (!b) return null;
-                const { x, y } = isoPos(b.col, b.row);
-                return (
-                  <motion.div key={pop.id} className="absolute pointer-events-none z-50 flex items-center gap-1" style={{ left: x, top: y - 80, transform: "translate(-50%, 0)" }}
-                    initial={{ opacity: 1, y: 0, scale: 0.8 }} animate={{ opacity: 0, y: -50, scale: 1.3 }} exit={{ opacity: 0 }} transition={{ duration: 1.5, ease: "easeOut" }}
-                    onAnimationComplete={() => setCoinPops(cur => cur.filter(p => p.id !== pop.id))}
-                  >
-                    <span className="font-black text-sm" style={{ color: "#FFD700", textShadow: "0 2px 6px rgba(0,0,0,0.7)" }}>+{pop.amount}</span>
-                    <span className="text-base">🪙</span>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </div>
+          </AnimatePresence>
         </div>
       </div>
 
@@ -875,6 +998,14 @@ export default function FarmPage() {
       {/* === MINIMAP (bottom-right corner, above zoom controls) === */}
       <Minimap camX={camera.x} camY={camera.y} scale={camera.scale} vw={viewSize.w} vh={viewSize.h} />
 
+      {/* === SAD-themed quest panel (top-left, collapsible) === */}
+      <QuestPanel
+        owned={farmSave.owned}
+        completed={farmSave.completedQuests}
+        onClaim={claimQuest}
+        isPending={claimQuestMutation.isPending}
+      />
+
       {/* === Footer hint === */}
       <div className="absolute bottom-0 left-0 right-0 z-20 text-center pb-2 pointer-events-none">
         <p className="text-[10px] sm:text-[11px] font-medium px-3 py-1 rounded-full inline-block" style={{ background: "rgba(20,12,4,0.65)", color: "rgba(220,200,160,0.85)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,215,0,0.15)" }}>
@@ -950,5 +1081,164 @@ function BuildingModal({ b, level, userCoins, onBuy, onUpgrade, onClose, isPendi
         </div>
       </div>
     </motion.div>
+  );
+}
+
+// === SAD-themed quest panel (collapsible, top-left) ===
+// Shows the 6 systems-analysis-themed side quests, their progress, and a
+// claim button when complete. Persists "completedQuests" via the parent.
+function QuestPanel({
+  owned, completed, onClaim, isPending,
+}: {
+  owned: Record<string, number>;
+  completed: string[];
+  onClaim: (q: QuestDef) => void;
+  isPending: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  const completedCount = completed.length;
+  const pendingCount   = QUESTS.filter(q => !completed.includes(q.id) && questProgress(q, owned).done).length;
+
+  return (
+    <div
+      data-no-pan="true"
+      className="absolute"
+      style={{
+        zIndex: 40,
+        left: 10,
+        top: 102,
+        width: open ? 280 : 64,
+        maxHeight: "calc(100vh - 200px)",
+        background: "linear-gradient(180deg, rgba(20,30,15,0.92) 0%, rgba(28,40,18,0.88) 100%)",
+        border: "1.5px solid rgba(255,215,0,0.4)",
+        borderRadius: 12,
+        backdropFilter: "blur(8px)",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+        overflow: "hidden",
+        transition: "width 0.25s ease",
+      }}
+    >
+      {/* Header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        data-no-pan="true"
+        className="w-full flex items-center gap-2 px-3 py-2 transition-colors hover:bg-white/5"
+        style={{ background: "rgba(0,0,0,0.25)", borderBottom: open ? "1px solid rgba(255,215,0,0.2)" : "none" }}
+        data-testid="btn-toggle-quests"
+        aria-label={open ? "Collapse quests" : "Expand quests"}
+      >
+        <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, #FFD700, #F5A623)", boxShadow: "0 1px 4px rgba(245,166,35,0.4)" }}>
+          <GraduationCap className="w-4 h-4" style={{ color: "#3E2716" }}/>
+        </div>
+        {open && (
+          <>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-[11px] font-black tracking-wider truncate" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700" }}>SAD QUESTS</div>
+              <div className="text-[9px] font-semibold leading-tight truncate" style={{ color: "#A8C8A0" }}>
+                {completedCount} / {QUESTS.length} done{pendingCount > 0 ? ` · ${pendingCount} ready!` : ""}
+              </div>
+            </div>
+            {pendingCount > 0 && (
+              <span className="flex items-center justify-center font-black text-[10px] rounded-full flex-shrink-0" style={{ width: 18, height: 18, background: "#F5A623", color: "#3E2716" }}>
+                {pendingCount}
+              </span>
+            )}
+            <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "#FFD700" }}/>
+          </>
+        )}
+        {!open && (
+          <>
+            {pendingCount > 0 && (
+              <span className="absolute flex items-center justify-center font-black text-[10px] rounded-full" style={{ width: 18, height: 18, background: "#F5A623", color: "#3E2716", top: 4, right: 4 }}>
+                {pendingCount}
+              </span>
+            )}
+            <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "#FFD700" }}/>
+          </>
+        )}
+      </button>
+
+      {/* Quest list */}
+      {open && (
+        <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 260px)", scrollbarWidth: "thin" }}>
+          <ul className="p-2 space-y-2">
+            {QUESTS.map(q => {
+              const isDone = completed.includes(q.id);
+              const prog = questProgress(q, owned);
+              const ready = !isDone && prog.done;
+              return (
+                <li key={q.id} data-testid={`quest-${q.id}`}
+                  className="rounded-lg px-2.5 py-2"
+                  style={{
+                    background: isDone
+                      ? "linear-gradient(135deg, rgba(46,125,50,0.25), rgba(27,94,32,0.18))"
+                      : ready
+                        ? "linear-gradient(135deg, rgba(245,166,35,0.22), rgba(255,215,0,0.10))"
+                        : "rgba(0,0,0,0.25)",
+                    border: isDone
+                      ? "1px solid rgba(76,175,80,0.45)"
+                      : ready
+                        ? "1px solid rgba(245,166,35,0.55)"
+                        : "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="mt-0.5 flex-shrink-0">
+                      {isDone
+                        ? <CheckCircle2 className="w-4 h-4" style={{ color: "#A8E6A8" }}/>
+                        : ready
+                          ? <Sparkles className="w-4 h-4" style={{ color: "#FFD700" }}/>
+                          : <Lock className="w-4 h-4" style={{ color: "rgba(200,180,140,0.55)" }}/>}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="font-black text-[11px] leading-tight" style={{ color: isDone ? "#A8E6A8" : ready ? "#FFD700" : "#E8DCC0" }}>
+                          {q.title}
+                        </span>
+                        <span className="font-bold text-[8px] px-1 py-px rounded" style={{ background: "rgba(33,150,243,0.25)", color: "#90CAF9", border: "1px solid rgba(33,150,243,0.35)" }}>
+                          {q.sadConcept}
+                        </span>
+                      </div>
+                      <p className="text-[10px] mt-0.5 leading-snug" style={{ color: "rgba(200,180,140,0.85)" }}>{q.hint}</p>
+                      {/* Progress bar */}
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(0,0,0,0.4)" }}>
+                          <div className="h-full transition-all" style={{
+                            width: `${Math.round(prog.pct * 100)}%`,
+                            background: isDone ? "linear-gradient(90deg, #43A047, #66BB6A)" : ready ? "linear-gradient(90deg, #F5A623, #FFD700)" : "linear-gradient(90deg, #6B7E54, #8FA770)",
+                          }}/>
+                        </div>
+                        <span className="text-[9px] font-bold tabular-nums" style={{ color: "rgba(200,180,140,0.7)" }}>{prog.label}</span>
+                      </div>
+                      {/* Reward / claim */}
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1 text-[10px] font-black" style={{ color: "#FFD700" }}>
+                          <Coins className="w-3 h-3"/> +{q.reward}
+                        </span>
+                        {isDone ? (
+                          <span className="text-[9px] font-black" style={{ color: "#A8E6A8" }}>✓ Claimed</span>
+                        ) : ready ? (
+                          <button
+                            onClick={() => onClaim(q)}
+                            disabled={isPending}
+                            data-testid={`btn-claim-${q.id}`}
+                            className="px-2 py-0.5 rounded-md font-black text-[10px] transition-all hover:scale-105 active:scale-95 disabled:opacity-60"
+                            style={{ background: "linear-gradient(135deg, #F5A623, #FFD700)", color: "#3E2716", boxShadow: "0 1px 4px rgba(245,166,35,0.5)" }}
+                          >
+                            CLAIM
+                          </button>
+                        ) : (
+                          <span className="text-[9px] font-semibold" style={{ color: "rgba(200,180,140,0.5)" }}>Locked</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
