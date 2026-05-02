@@ -39,14 +39,14 @@ export const SAD_GAMES: Record<string, SADGameMeta> = {
   },
   req_sorter: {
     type: "req_sorter",
-    title: "Requirement Hunter",
+    title: "Spec Highway",
     short: "Requirements describe what a system must do — and how well it must do it.",
     detail: "Functional requirements describe WHAT the system does (login, search, purchase). Non-functional requirements describe HOW WELL it does it (speed, security, usability).",
-    howTo: "Click office hotspots to discover hidden requirements. Then tap each card to send it to the Functional or Non-Functional bucket.",
+    howTo: "Requirement cards race toward you down a neon highway. Slam each one into the matching bin — Functional left, Non-Functional right — before it hits.",
     icon: Target,
     color: "text-emerald-300",
     gradient: "from-emerald-500 to-teal-700",
-    emoji: "🔎",
+    emoji: "🛣️",
   },
   usecase_builder: {
     type: "usecase_builder",
@@ -373,7 +373,8 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const ROUND_DURATION_SEC = Math.round(48 - _d * 14); // 48 → 34s
   const SPAWN_EVERY_SEC = 0.85 - _d * 0.40;            // 0.85 → 0.45s
   const OBJECT_SPEED = 32 + _d * 22;                   // 32 → 54 %/s
-  const PR_HEARTS = Math.max(1, 3 - Math.floor(_d * 2)); // 3, 3, 2, 1
+  // Bumped to 5 because missing a deliverable now also costs a heart (was bug-only).
+  const PR_HEARTS = Math.max(2, 5 - Math.floor(_d * 2)); // 5, 5, 4, 3
 
   const [round, setRound] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
@@ -488,7 +489,12 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
     for (const o of objectsRef.current) {
       const nx = o.x - OBJECT_SPEED * dt;
       if (nx < -8) {
-        if (o.type === "deliverable") missedDelta++;
+        // A deliverable that escapes left = missed. The user wants missing a
+        // delivery to also cost a heart (parity with hitting a bug).
+        if (o.type === "deliverable") {
+          missedDelta++;
+          heartLoss++;
+        }
         continue;
       }
       const inHitX = nx > PLAYER_X - HIT_W && nx < PLAYER_X + HIT_W;
@@ -522,7 +528,14 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
       setShake(Date.now());
       if (newHearts === 0) setRoundOver(true);
     }
-    if (timeJustHitZero) setRoundOver(true);
+    if (timeJustHitZero) {
+      // Deliverables still on-screen at timer end shouldn't count as "missed"
+      // — the player never had a fair chance to reach them. Subtract them
+      // from the target so the win-ratio reflects only resolved deliveries.
+      const stillFlying = next.filter(o => o.type === "deliverable").length;
+      if (stillFlying > 0) setTarget(t => Math.max(0, t - stillFlying));
+      setRoundOver(true);
+    }
   }, active);
 
   // Controls
@@ -581,7 +594,7 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
           {/* HUD */}
           <div className="absolute top-2 left-2 right-2 z-20 flex justify-between items-center pointer-events-none flex-wrap gap-1">
             <Badge variant="outline" className="bg-background/70 backdrop-blur" data-testid="badge-hearts">
-              {Array.from({ length: 3 }).map((_, i) => (
+              {Array.from({ length: PR_HEARTS }).map((_, i) => (
                 <Heart
                   key={i}
                   className={`w-3 h-3 ${i < hearts ? "text-rose-400 fill-rose-400" : "text-muted/40"} ${i > 0 ? "ml-0.5" : ""}`}
@@ -692,7 +705,7 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
                 "↑ / ↓ or W / S to switch lane (or tap a lane).",
                 "The HUD shows the current phase — most deliverables come from there.",
                 "Lanes are arranged top-to-bottom in the canonical phase order.",
-                "3 hearts. Bugs cost 1. Catch ≥ 80% to win. Esc to pause.",
+                `${PR_HEARTS} hearts. Bugs AND missed deliverables cost 1 each. Catch ≥ 80% to win. Esc to pause.`,
               ]}
               onStart={() => { dismissHow(); setShowHowOverlay(false); }}
             />
@@ -747,313 +760,407 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
 }
 
 // ============================================================
-// 2. REQUIREMENT HUNTER — hunt then sort. Uses real seeded reqs.
+// 2. SPEC HIGHWAY — 3D-perspective neon highway. Cards race toward
+//    the camera; player slams each into the matching bin (←/→).
 // ============================================================
 
-const HOTSPOTS = [
-  { id: "desk",       icon: "💻", label: "Dev desk" },
-  { id: "whiteboard", icon: "📝", label: "Whiteboard" },
-  { id: "coffee",     icon: "☕", label: "Coffee corner" },
-  { id: "boss",       icon: "👔", label: "Manager office" },
-  { id: "server",     icon: "🖥️", label: "Server rack" },
-  { id: "window",     icon: "🪟", label: "Bulletin board" },
-];
+interface RHCard {
+  id: number;
+  content: string;
+  answer: "functional" | "non_functional";
+  explanation: string;
+  z: number;                                  // -2200 (far) → 240 (past camera)
+  decided?: boolean;
+  decidedSide?: "left" | "right";
+  result?: "correct" | "wrong" | "missed";
+}
 
-function RequirementHunter({ questions, onComplete }: SADGameProps) {
+function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const meta = SAD_GAMES.req_sorter;
   const [howSeen, dismissHow] = useHowTo("req_sorter");
   const [showHow, setShowHow] = useState(!howSeen);
 
-  // Treat the entire question set as ONE game (10 cards).
-  // Map each question to a hotspot.
-  const cards = useMemo(() => {
-    return questions.map((q, i) => ({
-      id: `c${i}`,
-      hotspotId: HOTSPOTS[i % HOTSPOTS.length].id,
-      content: q.content,
-      answer: q.answer as "functional" | "non_functional",
-      explanation: q.options?.explanation || "",
-    }));
-  }, [questions]);
+  // Difficulty-scaled knobs.
+  const _d = Math.max(0, Math.min(1, difficulty));
+  const TRAVEL_SEC     = 4.0 - _d * 1.6;        // 4.0s → 2.4s far→near
+  const SPAWN_GAP_SEC  = 1.6 - _d * 0.55;       // 1.6s → 1.05s between cards
+  const RH_HEARTS      = Math.max(2, 5 - Math.floor(_d * 2)); // 5,5,4,3
+  const Z_FAR  = -2200;
+  const Z_NEAR = 240;
+  const Z_RANGE = Z_NEAR - Z_FAR;
 
-  const cardsByHotspot = useMemo(() => {
-    const m: Record<string, typeof cards> = {};
-    HOTSPOTS.forEach(h => { m[h.id] = []; });
-    cards.forEach(c => m[c.hotspotId].push(c));
-    return m;
-  }, [cards]);
+  const cards = useMemo(() => questions.map((q, i): Omit<RHCard, "z"> => ({
+    id: i,
+    content: q.content as string,
+    answer: (q.answer === "functional" ? "functional" : "non_functional") as "functional" | "non_functional",
+    explanation: ((q.options as any)?.explanation || "") as string,
+  })), [questions]);
 
-  const [revealed, setRevealed] = useState<string[]>([]); // card ids
-  const [stage, setStage] = useState<"hunt" | "sort" | "done">("hunt");
-  const [pendingId, setPendingId] = useState<string | null>(null); // currently shown card
-  const [results, setResults] = useState<Record<string, "correct" | "wrong" | "retry">>({});
-  const [retries, setRetries] = useState<Set<string>>(new Set());
-  const [shake, setShake] = useState(0);
-  const [burst, setBurst] = useState({ trigger: 0, x: 0, y: 0 });
-  const [score, setScore] = useState(0);
-  const [paused, setPaused] = usePause(stage !== "done" && !showHow);
+  const [active, setActive] = useState<RHCard[]>([]);
+  const [score, setScore]   = useState(0);
+  const [hearts, setHearts] = useState(RH_HEARTS);
+  const [combo, setCombo]   = useState(0);
+  const [maxCombo, setMaxCombo] = useState(0);
+  const [stage, setStage]   = useState<"playing" | "done">("playing");
+  const [results, setResults] = useState<Record<number, "correct" | "wrong" | "missed">>({});
+  const [shake, setShake]   = useState(0);
+  const [flash, setFlash]   = useState<{ side: "left" | "right" | null; ok: boolean; trigger: number }>({ side: null, ok: false, trigger: 0 });
+  const [paused, setPaused] = usePause(stage === "playing" && !showHow);
 
-  const totalRounds = 1; // single combined round of all cards
-  const huntComplete = revealed.length >= cards.length;
+  // Refs for the rAF loop
+  const activeRef   = useRef<RHCard[]>([]);
+  const heartsRef   = useRef(RH_HEARTS);
+  const comboRef    = useRef(0);
+  const maxComboRef = useRef(0);
+  const spawnAcc    = useRef(0);
+  const spawnIdx    = useRef(0);
 
-  function clickHotspot(id: string) {
-    const list = cardsByHotspot[id];
-    const next = list.find(c => !revealed.includes(c.id));
-    if (!next) return;
-    setRevealed(r => [...r, next.id]);
-    setBurst({ trigger: Date.now(), x: 0, y: 0 });
-  }
+  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { heartsRef.current = hearts; }, [hearts]);
 
-  function startSort() {
-    setStage("sort");
-    setPendingId(cards[0]?.id || null);
-  }
+  // Auto-clear the bin flash so the highlighted side returns to idle.
+  useEffect(() => {
+    if (flash.side === null) return;
+    const t = setTimeout(() => setFlash(f => ({ ...f, side: null })), 320);
+    return () => clearTimeout(t);
+  }, [flash.trigger, flash.side]);
 
-  function sortInto(bucket: "functional" | "non_functional") {
-    if (!pendingId) return;
-    const card = cards.find(c => c.id === pendingId);
-    if (!card) return;
-    const correct = card.answer === bucket;
-    if (correct) {
-      const wasRetry = retries.has(card.id);
-      const delta = wasRetry ? 5 : 15;
-      setScore(s => s + delta);
-      setResults(r => ({ ...r, [card.id]: wasRetry ? "retry" : "correct" }));
-      setBurst({ trigger: Date.now(), x: bucket === "functional" ? 80 : 240, y: 380 });
-      // Move to next pending
-      const remaining = cards.filter(c => !results[c.id] && c.id !== card.id);
-      const nextCard = remaining[0];
-      if (nextCard) {
-        setTimeout(() => setPendingId(nextCard.id), 300);
-      } else {
-        setTimeout(() => {
-          setStage("done");
-        }, 350);
+  const loopActive = stage === "playing" && !showHow && !paused;
+
+  useGameLoop((dt) => {
+    spawnAcc.current += dt;
+
+    // Spawn next card
+    let spawnedCard: RHCard | null = null;
+    if (spawnAcc.current >= SPAWN_GAP_SEC && spawnIdx.current < cards.length) {
+      spawnAcc.current = 0;
+      const c = cards[spawnIdx.current];
+      spawnedCard = { ...c, z: Z_FAR };
+      spawnIdx.current++;
+    }
+
+    // Advance every card's z toward camera
+    const dz = (Z_RANGE / TRAVEL_SEC) * dt;
+    const nextActive: RHCard[] = [];
+    let missedCount = 0;
+    const missedIds: number[] = [];
+
+    for (const c of activeRef.current) {
+      const nz = c.z + dz;
+      if (c.decided) {
+        // Decided cards keep flying past the camera then despawn.
+        if (nz < 700) nextActive.push({ ...c, z: nz });
+        continue;
       }
-    } else {
-      // Wrong
+      if (nz >= Z_NEAR) {
+        // Reached camera without a decision = missed.
+        missedCount++;
+        missedIds.push(c.id);
+      } else {
+        nextActive.push({ ...c, z: nz });
+      }
+    }
+    if (spawnedCard) nextActive.push(spawnedCard);
+    activeRef.current = nextActive;
+    setActive(nextActive);
+
+    if (missedCount > 0) {
+      const newHearts = Math.max(0, heartsRef.current - missedCount);
+      heartsRef.current = newHearts;
+      setHearts(newHearts);
       setShake(Date.now());
-      if (!retries.has(card.id)) {
-        setRetries(s => new Set([...Array.from(s), card.id]));
-        // Card stays for retry
-      } else {
-        // Already retried once → mark wrong and move on
-        setResults(r => ({ ...r, [card.id]: "wrong" }));
-        const remaining = cards.filter(c => !results[c.id] && c.id !== card.id);
-        const nextCard = remaining[0];
-        setTimeout(() => {
-          if (nextCard) setPendingId(nextCard.id);
-          else setStage("done");
-        }, 600);
-      }
+      setCombo(0);
+      comboRef.current = 0;
+      setResults(r => {
+        const out = { ...r };
+        missedIds.forEach(id => { out[id] = "missed"; });
+        return out;
+      });
+      if (newHearts === 0) { setStage("done"); return; }
     }
+
+    // End of run: every card spawned and none still in flight.
+    const stillFlying = nextActive.filter(c => !c.decided).length;
+    if (spawnIdx.current >= cards.length && stillFlying === 0) {
+      setStage("done");
+    }
+  }, loopActive);
+
+  function decide(side: "left" | "right") {
+    if (stage !== "playing") return;
+    // Pick the closest un-decided card (largest z = closest to camera).
+    const closest = activeRef.current
+      .filter(c => !c.decided)
+      .sort((a, b) => b.z - a.z)[0];
+    if (!closest) return;
+
+    const wantedSide = closest.answer === "functional" ? "left" : "right";
+    const ok = side === wantedSide;
+
+    if (ok) {
+      const newCombo = comboRef.current + 1;
+      const bonus = Math.floor(newCombo / 3) * 5;
+      const delta = 15 + bonus;
+      setScore(s => s + delta);
+      comboRef.current = newCombo;
+      setCombo(newCombo);
+      if (newCombo > maxComboRef.current) {
+        maxComboRef.current = newCombo;
+        setMaxCombo(newCombo);
+      }
+      setResults(r => ({ ...r, [closest.id]: "correct" }));
+    } else {
+      const newHearts = Math.max(0, heartsRef.current - 1);
+      heartsRef.current = newHearts;
+      setHearts(newHearts);
+      comboRef.current = 0;
+      setCombo(0);
+      setShake(Date.now());
+      setResults(r => ({ ...r, [closest.id]: "wrong" }));
+      if (newHearts === 0) setStage("done");
+    }
+
+    setFlash({ side, ok, trigger: Date.now() });
+    activeRef.current = activeRef.current.map(c =>
+      c.id === closest.id ? { ...c, decided: true, decidedSide: side } : c
+    );
+    setActive(activeRef.current);
   }
 
-  const correctCount = Object.values(results).filter(r => r === "correct" || r === "retry").length;
-  const won = correctCount >= Math.ceil(cards.length * 0.7);
-  const pendingCard = cards.find(c => c.id === pendingId);
-  const isRetry = pendingCard ? retries.has(pendingCard.id) : false;
-  const sortedCount = Object.keys(results).length;
+  // Stable handler ref so the keydown listener doesn't churn each render.
+  const decideRef = useRef(decide);
+  useEffect(() => { decideRef.current = decide; });
 
-  const explanation = useMemo(() => {
-    // Show the explanation of the most recent wrong card, or a generic one
-    const wrongIds = Object.entries(results).filter(([, v]) => v === "wrong").map(([k]) => k);
-    if (wrongIds.length > 0) {
-      const c = cards.find(cd => cd.id === wrongIds[wrongIds.length - 1]);
-      if (c?.explanation) return c.explanation;
-    }
-    return "Functional requirements describe WHAT the system does. Non-functional requirements describe HOW WELL it does it (speed, security, accessibility).";
-  }, [results, cards]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
+        e.preventDefault(); decideRef.current("left");
+      } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
+        e.preventDefault(); decideRef.current("right");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const correctCount = Object.values(results).filter(r => r === "correct").length;
+  const wrongCount   = Object.values(results).filter(r => r === "wrong").length;
+  const missedCount  = Object.values(results).filter(r => r === "missed").length;
+  const won          = correctCount >= Math.ceil(cards.length * 0.6);
 
   return (
     <div className="w-full max-w-xl select-none">
       <RoundHeader
         index={0}
-        total={totalRounds}
-        label={stage === "hunt" ? "Step 1: Hunt for requirements" : stage === "sort" ? "Step 2: Sort the cards" : "Done"}
+        total={1}
+        label="Spec Highway"
         onPause={() => setPaused(p => !p)}
       />
 
       <ScreenShake trigger={shake}>
-        <div className="glass-strong rounded-xl border border-border/40 overflow-hidden relative" style={{ minHeight: 440 }}>
+        <div
+          className="rounded-xl border border-violet-500/30 overflow-hidden relative bg-gradient-to-b from-[#0a0420] via-[#0e0830] to-[#04020f]"
+          style={{ height: 480, perspective: "750px", perspectiveOrigin: "50% 65%" }}
+          data-testid="rh-stage"
+        >
+          {/* Star/parallax dots */}
+          <div className="absolute inset-0 pointer-events-none opacity-60"
+            style={{
+              backgroundImage:
+                "radial-gradient(1px 1px at 25% 30%, rgba(255,255,255,0.6) 50%, transparent 51%), radial-gradient(1px 1px at 70% 20%, rgba(255,255,255,0.5) 50%, transparent 51%), radial-gradient(1px 1px at 80% 60%, rgba(168,85,247,0.7) 50%, transparent 51%), radial-gradient(1px 1px at 15% 75%, rgba(99,102,241,0.6) 50%, transparent 51%), radial-gradient(1px 1px at 50% 10%, rgba(255,255,255,0.4) 50%, transparent 51%)",
+            }}
+          />
+
+          {/* Neon highway floor — perspective grid scrolling toward camera */}
+          <motion.div
+            className="absolute left-0 right-0 bottom-0 pointer-events-none"
+            style={{
+              height: "75%",
+              transform: "rotateX(70deg)",
+              transformOrigin: "50% 100%",
+              backgroundImage:
+                "linear-gradient(to top, rgba(168,85,247,0.45) 0%, rgba(99,102,241,0.18) 50%, transparent 100%), repeating-linear-gradient(0deg, transparent 0 36px, rgba(168,85,247,0.55) 36px 38px), repeating-linear-gradient(90deg, transparent 0 38px, rgba(99,102,241,0.4) 38px 40px)",
+              backgroundSize: "100% 100%, 100% 76px, 100% 100%",
+            }}
+            animate={{ backgroundPosition: ["0px 0px, 0px 0px, 0px 0px", "0px 0px, 0px 76px, 0px 0px"] }}
+            transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
+          />
+
+          {/* Center divider */}
+          <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-violet-400/40 to-transparent pointer-events-none z-[5]" />
+
           {/* HUD */}
-          <div className="absolute top-2 left-2 right-2 z-20 flex justify-between items-center pointer-events-none">
-            <Badge variant="outline" className="bg-background/70 backdrop-blur text-emerald-300" data-testid="badge-found">
-              📓 {revealed.length}/{cards.length} found
+          <div className="absolute top-2 left-2 right-2 z-30 flex justify-between items-center pointer-events-none flex-wrap gap-1">
+            <Badge variant="outline" className="bg-black/60 backdrop-blur" data-testid="rh-hearts">
+              {Array.from({ length: RH_HEARTS }).map((_, i) => (
+                <Heart key={i} className={`w-3 h-3 ${i < hearts ? "text-rose-400 fill-rose-400" : "text-muted/40"} ${i > 0 ? "ml-0.5" : ""}`} />
+              ))}
             </Badge>
-            <Badge variant="outline" className="bg-background/70 backdrop-blur text-amber-300">
+            {combo >= 3 && (
+              <Badge variant="outline" className="bg-amber-500/30 backdrop-blur text-amber-100 border-amber-400/60 font-bold" data-testid="rh-combo">
+                🔥 {combo}× COMBO
+              </Badge>
+            )}
+            <Badge variant="outline" className="bg-black/60 backdrop-blur text-amber-300" data-testid="rh-score">
               ⭐ {score}
             </Badge>
           </div>
 
-          {/* HUNT */}
-          {stage === "hunt" && (
-            <div className="p-4 pt-10">
-              <p className="text-xs text-muted-foreground mb-3 font-mono text-center">
-                CLICK A HOTSPOT TO REVEAL A REQUIREMENT
-              </p>
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                {HOTSPOTS.map(h => {
-                  const remaining = cardsByHotspot[h.id].filter(c => !revealed.includes(c.id)).length;
-                  const exhausted = remaining === 0;
-                  return (
-                    <motion.button
-                      key={h.id}
-                      whileHover={!exhausted ? { scale: 1.04 } : {}}
-                      whileTap={!exhausted ? { scale: 0.96 } : {}}
-                      onClick={() => clickHotspot(h.id)}
-                      disabled={exhausted}
-                      className={`min-h-20 rounded-xl border p-3 flex flex-col items-center justify-center gap-1 transition-all ${
-                        exhausted
-                          ? "bg-emerald-500/10 border-emerald-500/40 opacity-50"
-                          : "bg-card/60 border-border/40 hover:border-emerald-400/60 hover:bg-emerald-500/10"
-                      }`}
-                      data-testid={`hotspot-${h.id}`}
-                    >
-                      <span className="text-2xl">{h.icon}</span>
-                      <span className="text-[10px] font-semibold leading-tight text-center">{h.label}</span>
-                      {!exhausted && remaining > 0 && (
-                        <span className="text-[9px] text-emerald-300 font-mono">{remaining} left</span>
-                      )}
-                      {exhausted && <span className="text-[9px] text-emerald-300">✓ done</span>}
-                    </motion.button>
-                  );
-                })}
-              </div>
-
-              {/* Notebook */}
-              <div className="rounded-lg border border-border/40 bg-card/40 p-2 max-h-32 overflow-y-auto">
-                <p className="text-[10px] font-mono text-muted-foreground mb-1.5">📓 NOTEBOOK</p>
-                {revealed.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground italic">No requirements yet — click a hotspot to start.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    <AnimatePresence>
-                      {revealed.map(id => {
-                        const c = cards.find(c => c.id === id)!;
-                        return (
-                          <motion.li
-                            key={id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            className="text-[11px] leading-snug text-foreground/90 border-l-2 border-emerald-500/50 pl-2"
-                          >
-                            {c.content}
-                          </motion.li>
-                        );
-                      })}
-                    </AnimatePresence>
-                  </ul>
-                )}
-              </div>
-
-              {huntComplete && (
-                <Button className="w-full mt-3 min-h-11" onClick={startSort} data-testid="button-start-sort">
-                  All found — Start sorting <ArrowRight className="w-4 h-4 ml-1" />
-                </Button>
-              )}
+          {/* Side bins (left = Functional, right = Non-Functional) */}
+          <div className="absolute inset-y-0 left-0 w-[28%] z-[8] pointer-events-none flex items-end justify-center pb-3">
+            <div className={`px-3 py-2 rounded-lg border-2 backdrop-blur transition-all duration-200 ${
+              flash.side === "left"
+                ? flash.ok ? "border-emerald-300 bg-emerald-500/50 shadow-[0_0_30px_rgba(52,211,153,0.7)]"
+                          : "border-rose-300 bg-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.7)]"
+                : "border-emerald-500/60 bg-emerald-500/15 shadow-[0_0_18px_rgba(52,211,153,0.35)]"
+            }`}>
+              <div className="text-2xl text-center">⚙️</div>
+              <div className="text-[10px] font-mono font-bold text-emerald-300 mt-0.5 text-center">FUNCTIONAL</div>
+              <div className="text-[8px] text-muted-foreground mt-0.5 text-center">← / A</div>
             </div>
-          )}
+          </div>
+          <div className="absolute inset-y-0 right-0 w-[28%] z-[8] pointer-events-none flex items-end justify-center pb-3">
+            <div className={`px-3 py-2 rounded-lg border-2 backdrop-blur transition-all duration-200 ${
+              flash.side === "right"
+                ? flash.ok ? "border-emerald-300 bg-emerald-500/50 shadow-[0_0_30px_rgba(52,211,153,0.7)]"
+                          : "border-rose-300 bg-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.7)]"
+                : "border-amber-500/60 bg-amber-500/15 shadow-[0_0_18px_rgba(245,158,11,0.35)]"
+            }`}>
+              <div className="text-2xl text-center">📊</div>
+              <div className="text-[10px] font-mono font-bold text-amber-300 mt-0.5 text-center">NON-FUNC</div>
+              <div className="text-[8px] text-muted-foreground mt-0.5 text-center">→ / D</div>
+            </div>
+          </div>
 
-          {/* SORT */}
-          {stage === "sort" && pendingCard && (
-            <div className="p-4 pt-10 flex flex-col h-full" style={{ minHeight: 440 }}>
-              <p className="text-xs text-muted-foreground mb-2 font-mono text-center">
-                {sortedCount + 1} / {cards.length} • Tap the right bucket
-              </p>
-
-              {/* The card */}
-              <div className="flex-1 flex items-center justify-center">
-                <motion.div
-                  key={pendingCard.id + (isRetry ? "r" : "")}
-                  initial={{ scale: 0.85, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  className={`max-w-xs w-full rounded-xl p-4 border-2 shadow-xl ${
-                    isRetry ? "bg-amber-500/10 border-amber-400/60" : "bg-card border-border/60"
-                  }`}
-                  data-testid="card-pending"
+          {/* 3D card track */}
+          <div className="absolute inset-0 z-10 pointer-events-none" style={{ transformStyle: "preserve-3d" }}>
+            {active.map(c => {
+              const t = (c.z - Z_FAR) / Z_RANGE;                  // 0=far, 1=at camera
+              const opacity = c.decided ? 0.55 : Math.min(1, 0.25 + t * 1.6);
+              // After a decision, fly the card off to the chosen side as it passes camera
+              const past = c.decided ? Math.max(0, c.z - Z_NEAR) : 0;
+              const xOffset = c.decided
+                ? (c.decidedSide === "left" ? -1 : 1) * (60 + past * 0.8)
+                : 0;
+              const yLift = c.decided ? -past * 0.3 : 0;
+              const result = results[c.id];
+              const ring = result === "correct" ? "border-emerald-300 shadow-[0_0_30px_rgba(52,211,153,0.75)]"
+                : result === "wrong" ? "border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.75)]"
+                : result === "missed" ? "border-zinc-500 shadow-[0_0_18px_rgba(100,116,139,0.4)]"
+                : "border-violet-300 shadow-[0_0_28px_rgba(139,92,246,0.55)]";
+              return (
+                <div
+                  key={c.id}
+                  className="absolute left-1/2 top-1/2"
+                  style={{
+                    transform: `translate(-50%, -50%) translate3d(${xOffset}px, ${yLift}px, ${c.z}px)`,
+                    opacity,
+                  }}
+                  data-testid={`rh-card-${c.id}`}
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span className="text-[10px] font-mono text-muted-foreground tracking-wider">REQUIREMENT</span>
-                    {isRetry && <Badge variant="outline" className="text-[9px] text-amber-300 ml-auto">RETRY</Badge>}
+                  <div className={`w-72 max-w-[78vw] rounded-xl border-2 p-4 bg-card/90 backdrop-blur ${ring}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      <span className="text-[9px] font-mono text-muted-foreground tracking-widest">REQUIREMENT</span>
+                    </div>
+                    <p className="text-sm leading-snug text-foreground">{c.content}</p>
                   </div>
-                  <p className="text-sm leading-relaxed">{pendingCard.content}</p>
-                </motion.div>
-              </div>
+                </div>
+              );
+            })}
+          </div>
 
-              {/* Buckets */}
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                <button
-                  className="min-h-20 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 transition-all p-3 text-center"
-                  onClick={() => sortInto("functional")}
-                  data-testid="bucket-functional"
-                >
-                  <div className="text-2xl">⚙️</div>
-                  <div className="text-xs font-bold text-emerald-300 mt-1">Functional</div>
-                  <div className="text-[9px] text-muted-foreground mt-0.5">what it DOES</div>
-                </button>
-                <button
-                  className="min-h-20 rounded-xl border-2 border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 active:scale-95 transition-all p-3 text-center"
-                  onClick={() => sortInto("non_functional")}
-                  data-testid="bucket-non-functional"
-                >
-                  <div className="text-2xl">📊</div>
-                  <div className="text-xs font-bold text-amber-300 mt-1">Non-Functional</div>
-                  <div className="text-[9px] text-muted-foreground mt-0.5">how WELL it does it</div>
-                </button>
-              </div>
-              <Progress value={(sortedCount / cards.length) * 100} className="h-1 mt-3" />
-            </div>
-          )}
+          {/* Tap zones for mobile (under the cards visually but z-index above floor) */}
+          <button
+            className="absolute inset-y-0 left-0 w-1/2 z-[20] bg-transparent active:bg-emerald-500/10 focus:outline-none"
+            onClick={() => decide("left")}
+            aria-label="Sort as Functional"
+            data-testid="rh-tap-left"
+          />
+          <button
+            className="absolute inset-y-0 right-0 w-1/2 z-[20] bg-transparent active:bg-amber-500/10 focus:outline-none"
+            onClick={() => decide("right")}
+            aria-label="Sort as Non-Functional"
+            data-testid="rh-tap-right"
+          />
 
-          {/* DONE */}
-          {stage === "done" && (
-            <div className="p-6 pt-12 flex flex-col items-center justify-center text-center" style={{ minHeight: 440 }}>
-              {won ? <Trophy className="w-12 h-12 text-amber-400 mb-2" /> : <Lightbulb className="w-12 h-12 text-amber-400 mb-2" />}
-              <p className="text-xl font-bold mb-1">{won ? "Inspector graduated!" : "Keep practicing"}</p>
-              <p className="text-sm text-muted-foreground mb-3">
-                {correctCount} / {cards.length} sorted correctly
-              </p>
-            </div>
-          )}
-
+          {/* Overlays */}
           {showHow && (
             <HowToOverlay
               meta={meta}
-              goal="Click office hotspots to discover hidden requirements, then send each one to the correct bucket."
+              goal="Requirement cards race down a neon highway toward you. Slam each one into the matching bin BEFORE it reaches the camera — Functional ⚙️ left, Non-Functional 📊 right."
               controls={[
-                "Hotspots reveal requirement cards into your notebook.",
-                "After all are found, sort each one: Functional or Non-Functional.",
-                "+15 first try, +5 on retry. Wrong twice in a row = move on.",
-                "Win at 70% correct.",
+                "← / A → Functional (what the system DOES)",
+                "→ / D → Non-Functional (how WELL it does it)",
+                "Or tap the left / right side of the screen.",
+                `${RH_HEARTS} hearts. Wrong sort OR a card that hits the camera = lose 1 heart.`,
+                "Combo bonus every 3 in a row.",
               ]}
               onStart={() => { dismissHow(); setShowHow(false); }}
             />
           )}
-          {paused && !showHow && stage !== "done" && (
-            <PauseOverlay onResume={() => setPaused(false)} />
-          )}
-
-          {/* Burst feedback */}
-          {burst.trigger > 0 && (
-            <motion.div
-              key={burst.trigger}
-              initial={{ scale: 0, opacity: 1 }}
-              animate={{ scale: 2.4, opacity: 0 }}
-              transition={{ duration: 0.5 }}
-              className="absolute pointer-events-none w-12 h-12 rounded-full bg-emerald-400/40 border-2 border-emerald-300"
-              style={{ left: `${burst.x || 50}%`, top: burst.y || 60, marginLeft: -24 }}
+          {paused && !showHow && stage === "playing" && (
+            <PauseOverlay
+              onResume={() => setPaused(false)}
+              onSkip={() => { setPaused(false); setStage("done"); }}
             />
+          )}
+          {stage === "done" && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 z-40 flex items-center justify-center bg-background/85 backdrop-blur"
+            >
+              <div className="text-center px-6">
+                {won
+                  ? <Trophy className="w-12 h-12 mx-auto text-amber-400 mb-2" />
+                  : <X className="w-12 h-12 mx-auto text-rose-400 mb-2" />}
+                <p className="text-xl font-bold mb-1" data-testid="rh-headline">
+                  {won ? "Highway cleared!" : hearts === 0 ? "Out of hearts" : "Run ended"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {correctCount} / {cards.length} correct · {wrongCount} wrong · {missedCount} missed
+                </p>
+                {maxCombo >= 3 && (
+                  <p className="text-xs text-amber-300 font-mono mt-1">Best combo: {maxCombo}×</p>
+                )}
+              </div>
+            </motion.div>
           )}
         </div>
       </ScreenShake>
 
+      {/* Mobile control bar */}
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <Button
+          variant="outline"
+          className="min-h-12 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
+          onClick={() => decide("left")}
+          data-testid="rh-button-left"
+        >
+          ⚙️ Functional ←
+        </Button>
+        <Button
+          variant="outline"
+          className="min-h-12 border-amber-500/40 text-amber-300 hover:bg-amber-500/15"
+          onClick={() => decide("right")}
+          data-testid="rh-button-right"
+        >
+          → Non-Func 📊
+        </Button>
+      </div>
+      <p className="text-[10px] text-muted-foreground text-center mt-1">
+        Arrow keys / A / D · or tap left / right side of the highway
+      </p>
+
       {stage === "done" && (
         <RoundSummary
           correct={won}
-          headline={won ? `+${score} pts — clean sort!` : `+${score} pts — review the misses`}
-          explanation={explanation}
+          headline={won
+            ? `Highway cleared (+${score} pts)`
+            : `Run ended (+${score} pts)`}
+          explanation={`${correctCount} of ${cards.length} sorted correctly.${maxCombo >= 3 ? ` Best combo ${maxCombo}×.` : ""} Functional = WHAT the system does (login, search). Non-Functional = HOW WELL it does it (speed, security, accessibility).`}
           scoreDelta={score}
           onNext={() => onComplete(score)}
           isLast={true}
@@ -2444,8 +2551,8 @@ export function SADGameRunner({
   const props = { questions, onComplete, difficulty, stageIndex, totalStages };
 
   switch (gameType) {
-    case "sdlc_sorter":      return <PhaseRunner       key={k} {...props} />;
-    case "req_sorter":       return <RequirementHunter key={k} {...props} />;
+    case "sdlc_sorter":      return <PhaseRunner        key={k} {...props} />;
+    case "req_sorter":       return <RequirementHighway key={k} {...props} />;
     case "usecase_builder":  return <UseCaseDefense    key={k} {...props} />;
     case "erd_doctor":       return <ERCityBuilder     key={k} {...props} />;
     case "dfd_detective":    return <DataFlowPlumber   key={k} {...props} />;

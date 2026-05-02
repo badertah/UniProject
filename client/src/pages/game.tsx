@@ -1122,7 +1122,16 @@ export default function GamePage() {
   }
 
   function goToStage(nextStage: number) {
-    setLocation(`/game/${id}?stage=${nextStage}`);
+    // wouter's `useLocation` only watches the pathname, so a pure query-string
+    // change wouldn't fire the [location] effect that resets stage state. We
+    // update the URL directly with history.pushState AND reset local state
+    // ourselves so the new stage actually mounts.
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", `/game/${id}?stage=${nextStage}`);
+    }
+    setStageIndex(nextStage);
+    setGameState("idle");
+    setFinalScore(0);
   }
 
   if (isLoading) {

@@ -314,9 +314,10 @@ export async function seedSADPlayToLearn() {
   console.log("[IKUGAMES] Seeding SAD play-to-learn games...");
 
   // Wipe legacy SAD levels (and their questions + any progress) so the user
-  // sees only the new play-to-learn experience.
+  // sees only the new play-to-learn experience. memory_flip and wordle are
+  // kept on purpose — the user explicitly asked to keep those classics.
   const oldLevels = await q(
-    "SELECT id FROM levels WHERE topic_id = $1 AND game_type NOT IN ('sdlc_sorter','req_sorter','usecase_builder','erd_doctor','dfd_detective','sequence_stacker')",
+    "SELECT id FROM levels WHERE topic_id = $1 AND game_type NOT IN ('sdlc_sorter','req_sorter','usecase_builder','erd_doctor','dfd_detective','sequence_stacker','memory_flip','wordle')",
     [sadId]
   );
   for (const lvl of oldLevels) {
@@ -373,8 +374,8 @@ export async function seedSADPlayToLearn() {
     await addRound(l1, r.content, r.phases.join("|"), r, i);
   }
 
-  // ---------- L2: Requirements Sorter (Requirement Hunter) ----------
-  const l2 = await createLevel(2, "Requirement Hunter", "req_sorter", 65, 20, "easy");
+  // ---------- L2: Requirements Sorter (Spec Highway) ----------
+  const l2 = await createLevel(2, "Spec Highway", "req_sorter", 65, 20, "easy");
   const reqRounds = [
     { content: "The user must be able to log in with their email and password.", answer: "functional", explanation: "Login is something the system DOES — that's a functional requirement." },
     { content: "The system must respond to every page request in under 2 seconds.", answer: "non_functional", explanation: "Response time is a quality attribute (performance) — non-functional." },
@@ -619,7 +620,31 @@ export async function seedSADPlayToLearn() {
     await addRound(l6, r.content, r.steps.join("|"), r, i);
   }
 
-  console.log("[IKUGAMES] SAD play-to-learn games seeded successfully (6 levels).");
+  // ---------- L7: SAD Vocab Wordle (kept by user request) ----------
+  // Only insert if not already present (idempotent — DB may already have one).
+  const existingWordle = await q(
+    "SELECT id FROM levels WHERE topic_id=$1 AND game_type='wordle' LIMIT 1",
+    [sadId]
+  );
+  if (existingWordle.length === 0) {
+    const l7 = await createLevel(7, "SAD Vocab Wordle", "wordle", 60, 18, "easy");
+    const wordleWords: [string, string][] = [
+      ["SCOPE", "Boundaries and extent of a project"],
+      ["MODEL", "A representation of a system or concept"],
+      ["PHASE", "A distinct stage in a process or lifecycle"],
+      ["FLOWS", "Movement of data through a system (DFD)"],
+      ["ACTOR", "An entity that interacts with the system in UML"],
+    ];
+    for (let i = 0; i < wordleWords.length; i++) {
+      const [w, h] = wordleWords[i];
+      await q(
+        "INSERT INTO questions (level_id, content, answer, hint, order_index) VALUES ($1,$2,$3,$4,$5)",
+        [l7, `Guess the SAD keyword (${i + 1}/${wordleWords.length})`, w, h, i]
+      );
+    }
+  }
+
+  console.log("[IKUGAMES] SAD play-to-learn games seeded successfully.");
 }
 
 export async function removeFakeSeedUsers() {

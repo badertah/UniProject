@@ -208,13 +208,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return /system\s*analysis/i.test(name);
   }
 
+  // Allowlist of game types that are visible inside the SAD topic. The 6 new
+  // play-to-learn games + two legacy classics the user likes (memory_flip and
+  // wordle). Other legacy types (bubble_pop, speed_blitz, matcher, …) stay in
+  // the DB but are hidden from the SAD topic listing.
+  const SAD_VISIBLE_GAMES = new Set([
+    "sdlc_sorter", "req_sorter", "usecase_builder",
+    "erd_doctor",  "dfd_detective", "sequence_stacker",
+    "memory_flip", "wordle",
+  ]);
+
   app.get("/api/topics", async (req, res) => {
     try {
       const allTopics = await storage.getAllTopics();
       const visible = allTopics.filter(t => isSADTopic(t.name));
       const topicsWithCount = await Promise.all(
         visible.map(async (topic) => {
-          const lvls = await storage.getLevelsByTopic(topic.id);
+          const lvls = (await storage.getLevelsByTopic(topic.id))
+            .filter(l => SAD_VISIBLE_GAMES.has(l.gameType));
           const lvlsWithCount = await Promise.all(lvls.map(async (lvl) => {
             const qs = await storage.getQuestionsByLevel(lvl.id);
             return { ...lvl, questionCount: Math.max(qs.length, 1) };
@@ -235,7 +246,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!isSADTopic(topic.name)) {
         return res.status(404).json({ error: "Topic not available" });
       }
-      const topicLevels = await storage.getLevelsByTopic(topic.id);
+      const topicLevels = (await storage.getLevelsByTopic(topic.id))
+        .filter(l => SAD_VISIBLE_GAMES.has(l.gameType));
       const levelsWithQuestions = await Promise.all(topicLevels.map(async (lvl) => {
         const qs = await storage.getQuestionsByLevel(lvl.id);
         return { ...lvl, questions: qs, questionCount: Math.max(qs.length, 1) };
