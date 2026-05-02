@@ -764,143 +764,246 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
 //    the camera; player slams each into the matching bin (←/→).
 // ============================================================
 
+// A single requirement card on the conveyor.
 interface RHCard {
-  id: number;
+  uid: number;                                // unique per spawn
+  qid: number;                                // index into questions[]
   content: string;
   answer: "functional" | "non_functional";
   explanation: string;
-  z: number;                                  // -2200 (far) → 240 (past camera)
+  y: number;                                  // 0 = top of board, BOARD_H = floor
+  speed: number;                              // px/sec
   decided?: boolean;
   decidedSide?: "left" | "right";
   result?: "correct" | "wrong" | "missed";
+  flyT?: number;                              // 0..1 fly-off animation progress after decision
+  perfect?: boolean;                          // sorted in sweet zone
 }
+
+interface RHParticle {
+  id: number;
+  x: number;                                  // 0..1 fraction of board WIDTH (so it renders correctly inside the game container, not relative to window)
+  y: number;                                  // px from board top
+  vx: number;                                 // fraction of board width per sec
+  vy: number;                                 // px per sec
+  life: number;                               // sec remaining
+  color: string;
+  text?: string;
+}
+
+const RH_BOARD_H        = 480;                // total board height
+const RH_FLOOR_Y        = 410;                // y at which an undecided card = miss
+const RH_SWEET_TOP      = 320;                // sweet-spot starts here
+const RH_SWEET_BOT      = 400;                // sweet-spot ends here (just above floor)
+const RH_CARD_W         = 280;
+const RH_CARD_H         = 88;
+const RH_MAX_HEARTS     = 5;
+const RH_WAVE_SIZE      = 8;                  // successful sorts per wave
 
 function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const meta = SAD_GAMES.req_sorter;
   const [howSeen, dismissHow] = useHowTo("req_sorter");
   const [showHow, setShowHow] = useState(!howSeen);
 
-  // Difficulty-scaled knobs.
+  // Difficulty seeds the starting tempo; the wave system ramps it from there.
   const _d = Math.max(0, Math.min(1, difficulty));
-  const TRAVEL_SEC     = 4.0 - _d * 1.6;        // 4.0s → 2.4s far→near
-  const SPAWN_GAP_SEC  = 1.6 - _d * 0.55;       // 1.6s → 1.05s between cards
-  const RH_HEARTS      = Math.max(2, 5 - Math.floor(_d * 2)); // 5,5,4,3
-  const Z_FAR  = -2200;
-  const Z_NEAR = 240;
-  const Z_RANGE = Z_NEAR - Z_FAR;
+  const startFallSec     = 6.5 - _d * 1.5;    // 6.5s → 5.0s top-to-floor
+  const startSpawnGap    = 2.0 - _d * 0.4;    // 2.0s → 1.6s between cards
 
-  const cards = useMemo(() => questions.map((q, i): Omit<RHCard, "z"> => ({
-    id: i,
+  // Wave state — every successful sort bumps progress; clear a wave to ramp tempo.
+  const [wave, setWave] = useState(1);
+  const [waveProgress, setWaveProgress] = useState(0);
+  const [waveBanner, setWaveBanner] = useState<{ n: number; trigger: number } | null>(null);
+
+  // Tempo derived from wave (gets faster every wave).
+  const fallSec   = Math.max(2.6, startFallSec - (wave - 1) * 0.45);
+  const spawnGap  = Math.max(0.85, startSpawnGap - (wave - 1) * 0.18);
+  const fallSpeed = (RH_FLOOR_Y + RH_CARD_H) / fallSec;   // px/sec
+
+  // Build a question pool (we'll cycle infinitely).
+  const pool = useMemo(() => questions.map((q, i) => ({
+    qid: i,
     content: q.content as string,
     answer: (q.answer === "functional" ? "functional" : "non_functional") as "functional" | "non_functional",
     explanation: ((q.options as any)?.explanation || "") as string,
   })), [questions]);
 
-  const [active, setActive] = useState<RHCard[]>([]);
-  const [score, setScore]   = useState(0);
-  const [hearts, setHearts] = useState(RH_HEARTS);
-  const [combo, setCombo]   = useState(0);
+  // Game state
+  const [cards, setCards]       = useState<RHCard[]>([]);
+  const [score, setScore]       = useState(0);
+  const [hearts, setHearts]     = useState(RH_MAX_HEARTS);
+  const [combo, setCombo]       = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
-  const [stage, setStage]   = useState<"playing" | "done">("playing");
-  const [results, setResults] = useState<Record<number, "correct" | "wrong" | "missed">>({});
-  const [shake, setShake]   = useState(0);
-  const [flash, setFlash]   = useState<{ side: "left" | "right" | null; ok: boolean; trigger: number }>({ side: null, ok: false, trigger: 0 });
-  const [paused, setPaused] = usePause(stage === "playing" && !showHow);
+  const [sortedTotal, setSortedTotal] = useState(0);
+  const [stage, setStage]       = useState<"playing" | "done">("playing");
+  const [shake, setShake]       = useState(0);
+  const [flash, setFlash]       = useState<{ side: "left" | "right" | null; ok: boolean; trigger: number }>({ side: null, ok: false, trigger: 0 });
+  const [particles, setParticles] = useState<RHParticle[]>([]);
+  const [paused, setPaused]     = usePause(stage === "playing" && !showHow);
+  const [floatText, setFloatText] = useState<{ text: string; color: string; trigger: number } | null>(null);
 
-  // Refs for the rAF loop
-  const activeRef   = useRef<RHCard[]>([]);
-  const heartsRef   = useRef(RH_HEARTS);
-  const comboRef    = useRef(0);
-  const maxComboRef = useRef(0);
-  const spawnAcc    = useRef(0);
-  const spawnIdx    = useRef(0);
+  // Refs — driving the rAF loop without re-subscribing per render.
+  const cardsRef     = useRef<RHCard[]>([]);
+  const heartsRef    = useRef(RH_MAX_HEARTS);
+  const comboRef     = useRef(0);
+  const maxComboRef  = useRef(0);
+  const sortedRef    = useRef(0);
+  const waveRef      = useRef(1);
+  const waveProgRef  = useRef(0);
+  const spawnAccRef  = useRef(0);
+  const spawnIdxRef  = useRef(0);                    // pulls from `pool` in order
+  const uidRef       = useRef(0);
+  const particlesRef = useRef<RHParticle[]>([]);
+  const partIdRef    = useRef(0);
 
-  useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { cardsRef.current = cards; }, [cards]);
   useEffect(() => { heartsRef.current = hearts; }, [hearts]);
+  useEffect(() => { waveRef.current = wave; }, [wave]);
+  useEffect(() => { particlesRef.current = particles; }, [particles]);
 
-  // Auto-clear the bin flash so the highlighted side returns to idle.
+  // Auto-clear bin flash so the highlighted side returns to idle.
   useEffect(() => {
     if (flash.side === null) return;
-    const t = setTimeout(() => setFlash(f => ({ ...f, side: null })), 320);
+    const t = setTimeout(() => setFlash(f => ({ ...f, side: null })), 280);
     return () => clearTimeout(t);
   }, [flash.trigger, flash.side]);
+  // Auto-clear wave banner.
+  useEffect(() => {
+    if (!waveBanner) return;
+    const t = setTimeout(() => setWaveBanner(null), 1400);
+    return () => clearTimeout(t);
+  }, [waveBanner?.trigger]);
+  // Auto-clear floating text.
+  useEffect(() => {
+    if (!floatText) return;
+    const t = setTimeout(() => setFloatText(null), 700);
+    return () => clearTimeout(t);
+  }, [floatText?.trigger]);
 
   const loopActive = stage === "playing" && !showHow && !paused;
 
+  // cx is a 0..1 fraction of board width; cy is px from board top.
+  function spawnParticles(cx: number, cy: number, color: string, count: number, label?: string) {
+    const additions: RHParticle[] = [];
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 60 + Math.random() * 140;       // px/sec for y, scaled to fraction for x
+      additions.push({
+        id: ++partIdRef.current,
+        x: cx,
+        y: cy,
+        vx: (Math.cos(a) * sp) / 540,            // approx board width → fraction/sec
+        vy: Math.sin(a) * sp - 30,
+        life: 0.6 + Math.random() * 0.3,
+        color,
+      });
+    }
+    if (label) {
+      additions.push({
+        id: ++partIdRef.current,
+        x: cx,
+        y: cy,
+        vx: 0,
+        vy: -40,
+        life: 0.9,
+        color,
+        text: label,
+      });
+    }
+    particlesRef.current = [...particlesRef.current, ...additions];
+    setParticles(particlesRef.current);
+  }
+
   useGameLoop((dt) => {
-    spawnAcc.current += dt;
-
-    // Spawn next card
-    let spawnedCard: RHCard | null = null;
-    if (spawnAcc.current >= SPAWN_GAP_SEC && spawnIdx.current < cards.length) {
-      spawnAcc.current = 0;
-      const c = cards[spawnIdx.current];
-      spawnedCard = { ...c, z: Z_FAR };
-      spawnIdx.current++;
+    // 1) Spawn next card
+    spawnAccRef.current += dt;
+    let toAdd: RHCard | null = null;
+    if (spawnAccRef.current >= spawnGap && cardsRef.current.filter(c => !c.decided).length < 4) {
+      spawnAccRef.current = 0;
+      const p = pool[spawnIdxRef.current % pool.length];
+      spawnIdxRef.current++;
+      toAdd = {
+        uid: ++uidRef.current,
+        qid: p.qid,
+        content: p.content,
+        answer: p.answer,
+        explanation: p.explanation,
+        y: -RH_CARD_H,
+        speed: fallSpeed * (0.92 + Math.random() * 0.18),  // slight per-card variation
+      };
     }
 
-    // Advance every card's z toward camera
-    const dz = (Z_RANGE / TRAVEL_SEC) * dt;
-    const nextActive: RHCard[] = [];
-    let missedCount = 0;
-    const missedIds: number[] = [];
-
-    for (const c of activeRef.current) {
-      const nz = c.z + dz;
+    // 2) Advance every card
+    let lostHeart = 0;
+    const next: RHCard[] = [];
+    for (const c of cardsRef.current) {
       if (c.decided) {
-        // Decided cards keep flying past the camera then despawn.
-        if (nz < 700) nextActive.push({ ...c, z: nz });
-        continue;
-      }
-      if (nz >= Z_NEAR) {
-        // Reached camera without a decision = missed.
-        missedCount++;
-        missedIds.push(c.id);
+        // Animate fly-off then despawn after ~0.45s.
+        const ft = (c.flyT || 0) + dt / 0.45;
+        if (ft >= 1) continue;
+        next.push({ ...c, flyT: ft });
       } else {
-        nextActive.push({ ...c, z: nz });
+        const ny = c.y + c.speed * dt;
+        if (ny >= RH_FLOOR_Y) {
+          // Card hit the floor undecided = MISS.
+          lostHeart++;
+          spawnParticles(0.5, RH_FLOOR_Y - 20, "#f43f5e", 8, "MISSED");
+          continue;
+        }
+        next.push({ ...c, y: ny });
       }
     }
-    if (spawnedCard) nextActive.push(spawnedCard);
-    activeRef.current = nextActive;
-    setActive(nextActive);
+    if (toAdd) next.push(toAdd);
+    cardsRef.current = next;
+    setCards(next);
 
-    if (missedCount > 0) {
-      const newHearts = Math.max(0, heartsRef.current - missedCount);
+    // 3) Particles physics
+    if (particlesRef.current.length > 0) {
+      const np: RHParticle[] = [];
+      for (const p of particlesRef.current) {
+        const nl = p.life - dt;
+        if (nl <= 0) continue;
+        np.push({
+          ...p,
+          x: p.x + p.vx * dt,
+          y: p.y + p.vy * dt,
+          vy: p.vy + 220 * dt,         // gravity
+          life: nl,
+        });
+      }
+      particlesRef.current = np;
+      setParticles(np);
+    }
+
+    // 4) Apply heart loss from misses
+    if (lostHeart > 0) {
+      const newHearts = Math.max(0, heartsRef.current - lostHeart);
       heartsRef.current = newHearts;
       setHearts(newHearts);
       setShake(Date.now());
-      setCombo(0);
       comboRef.current = 0;
-      setResults(r => {
-        const out = { ...r };
-        missedIds.forEach(id => { out[id] = "missed"; });
-        return out;
-      });
-      if (newHearts === 0) { setStage("done"); return; }
-    }
-
-    // End of run: every card spawned and none still in flight.
-    const stillFlying = nextActive.filter(c => !c.decided).length;
-    if (spawnIdx.current >= cards.length && stillFlying === 0) {
-      setStage("done");
+      setCombo(0);
+      if (newHearts === 0) setStage("done");
     }
   }, loopActive);
 
   function decide(side: "left" | "right") {
     if (stage !== "playing") return;
-    // Pick the closest un-decided card (largest z = closest to camera).
-    const closest = activeRef.current
+    // Pick the lowest (closest-to-floor) un-decided card.
+    const target = cardsRef.current
       .filter(c => !c.decided)
-      .sort((a, b) => b.z - a.z)[0];
-    if (!closest) return;
+      .sort((a, b) => b.y - a.y)[0];
+    if (!target) return;
 
-    const wantedSide = closest.answer === "functional" ? "left" : "right";
-    const ok = side === wantedSide;
+    const wantSide = target.answer === "functional" ? "left" : "right";
+    const ok = side === wantSide;
+    const inSweet = target.y >= RH_SWEET_TOP && target.y <= RH_SWEET_BOT;
 
     if (ok) {
       const newCombo = comboRef.current + 1;
-      const bonus = Math.floor(newCombo / 3) * 5;
-      const delta = 15 + bonus;
+      const baseDelta = inSweet ? 30 : 15;
+      const comboBonus = Math.floor(newCombo / 3) * 5;
+      const delta = baseDelta + comboBonus;
       setScore(s => s + delta);
       comboRef.current = newCombo;
       setCombo(newCombo);
@@ -908,7 +1011,37 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
         maxComboRef.current = newCombo;
         setMaxCombo(newCombo);
       }
-      setResults(r => ({ ...r, [closest.id]: "correct" }));
+      // Heart heal every 5-combo (capped at max).
+      if (newCombo > 0 && newCombo % 5 === 0 && heartsRef.current < RH_MAX_HEARTS) {
+        const nh = Math.min(RH_MAX_HEARTS, heartsRef.current + 1);
+        heartsRef.current = nh;
+        setHearts(nh);
+        setFloatText({ text: "+1 ❤", color: "#fb7185", trigger: Date.now() });
+      }
+
+      // Bump wave progress; clear wave on threshold.
+      const nextProg = waveProgRef.current + 1;
+      if (nextProg >= RH_WAVE_SIZE) {
+        waveProgRef.current = 0;
+        const nextWave = waveRef.current + 1;
+        waveRef.current = nextWave;
+        setWave(nextWave);
+        setWaveProgress(0);
+        setWaveBanner({ n: nextWave, trigger: Date.now() });
+        setScore(s => s + 50);                           // wave clear bonus
+      } else {
+        waveProgRef.current = nextProg;
+        setWaveProgress(nextProg);
+      }
+
+      sortedRef.current += 1;
+      setSortedTotal(sortedRef.current);
+
+      // Particle burst on the bin (cx as a 0..1 fraction of board width).
+      const cx = side === "left" ? 0.17 : 0.83;
+      const cy = RH_FLOOR_Y - 30;
+      spawnParticles(cx, cy, inSweet ? "#fbbf24" : "#34d399", inSweet ? 14 : 8,
+        inSweet ? `PERFECT! +${delta}` : `+${delta}`);
     } else {
       const newHearts = Math.max(0, heartsRef.current - 1);
       heartsRef.current = newHearts;
@@ -916,18 +1049,22 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
       comboRef.current = 0;
       setCombo(0);
       setShake(Date.now());
-      setResults(r => ({ ...r, [closest.id]: "wrong" }));
+      const cx = side === "left" ? 0.17 : 0.83;
+      spawnParticles(cx, RH_FLOOR_Y - 30, "#f43f5e", 10, "WRONG!");
       if (newHearts === 0) setStage("done");
     }
 
     setFlash({ side, ok, trigger: Date.now() });
-    activeRef.current = activeRef.current.map(c =>
-      c.id === closest.id ? { ...c, decided: true, decidedSide: side } : c
+    // Mark the target as decided so the spawn loop animates it off.
+    cardsRef.current = cardsRef.current.map(c =>
+      c.uid === target.uid
+        ? { ...c, decided: true, decidedSide: side, result: ok ? "correct" : "wrong", flyT: 0, perfect: ok && inSweet }
+        : c
     );
-    setActive(activeRef.current);
+    setCards(cardsRef.current);
   }
 
-  // Stable handler ref so the keydown listener doesn't churn each render.
+  // Stable handler ref — keydown listener doesn't churn.
   const decideRef = useRef(decide);
   useEffect(() => { decideRef.current = decide; });
 
@@ -944,61 +1081,56 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const correctCount = Object.values(results).filter(r => r === "correct").length;
-  const wrongCount   = Object.values(results).filter(r => r === "wrong").length;
-  const missedCount  = Object.values(results).filter(r => r === "missed").length;
-  const won          = correctCount >= Math.ceil(cards.length * 0.6);
+  const won = false; // endless — we end when hearts = 0; a "win" framing isn't meaningful.
 
   return (
     <div className="w-full max-w-xl select-none">
       <RoundHeader
         index={0}
         total={1}
-        label="Spec Highway"
+        label={`Spec Sort · Wave ${wave}`}
         onPause={() => setPaused(p => !p)}
       />
 
       <ScreenShake trigger={shake}>
         <div
           className="rounded-xl border border-violet-500/30 overflow-hidden relative bg-gradient-to-b from-[#0a0420] via-[#0e0830] to-[#04020f]"
-          style={{ height: 480, perspective: "750px", perspectiveOrigin: "50% 65%" }}
+          style={{ height: RH_BOARD_H }}
           data-testid="rh-stage"
         >
-          {/* Star/parallax dots */}
-          <div className="absolute inset-0 pointer-events-none opacity-60"
+          {/* Animated parallax dots */}
+          <div className="absolute inset-0 pointer-events-none opacity-50"
             style={{
               backgroundImage:
                 "radial-gradient(1px 1px at 25% 30%, rgba(255,255,255,0.6) 50%, transparent 51%), radial-gradient(1px 1px at 70% 20%, rgba(255,255,255,0.5) 50%, transparent 51%), radial-gradient(1px 1px at 80% 60%, rgba(168,85,247,0.7) 50%, transparent 51%), radial-gradient(1px 1px at 15% 75%, rgba(99,102,241,0.6) 50%, transparent 51%), radial-gradient(1px 1px at 50% 10%, rgba(255,255,255,0.4) 50%, transparent 51%)",
             }}
           />
 
-          {/* Neon highway floor — perspective grid scrolling toward camera */}
-          <motion.div
-            className="absolute left-0 right-0 bottom-0 pointer-events-none"
-            style={{
-              height: "75%",
-              transform: "rotateX(70deg)",
-              transformOrigin: "50% 100%",
-              backgroundImage:
-                "linear-gradient(to top, rgba(168,85,247,0.45) 0%, rgba(99,102,241,0.18) 50%, transparent 100%), repeating-linear-gradient(0deg, transparent 0 36px, rgba(168,85,247,0.55) 36px 38px), repeating-linear-gradient(90deg, transparent 0 38px, rgba(99,102,241,0.4) 38px 40px)",
-              backgroundSize: "100% 100%, 100% 76px, 100% 100%",
-            }}
-            animate={{ backgroundPosition: ["0px 0px, 0px 0px, 0px 0px", "0px 0px, 0px 76px, 0px 0px"] }}
-            transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
+          {/* Sweet-spot zone bands */}
+          <div
+            className="absolute left-0 right-0 pointer-events-none border-y border-amber-400/30 bg-amber-500/5"
+            style={{ top: RH_SWEET_TOP, height: RH_SWEET_BOT - RH_SWEET_TOP }}
+          >
+            <div className="absolute right-2 top-1 text-[9px] font-mono text-amber-300/70 tracking-widest">SWEET ZONE · 2× POINTS</div>
+          </div>
+          {/* Floor line */}
+          <div
+            className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-rose-400/70 to-transparent pointer-events-none"
+            style={{ top: RH_FLOOR_Y }}
           />
 
-          {/* Center divider */}
-          <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-violet-400/40 to-transparent pointer-events-none z-[5]" />
-
           {/* HUD */}
-          <div className="absolute top-2 left-2 right-2 z-30 flex justify-between items-center pointer-events-none flex-wrap gap-1">
+          <div className="absolute top-2 left-2 right-2 z-30 flex flex-wrap justify-between items-center gap-1 pointer-events-none">
             <Badge variant="outline" className="bg-black/60 backdrop-blur" data-testid="rh-hearts">
-              {Array.from({ length: RH_HEARTS }).map((_, i) => (
-                <Heart key={i} className={`w-3 h-3 ${i < hearts ? "text-rose-400 fill-rose-400" : "text-muted/40"} ${i > 0 ? "ml-0.5" : ""}`} />
+              {Array.from({ length: RH_MAX_HEARTS }).map((_, i) => (
+                <Heart key={i} className={`w-3 h-3 ${i < hearts ? "text-rose-400 fill-rose-400" : "text-muted/30"} ${i > 0 ? "ml-0.5" : ""}`} />
               ))}
             </Badge>
+            <Badge variant="outline" className="bg-violet-500/30 backdrop-blur text-violet-100 border-violet-400/60 font-mono text-[10px]" data-testid="rh-wave">
+              WAVE {wave} · {waveProgress}/{RH_WAVE_SIZE}
+            </Badge>
             {combo >= 3 && (
-              <Badge variant="outline" className="bg-amber-500/30 backdrop-blur text-amber-100 border-amber-400/60 font-bold" data-testid="rh-combo">
+              <Badge variant="outline" className="bg-amber-500/30 backdrop-blur text-amber-100 border-amber-400/60 font-bold animate-pulse" data-testid="rh-combo">
                 🔥 {combo}× COMBO
               </Badge>
             )}
@@ -1007,71 +1139,139 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
             </Badge>
           </div>
 
-          {/* Side bins (left = Functional, right = Non-Functional) */}
-          <div className="absolute inset-y-0 left-0 w-[28%] z-[8] pointer-events-none flex items-end justify-center pb-3">
-            <div className={`px-3 py-2 rounded-lg border-2 backdrop-blur transition-all duration-200 ${
+          {/* Bins */}
+          <div className="absolute bottom-0 left-0 w-[34%] z-[8] pointer-events-none flex items-end justify-center pb-2">
+            <div className={`w-full mx-1 px-2 py-2 rounded-lg border-2 backdrop-blur transition-all duration-200 ${
               flash.side === "left"
-                ? flash.ok ? "border-emerald-300 bg-emerald-500/50 shadow-[0_0_30px_rgba(52,211,153,0.7)]"
-                          : "border-rose-300 bg-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.7)]"
-                : "border-emerald-500/60 bg-emerald-500/15 shadow-[0_0_18px_rgba(52,211,153,0.35)]"
+                ? flash.ok ? "border-emerald-300 bg-emerald-500/60 shadow-[0_0_36px_rgba(52,211,153,0.85)] scale-105"
+                          : "border-rose-300 bg-rose-500/60 shadow-[0_0_36px_rgba(244,63,94,0.85)] scale-95"
+                : "border-emerald-500/60 bg-emerald-500/15 shadow-[0_0_20px_rgba(52,211,153,0.35)]"
             }`}>
               <div className="text-2xl text-center">⚙️</div>
-              <div className="text-[10px] font-mono font-bold text-emerald-300 mt-0.5 text-center">FUNCTIONAL</div>
-              <div className="text-[8px] text-muted-foreground mt-0.5 text-center">← / A</div>
+              <div className="text-[11px] font-mono font-bold text-emerald-300 mt-0.5 text-center tracking-wider">FUNCTIONAL</div>
+              <div className="text-[9px] text-emerald-200/70 mt-0.5 text-center">← / A · tap left</div>
             </div>
           </div>
-          <div className="absolute inset-y-0 right-0 w-[28%] z-[8] pointer-events-none flex items-end justify-center pb-3">
-            <div className={`px-3 py-2 rounded-lg border-2 backdrop-blur transition-all duration-200 ${
+          <div className="absolute bottom-0 right-0 w-[34%] z-[8] pointer-events-none flex items-end justify-center pb-2">
+            <div className={`w-full mx-1 px-2 py-2 rounded-lg border-2 backdrop-blur transition-all duration-200 ${
               flash.side === "right"
-                ? flash.ok ? "border-emerald-300 bg-emerald-500/50 shadow-[0_0_30px_rgba(52,211,153,0.7)]"
-                          : "border-rose-300 bg-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.7)]"
-                : "border-amber-500/60 bg-amber-500/15 shadow-[0_0_18px_rgba(245,158,11,0.35)]"
+                ? flash.ok ? "border-emerald-300 bg-emerald-500/60 shadow-[0_0_36px_rgba(52,211,153,0.85)] scale-105"
+                          : "border-rose-300 bg-rose-500/60 shadow-[0_0_36px_rgba(244,63,94,0.85)] scale-95"
+                : "border-amber-500/60 bg-amber-500/15 shadow-[0_0_20px_rgba(245,158,11,0.35)]"
             }`}>
               <div className="text-2xl text-center">📊</div>
-              <div className="text-[10px] font-mono font-bold text-amber-300 mt-0.5 text-center">NON-FUNC</div>
-              <div className="text-[8px] text-muted-foreground mt-0.5 text-center">→ / D</div>
+              <div className="text-[11px] font-mono font-bold text-amber-300 mt-0.5 text-center tracking-wider">NON-FUNCTIONAL</div>
+              <div className="text-[9px] text-amber-200/70 mt-0.5 text-center">→ / D · tap right</div>
             </div>
           </div>
 
-          {/* 3D card track */}
-          <div className="absolute inset-0 z-10 pointer-events-none" style={{ transformStyle: "preserve-3d" }}>
-            {active.map(c => {
-              const t = (c.z - Z_FAR) / Z_RANGE;                  // 0=far, 1=at camera
-              const opacity = c.decided ? 0.55 : Math.min(1, 0.25 + t * 1.6);
-              // After a decision, fly the card off to the chosen side as it passes camera
-              const past = c.decided ? Math.max(0, c.z - Z_NEAR) : 0;
+          {/* Cards */}
+          <div className="absolute inset-0 z-10 pointer-events-none">
+            {cards.map(c => {
+              const inSweet = c.y >= RH_SWEET_TOP && c.y <= RH_SWEET_BOT && !c.decided;
+              const isLowest = !c.decided && c.uid === [...cards].filter(x => !x.decided).sort((a, b) => b.y - a.y)[0]?.uid;
+              // Decided cards fly off to their bin then up.
+              const ft = c.flyT || 0;
               const xOffset = c.decided
-                ? (c.decidedSide === "left" ? -1 : 1) * (60 + past * 0.8)
+                ? (c.decidedSide === "left" ? -1 : 1) * ft * 240
                 : 0;
-              const yLift = c.decided ? -past * 0.3 : 0;
-              const result = results[c.id];
-              const ring = result === "correct" ? "border-emerald-300 shadow-[0_0_30px_rgba(52,211,153,0.75)]"
-                : result === "wrong" ? "border-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.75)]"
-                : result === "missed" ? "border-zinc-500 shadow-[0_0_18px_rgba(100,116,139,0.4)]"
-                : "border-violet-300 shadow-[0_0_28px_rgba(139,92,246,0.55)]";
+              const yOffset = c.decided ? -ft * 80 : 0;
+              const opacity = c.decided ? Math.max(0, 1 - ft) : 1;
+              const ring = c.result === "correct"
+                ? c.perfect
+                  ? "border-amber-300 shadow-[0_0_36px_rgba(251,191,36,0.85)]"
+                  : "border-emerald-300 shadow-[0_0_28px_rgba(52,211,153,0.7)]"
+                : c.result === "wrong"
+                  ? "border-rose-300 shadow-[0_0_28px_rgba(244,63,94,0.7)]"
+                  : inSweet
+                    ? "border-amber-300 shadow-[0_0_22px_rgba(251,191,36,0.55)] animate-pulse"
+                    : isLowest
+                      ? "border-violet-300 shadow-[0_0_22px_rgba(139,92,246,0.55)]"
+                      : "border-violet-500/50 shadow-[0_0_14px_rgba(139,92,246,0.35)]";
               return (
                 <div
-                  key={c.id}
-                  className="absolute left-1/2 top-1/2"
+                  key={c.uid}
+                  className="absolute left-1/2"
                   style={{
-                    transform: `translate(-50%, -50%) translate3d(${xOffset}px, ${yLift}px, ${c.z}px)`,
+                    top: c.y + yOffset,
+                    transform: `translate(calc(-50% + ${xOffset}px), 0) scale(${c.decided ? 1 - ft * 0.3 : 1})`,
+                    width: RH_CARD_W,
                     opacity,
                   }}
-                  data-testid={`rh-card-${c.id}`}
+                  data-testid={`rh-card-${c.uid}`}
                 >
-                  <div className={`w-72 max-w-[78vw] rounded-xl border-2 p-4 bg-card/90 backdrop-blur ${ring}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Sparkles className="w-3 h-3 text-amber-400" />
-                      <span className="text-[9px] font-mono text-muted-foreground tracking-widest">REQUIREMENT</span>
+                  <div className={`rounded-xl border-2 px-3 py-2 bg-card/95 backdrop-blur transition-shadow ${ring}`} style={{ minHeight: RH_CARD_H }}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3 h-3 text-amber-400" />
+                        <span className="text-[9px] font-mono text-muted-foreground tracking-widest">REQ #{c.qid + 1}</span>
+                      </div>
+                      {isLowest && (
+                        <span className="text-[8px] font-mono text-violet-300/80 tracking-wider">▶ NEXT</span>
+                      )}
                     </div>
-                    <p className="text-sm leading-snug text-foreground">{c.content}</p>
+                    <p className="text-[13px] leading-snug text-foreground font-medium">{c.content}</p>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Tap zones for mobile (under the cards visually but z-index above floor) */}
+          {/* Particles */}
+          <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
+            {particles.map(p => p.text ? (
+              <div
+                key={p.id}
+                className="absolute font-bold text-xs whitespace-nowrap"
+                style={{ left: `${p.x * 100}%`, top: p.y, color: p.color, opacity: Math.min(1, p.life * 1.4), transform: "translate(-50%, -50%)" }}
+              >
+                {p.text}
+              </div>
+            ) : (
+              <div
+                key={p.id}
+                className="absolute rounded-full"
+                style={{
+                  left: `${p.x * 100}%`, top: p.y,
+                  width: 6, height: 6,
+                  background: p.color,
+                  opacity: Math.min(1, p.life * 1.4),
+                  boxShadow: `0 0 8px ${p.color}`,
+                  transform: "translate(-50%, -50%)",
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Wave banner */}
+          {waveBanner && (
+            <motion.div
+              initial={{ scale: 0.4, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 1.4, opacity: 0 }}
+              className="absolute inset-0 z-25 flex items-center justify-center pointer-events-none"
+            >
+              <div className="px-6 py-3 rounded-xl border-2 border-amber-400 bg-amber-500/30 backdrop-blur">
+                <div className="text-3xl font-bold text-amber-200 text-center">WAVE {waveBanner.n}!</div>
+                <div className="text-xs font-mono text-amber-200/80 text-center mt-1">+50 BONUS · TEMPO RISING</div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Floating text (combo heals etc) */}
+          {floatText && (
+            <motion.div
+              initial={{ y: 0, opacity: 1 }}
+              animate={{ y: -40, opacity: 0 }}
+              transition={{ duration: 0.7 }}
+              className="absolute left-1/2 top-1/3 -translate-x-1/2 z-25 pointer-events-none font-bold text-lg"
+              style={{ color: floatText.color }}
+            >
+              {floatText.text}
+            </motion.div>
+          )}
+
+          {/* Tap hit-zones */}
           <button
             className="absolute inset-y-0 left-0 w-1/2 z-[20] bg-transparent active:bg-emerald-500/10 focus:outline-none"
             onClick={() => decide("left")}
@@ -1089,13 +1289,14 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
           {showHow && (
             <HowToOverlay
               meta={meta}
-              goal="Requirement cards race down a neon highway toward you. Slam each one into the matching bin BEFORE it reaches the camera — Functional ⚙️ left, Non-Functional 📊 right."
+              goal="Requirements drop down a vertical conveyor. Sort each one into the matching bin BEFORE it hits the floor — Functional ⚙️ left, Non-Functional 📊 right. Survive as many waves as you can!"
               controls={[
-                "← / A → Functional (what the system DOES)",
-                "→ / D → Non-Functional (how WELL it does it)",
-                "Or tap the left / right side of the screen.",
-                `${RH_HEARTS} hearts. Wrong sort OR a card that hits the camera = lose 1 heart.`,
-                "Combo bonus every 3 in a row.",
+                "← / A → Functional · → / D → Non-Functional",
+                "Or tap the LEFT / RIGHT side of the screen.",
+                "The card with the ▶ NEXT marker is the one that will be sorted.",
+                "Cards in the SWEET ZONE (yellow band) are worth 2×.",
+                `${RH_MAX_HEARTS} hearts. Wrong sort OR a card that hits the floor = -1 heart.`,
+                "3-combo = +5 bonus per sort · 5-combo = +1 ❤ heal · clear a wave = +50 + faster tempo.",
               ]}
               onStart={() => { dismissHow(); setShowHow(false); }}
             />
@@ -1113,14 +1314,10 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
               className="absolute inset-0 z-40 flex items-center justify-center bg-background/85 backdrop-blur"
             >
               <div className="text-center px-6">
-                {won
-                  ? <Trophy className="w-12 h-12 mx-auto text-amber-400 mb-2" />
-                  : <X className="w-12 h-12 mx-auto text-rose-400 mb-2" />}
-                <p className="text-xl font-bold mb-1" data-testid="rh-headline">
-                  {won ? "Highway cleared!" : hearts === 0 ? "Out of hearts" : "Run ended"}
-                </p>
+                <Trophy className="w-12 h-12 mx-auto text-amber-400 mb-2" />
+                <p className="text-xl font-bold mb-1" data-testid="rh-headline">Run Complete</p>
                 <p className="text-sm text-muted-foreground">
-                  {correctCount} / {cards.length} correct · {wrongCount} wrong · {missedCount} missed
+                  Wave {wave} reached · {sortedTotal} sorted · {score} pts
                 </p>
                 {maxCombo >= 3 && (
                   <p className="text-xs text-amber-300 font-mono mt-1">Best combo: {maxCombo}×</p>
@@ -1135,7 +1332,7 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
       <div className="grid grid-cols-2 gap-2 mt-3">
         <Button
           variant="outline"
-          className="min-h-12 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
+          className="min-h-12 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15 active:scale-95"
           onClick={() => decide("left")}
           data-testid="rh-button-left"
         >
@@ -1143,7 +1340,7 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
         </Button>
         <Button
           variant="outline"
-          className="min-h-12 border-amber-500/40 text-amber-300 hover:bg-amber-500/15"
+          className="min-h-12 border-amber-500/40 text-amber-300 hover:bg-amber-500/15 active:scale-95"
           onClick={() => decide("right")}
           data-testid="rh-button-right"
         >
@@ -1151,16 +1348,14 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
         </Button>
       </div>
       <p className="text-[10px] text-muted-foreground text-center mt-1">
-        Arrow keys / A / D · or tap left / right side of the highway
+        Arrow keys / A / D · or tap left / right side of the conveyor · Esc to pause
       </p>
 
       {stage === "done" && (
         <RoundSummary
-          correct={won}
-          headline={won
-            ? `Highway cleared (+${score} pts)`
-            : `Run ended (+${score} pts)`}
-          explanation={`${correctCount} of ${cards.length} sorted correctly.${maxCombo >= 3 ? ` Best combo ${maxCombo}×.` : ""} Functional = WHAT the system does (login, search). Non-Functional = HOW WELL it does it (speed, security, accessibility).`}
+          correct={score >= 100}
+          headline={`Wave ${wave} · ${score} pts`}
+          explanation={`Sorted ${sortedTotal} requirements${maxCombo >= 3 ? ` · best combo ${maxCombo}×` : ""}. Functional = WHAT the system does (login, search, payment). Non-Functional = HOW WELL it does it (speed, security, accessibility, scalability).`}
           scoreDelta={score}
           onNext={() => onComplete(score)}
           isLast={true}
