@@ -3050,25 +3050,25 @@ function pickTeachBack(gameType: string): TeachBackQ | null {
   return c.teachBack[Math.floor(Math.random() * c.teachBack.length)];
 }
 
-// LocalStorage helper — concept card shows once per (game type, stage), so
-// each new level re-introduces its concept; teach-back quizzes handle the
-// ongoing reinforcement.
-function useConceptSeen(gameType: string, stageIndex: number): [boolean, () => void] {
-  const key = `eduquest_concept_${gameType}_s${stageIndex}`;
-  const [seen, setSeen] = useState(() => {
+// LocalStorage helper — tracks per-(game type, stage) MASTERY, defined as
+// "the player passed the teach-back quiz at least once for this level."
+// Until mastered, the concept card replays on every attempt — tapping
+// "Got it" alone never grants the skip. After mastery, the card auto-skips
+// and the player goes straight into play.
+function useConceptMastered(gameType: string, stageIndex: number): [boolean, () => void] {
+  const key = `eduquest_mastered_${gameType}_s${stageIndex}`;
+  const read = () => {
     try { return typeof window !== "undefined" && localStorage.getItem(key) === "1"; }
     catch { return false; }
-  });
-  // Re-evaluate when the level changes so the new level's concept card shows.
-  useEffect(() => {
-    try { setSeen(typeof window !== "undefined" && localStorage.getItem(key) === "1"); }
-    catch { setSeen(false); }
-  }, [key]);
-  const dismiss = useCallback(() => {
+  };
+  const [mastered, setMastered] = useState(read);
+  // Re-read when the level/game changes so the right flag is reflected.
+  useEffect(() => { setMastered(read()); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mark = useCallback(() => {
     try { localStorage.setItem(key, "1"); } catch {}
-    setSeen(true);
+    setMastered(true);
   }, [key]);
-  return [seen, dismiss];
+  return [mastered, mark];
 }
 
 function ConceptCard({ gameType, onContinue }: { gameType: string; onContinue: () => void }) {
@@ -3151,11 +3151,14 @@ function ConceptCard({ gameType, onContinue }: { gameType: string; onContinue: (
 }
 
 function TeachBackQuiz({
-  gameType, baseScore, onDone,
+  gameType, alreadyMastered, onDone,
 }: {
   gameType: string;
-  baseScore: number;
-  onDone: (finalScore: number, passed: boolean) => void;
+  alreadyMastered: boolean;
+  // passed === true when the teach-back was answered correctly. The wrapper
+  // uses this to mark mastery, NOT to scale the score — base XP is preserved
+  // either way so wrong answers don't punish the player's earned progress.
+  onDone: (passed: boolean) => void;
 }) {
   // Pick a question once and freeze it so re-renders don't shuffle.
   const question = useMemo(() => pickTeachBack(gameType), [gameType]);
@@ -3166,14 +3169,13 @@ function TeachBackQuiz({
   // Hooks must run unconditionally — gate the side-effect on missing content
   // INSIDE the effect rather than around an early return.
   useEffect(() => {
-    if (!question || !meta) onDone(baseScore, true);
-  }, [question, meta, baseScore, onDone]);
+    if (!question || !meta) onDone(true);
+  }, [question, meta, onDone]);
 
   if (!question || !meta) return null;
 
   const passed = submitted && picked === question.correctIndex;
-  const bonus = passed ? 30 : 0;
-  const finalScore = baseScore + bonus;
+  const newMastery = passed && !alreadyMastered;
   const Icon = meta.icon;
 
   return (
@@ -3238,8 +3240,16 @@ function TeachBackQuiz({
                     {passed ? "Concept confirmed!" : "Not quite — here's why:"}
                   </p>
                   <p className="text-xs text-foreground/85 mt-1 leading-relaxed">{question.why}</p>
-                  {passed && (
-                    <p className="text-xs text-emerald-300 mt-1.5 font-mono">+{bonus} concept-bonus pts</p>
+                  {newMastery && (
+                    <p className="text-xs text-emerald-300 mt-1.5 font-mono" data-testid="text-mastery-unlocked">
+                      ★ Concept mastered — this level's intro card is unlocked.
+                    </p>
+                  )}
+                  {passed && !newMastery && (
+                    <p className="text-xs text-emerald-300/80 mt-1.5 font-mono">Already mastered — nicely done.</p>
+                  )}
+                  {!passed && (
+                    <p className="text-xs text-amber-200/90 mt-1.5">Your level score is safe — give the concept another try next round.</p>
                   )}
                 </div>
               </div>
@@ -3258,10 +3268,10 @@ function TeachBackQuiz({
           ) : (
             <Button
               className="w-full min-h-11"
-              onClick={() => onDone(finalScore, passed)}
+              onClick={() => onDone(passed)}
               data-testid="button-teachback-finish"
             >
-              {passed ? "Claim reward" : "Continue"} <ArrowRight className="w-4 h-4 ml-1" />
+              Continue <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           )}
         </div>
@@ -3286,21 +3296,24 @@ export function SADGameRunner({
   totalStages?: number;
 }) {
   // 3-phase wrapper around every SAD game so they actually TEACH and verify
-  // understanding, not just play. Concept card runs once per (game type, stage);
-  // teach-back quiz runs every play and awards a small concept bonus.
-  const [conceptSeen, dismissConcept] = useConceptSeen(gameType, stageIndex);
+  // understanding, not just play. Concept card replays every attempt until
+  // the player has demonstrated mastery (passed the teach-back at least once
+  // for this level). After that, it auto-skips. Teach-back runs every play
+  // but never reduces the base score — it only flips the mastery flag.
+  const [mastered, markMastered] = useConceptMastered(gameType, stageIndex);
   const [phase, setPhase] = useState<"concept" | "play" | "quiz">(
-    conceptSeen ? "play" : "concept"
+    mastered ? "play" : "concept"
   );
   const [gameScore, setGameScore] = useState(0);
 
   // Reset the wrapper whenever the user switches to another SAD game OR
-  // moves to another stage of the same game — otherwise stale phase / score
-  // state would carry over and skip the new level's concept card.
+  // moves to another stage of the same game — and re-run when `mastered`
+  // catches up after the LS lookup, so unmastered new stages don't get
+  // skipped and mastered stages don't show the concept card again.
   useEffect(() => {
-    setPhase(conceptSeen ? "play" : "concept");
+    setPhase(mastered ? "play" : "concept");
     setGameScore(0);
-  }, [gameType, stageIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gameType, stageIndex, mastered]);
 
   // If the question pool is empty, just show the friendly empty-state.
   if (!questions || questions.length === 0) {
@@ -3319,7 +3332,7 @@ export function SADGameRunner({
     return (
       <ConceptCard
         gameType={gameType}
-        onContinue={() => { dismissConcept(); setPhase("play"); }}
+        onContinue={() => setPhase("play")}
       />
     );
   }
@@ -3328,8 +3341,14 @@ export function SADGameRunner({
     return (
       <TeachBackQuiz
         gameType={gameType}
-        baseScore={gameScore}
-        onDone={(finalScore) => onComplete(finalScore)}
+        alreadyMastered={mastered}
+        onDone={(passed) => {
+          // Mastery is the only side-effect of the quiz — base XP / coins
+          // (gameScore) is propagated unchanged so wrong answers never
+          // punish what the player earned in play.
+          if (passed) markMastered();
+          onComplete(gameScore);
+        }}
       />
     );
   }
