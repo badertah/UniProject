@@ -2063,11 +2063,46 @@ function layoutNodes(rawNodes: { id: string; label: string; type: DFDNode["type"
   return out;
 }
 
+// DFD rule-specific violation messages — surfaces *why* a wrong answer is
+// wrong instead of a generic "Wrong direction".
+function dfdViolation(
+  fromType: string | undefined,
+  toType: string | undefined,
+  correctFrom: string,
+  correctTo: string,
+  fromId: string,
+  toId: string,
+): string {
+  if (fromType === "store" && toType === "store") {
+    return "Two data stores can't connect directly — a process must read from one and write to the other.";
+  }
+  if (fromType === "source" && toType === "store") {
+    return "An external entity can't write straight to a data store — a process owns the write.";
+  }
+  if (fromType === "store" && toType === "sink") {
+    return "A data store can't push directly to an external entity — a process must read it first.";
+  }
+  if (fromType === "source" && toType === "sink") {
+    return "Two external entities can't exchange data inside the system — a process has to handle it.";
+  }
+  if (fromType === "sink") {
+    return "Sinks only receive data — they can't be the source of an arrow.";
+  }
+  if (toType === "source") {
+    return "Sources only emit data — they can't be the destination of an arrow.";
+  }
+  if (fromId === correctTo && toId === correctFrom) {
+    return "Right two nodes — but the arrow flows the other way. Data moves the opposite direction here.";
+  }
+  return "Those two nodes don't carry this data flow. Re-read the missing-arrow label and pick a different pair.";
+}
+
 function DataFlowPlumber({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.dfd_detective;
   const _d = Math.max(0, Math.min(1, difficulty));
-  const DFD_MAX_ATTEMPTS = Math.max(1, 2 - Math.floor(_d * 0.6)); // 2,2,2,1
+  // One retry: original try + 1 retry, then the answer is revealed.
+  const DFD_MAX_ATTEMPTS = 2;
   const [howSeen, dismissHow] = useHowTo("dfd_detective");
   const [showHow, setShowHow] = useState(!howSeen);
 
@@ -2281,9 +2316,14 @@ function DataFlowPlumber({ questions, onComplete, difficulty = 0 }: SADGameProps
               </p>
             </div>
 
-            {attempts > 0 && !submission?.correct && attempts < 2 && (
-              <p className="text-[11px] text-rose-300 text-center mt-2">
-                ✗ Wrong direction. {2 - attempts} {2 - attempts === 1 ? "try" : "tries"} left.
+            {attempts > 0 && !submission?.correct && attempts < DFD_MAX_ATTEMPTS && submission && (
+              <p className="text-[11px] text-rose-300 text-center mt-2 px-2 leading-snug" data-testid="text-dfd-violation">
+                ✗ {dfdViolation(
+                  nodeMap.get(submission.from)?.type,
+                  nodeMap.get(submission.to)?.type,
+                  correctFrom, correctTo,
+                  submission.from, submission.to,
+                )} {DFD_MAX_ATTEMPTS - attempts} {DFD_MAX_ATTEMPTS - attempts === 1 ? "try" : "tries"} left.
               </p>
             )}
           </div>
@@ -2304,13 +2344,22 @@ function DataFlowPlumber({ questions, onComplete, difficulty = 0 }: SADGameProps
         </div>
       </ScreenShake>
 
-      {(submission?.correct || attempts >= 2) && (
+      {(submission?.correct || attempts >= DFD_MAX_ATTEMPTS) && (
         <RoundSummary
           correct={!!submission?.correct}
           headline={submission?.correct
             ? (attempts === 1 ? "Pipe routed perfectly! +35 pts" : "Got it on the second try +15 pts")
             : `Answer: ${nodeMap.get(correctFrom)?.label} → ${nodeMap.get(correctTo)?.label}`}
-          explanation={opts.explanation || "Arrows in a DFD always carry data between source/store and process, or process to store/sink."}
+          explanation={
+            !submission?.correct && submission
+              ? `${dfdViolation(
+                  nodeMap.get(submission.from)?.type,
+                  nodeMap.get(submission.to)?.type,
+                  correctFrom, correctTo,
+                  submission.from, submission.to,
+                )} ${opts.explanation || ""}`.trim()
+              : (opts.explanation || "Arrows in a DFD always carry data between source/store and process, or process to store/sink.")
+          }
           scoreDelta={submission?.correct ? (attempts === 1 ? 35 : 15) : 0}
           onNext={nextRound}
           isLast={round + 1 >= totalRounds}
@@ -2440,7 +2489,9 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
     if (stage !== "playing" || paused) return;
     elapsedRef.current += dt;
 
-    // 1) Spawn any due notes into a local list.
+    // 1) Spawn any due notes into a local list. Notes carry the receiver
+    //    lane internally for hit-detection, but render on the center rail
+    //    so the player must INFER the lane from the message text itself.
     const justSpawned: SeqNote[] = [];
     while (spawnedCount.current < noteSpec.length && noteSpec[spawnedCount.current].spawnAt <= elapsedRef.current) {
       const spec = noteSpec[spawnedCount.current];
@@ -2449,7 +2500,9 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
       spawnedCount.current++;
     }
 
-    // 2) Move notes + count misses.
+    // 2) Move notes + count misses. Missed notes flip to "miss" state so
+    //    they keep falling for ~half a second showing the correct lane —
+    //    teaching moment instead of just disappearing.
     const next: SeqNote[] = [];
     let missed = 0;
     for (const n of notesRef.current) {
@@ -2461,6 +2514,7 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
       const ny = n.y + NOTE_FALL_SPEED * dt;
       if (ny > HIT_LINE_PCT + HIT_WINDOW) {
         missed++;
+        next.push({ ...n, y: ny, state: "miss" });
         continue;
       }
       next.push({ ...n, y: ny });
@@ -2671,42 +2725,50 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
           }}
         />
 
-        {/* Falling tiles — Magic Tiles style: nearly-full-lane width, fixed
-            tall height, solid color block with bold border + drop shadow.
-            Drawn ABOVE lane surfaces but BELOW the hit line so they appear
-            to slot into the key pad as they cross. */}
+        {/* Falling messages — all spawn on the CENTER RAIL regardless of
+            their receiver lane. The player must read each message and
+            infer which object lane to press. Tiles only reveal which lane
+            they belonged to AFTER hit/miss (via color flash). */}
         <div className="absolute inset-0 pt-9 z-10" style={{ pointerEvents: "none" }}>
           <AnimatePresence>
             {notes.map(n => {
-              const laneW = 100 / objects.length;
-              const left = n.lane * laneW + laneW / 2;
-              const colorByLane = LANE_COLORS[n.lane % 4];
               const isPerfect = n.state === "perfect";
               const isGood = n.state === "good";
+              const isMiss = n.state === "miss";
+              const settled = isPerfect || isGood || isMiss;
+              // Until the message is hit, render on the center rail. After
+              // hit/miss, slide it toward its true receiver lane to TEACH
+              // the player which lane the answer was.
+              const laneW = 100 / objects.length;
+              const trueLeft = n.lane * laneW + laneW / 2;
+              const left = settled ? trueLeft : 50;
+              const colorByLane = LANE_COLORS[n.lane % 4];
               const tileBg = isPerfect
                 ? "linear-gradient(180deg, #34d399 0%, #10b981 100%)"
                 : isGood
                 ? "linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%)"
-                : `linear-gradient(180deg, ${colorByLane}EE 0%, ${colorByLane}CC 100%)`;
-              const tileBorder = isPerfect ? "#10b981" : isGood ? "#f59e0b" : colorByLane;
+                : isMiss
+                ? "linear-gradient(180deg, #f87171 0%, #dc2626 100%)"
+                : "linear-gradient(180deg, rgba(30,41,59,0.95) 0%, rgba(15,23,42,0.95) 100%)";
+              const tileBorder = isPerfect ? "#10b981" : isGood ? "#f59e0b" : isMiss ? "#dc2626" : "rgba(255,255,255,0.35)";
               return (
                 <motion.div
                   key={n.id}
                   initial={{ scale: 0.85, opacity: 0 }}
                   animate={{
                     scale: isPerfect ? 1.18 : isGood ? 1.1 : 1,
-                    opacity: n.state === "alive" ? 1 : 0,
+                    opacity: n.state === "alive" || settled ? 1 : 0,
+                    left: `${left}%`,
                   }}
                   exit={{ opacity: 0, scale: 1.4 }}
-                  transition={{ duration: 0.18 }}
+                  transition={{ duration: settled ? 0.35 : 0.18 }}
                   className="absolute flex items-center justify-center"
                   style={{
                     top: `${n.y}%`,
-                    left: `${left}%`,
-                    width: `${laneW * 0.96}%`,
+                    width: `${Math.min(60, laneW * 0.96)}%`,
                     height: 60,
                     transform: "translate(-50%, -50%)",
-                    willChange: "transform, top",
+                    willChange: "transform, top, left",
                   }}
                 >
                   <div
@@ -2714,10 +2776,10 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
                     style={{
                       background: tileBg,
                       border: `2px solid ${tileBorder}`,
-                      boxShadow: `0 4px 12px rgba(0,0,0,0.45), 0 0 ${isPerfect ? 24 : isGood ? 18 : 8}px ${tileBorder}88, inset 0 1px 0 rgba(255,255,255,0.35)`,
+                      boxShadow: `0 4px 12px rgba(0,0,0,0.45), 0 0 ${isPerfect ? 24 : isGood ? 18 : isMiss ? 14 : 6}px ${settled ? colorByLane + "88" : "rgba(148,163,184,0.4)"}, inset 0 1px 0 rgba(255,255,255,0.25)`,
                     }}
                   >
-                    <p className="text-[11px] font-extrabold leading-tight text-white line-clamp-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]">
+                    <p className="text-[11px] font-extrabold leading-tight text-white line-clamp-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
                       {n.text}
                     </p>
                   </div>
@@ -2726,6 +2788,20 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
             })}
           </AnimatePresence>
         </div>
+
+        {/* Center rail visual — a faint vertical guide showing where new
+            messages spawn before the player routes them to a lane. */}
+        <div
+          className="absolute pointer-events-none z-[5]"
+          style={{
+            top: "9%",
+            bottom: `${100 - HIT_LINE_PCT}%`,
+            left: "50%",
+            width: 2,
+            background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0.04) 100%)",
+            transform: "translateX(-50%)",
+          }}
+        />
 
         {/* KEY PAD — chunky piano-key strip at the bottom of the play area.
             Pointer-events-none: the lane buttons underneath still receive
@@ -2842,9 +2918,9 @@ function SequenceRhythm({ questions, onComplete, difficulty = 0 }: SADGameProps)
             goal="Each message in a sequence diagram targets an actor. Hit the right lane as the message reaches the line."
             controls={[
               `Lane keys: ${SEQ_KEYS.slice(0, objects.length).map(k => k.toUpperCase()).join(" / ")} (or tap lanes).`,
+              "READ each message — it falls down the CENTER. You must hit the lane of the receiving object.",
               "Perfect inside the line: +30. Good window: +15. Combo doubles bonus.",
               "Win at 70% notes hit. Esc to pause.",
-              "Notes appear in the order written in the seed — that's the sequence.",
             ]}
             onStart={() => { dismissHow(); setShowHow(false); }}
           />
@@ -3042,12 +3118,33 @@ const CONCEPT_CONTENT: Record<string, ConceptContent> = {
   },
 };
 
-// Pick ONE teach-back question per session so it stays fast but the active
-// recall happens every play.
-function pickTeachBack(gameType: string): TeachBackQ | null {
-  const c = CONCEPT_CONTENT[gameType];
-  if (!c || c.teachBack.length === 0) return null;
-  return c.teachBack[Math.floor(Math.random() * c.teachBack.length)];
+// Pool teach-back questions for a game: per-question overrides from
+// q.options.teachBack take precedence; falls back to the hardcoded set.
+function pickTeachBack(gameType: string, override?: TeachBackQ[] | null): TeachBackQ | null {
+  const pool = override && override.length > 0
+    ? override
+    : (CONCEPT_CONTENT[gameType]?.teachBack ?? []);
+  if (pool.length === 0) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Merge a partial concept-card override (from q.options.conceptCard) onto
+// the hardcoded fallback so seeds can customize per level without losing
+// any required field.
+function resolveConceptContent(
+  gameType: string,
+  override?: Partial<ConceptContent> | null,
+): ConceptContent | null {
+  const base = CONCEPT_CONTENT[gameType];
+  if (!base && !override) return null;
+  if (!override) return base;
+  return {
+    conceptName: override.conceptName ?? base?.conceptName ?? "",
+    bigIdea: override.bigIdea ?? base?.bigIdea ?? "",
+    keyTerms: override.keyTerms ?? base?.keyTerms ?? [],
+    workedExample: override.workedExample ?? base?.workedExample ?? "",
+    teachBack: override.teachBack ?? base?.teachBack ?? [],
+  };
 }
 
 // LocalStorage helper — tracks per-(game type, stage) MASTERY, defined as
@@ -3071,8 +3168,14 @@ function useConceptMastered(gameType: string, stageIndex: number): [boolean, () 
   return [mastered, mark];
 }
 
-function ConceptCard({ gameType, onContinue }: { gameType: string; onContinue: () => void }) {
-  const c = CONCEPT_CONTENT[gameType];
+function ConceptCard({
+  gameType, onContinue, override,
+}: {
+  gameType: string;
+  onContinue: () => void;
+  override?: Partial<ConceptContent> | null;
+}) {
+  const c = resolveConceptContent(gameType, override);
   const meta = SAD_GAMES[gameType];
   // Effect-based fallback so we never call setState in a parent during render.
   useEffect(() => {
@@ -3151,17 +3254,15 @@ function ConceptCard({ gameType, onContinue }: { gameType: string; onContinue: (
 }
 
 function TeachBackQuiz({
-  gameType, alreadyMastered, onDone,
+  gameType, alreadyMastered, onDone, override,
 }: {
   gameType: string;
   alreadyMastered: boolean;
-  // passed === true when the teach-back was answered correctly. The wrapper
-  // uses this to mark mastery, NOT to scale the score — base XP is preserved
-  // either way so wrong answers don't punish the player's earned progress.
   onDone: (passed: boolean) => void;
+  override?: TeachBackQ[] | null;
 }) {
-  // Pick a question once and freeze it so re-renders don't shuffle.
-  const question = useMemo(() => pickTeachBack(gameType), [gameType]);
+  // Pick once per mount so re-renders don't shuffle.
+  const question = useMemo(() => pickTeachBack(gameType, override), [gameType, override]);
   const meta = SAD_GAMES[gameType];
   const [picked, setPicked] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -3295,21 +3396,23 @@ export function SADGameRunner({
   stageIndex?: number;
   totalStages?: number;
 }) {
-  // 3-phase wrapper around every SAD game so they actually TEACH and verify
-  // understanding, not just play. Concept card replays every attempt until
-  // the player has demonstrated mastery (passed the teach-back at least once
-  // for this level). After that, it auto-skips. Teach-back runs every play
-  // but never reduces the base score — it only flips the mastery flag.
+  // 3-phase wrapper: concept (until mastered) → play → teach-back quiz.
+  // Mastery is set only when the teach-back is passed; "Got it" alone never
+  // grants the skip. Wrong teach-back answers never reduce the base score.
   const [mastered, markMastered] = useConceptMastered(gameType, stageIndex);
   const [phase, setPhase] = useState<"concept" | "play" | "quiz">(
     mastered ? "play" : "concept"
   );
   const [gameScore, setGameScore] = useState(0);
 
-  // Reset the wrapper whenever the user switches to another SAD game OR
-  // moves to another stage of the same game — and re-run when `mastered`
-  // catches up after the LS lookup, so unmastered new stages don't get
-  // skipped and mastered stages don't show the concept card again.
+  // Per-question overrides from the JSONB options column. Take the first
+  // question's overrides as the level-level concept content (concept is per
+  // level, not per round).
+  const conceptOverride = (questions?.[0]?.options?.conceptCard ?? null) as Partial<ConceptContent> | null;
+  const teachBackOverride = (questions?.[0]?.options?.teachBack ?? null) as TeachBackQ[] | null;
+
+  // Reset whenever the user switches game/stage; depend on `mastered` so the
+  // LS lookup catching up correctly transitions the phase.
   useEffect(() => {
     setPhase(mastered ? "play" : "concept");
     setGameScore(0);
@@ -3332,6 +3435,7 @@ export function SADGameRunner({
     return (
       <ConceptCard
         gameType={gameType}
+        override={conceptOverride}
         onContinue={() => setPhase("play")}
       />
     );
@@ -3342,10 +3446,8 @@ export function SADGameRunner({
       <TeachBackQuiz
         gameType={gameType}
         alreadyMastered={mastered}
+        override={teachBackOverride}
         onDone={(passed) => {
-          // Mastery is the only side-effect of the quiz — base XP / coins
-          // (gameScore) is propagated unchanged so wrong answers never
-          // punish what the player earned in play.
           if (passed) markMastered();
           onComplete(gameScore);
         }}
