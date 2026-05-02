@@ -660,44 +660,22 @@ export async function removeFakeSeedUsers() {
 }
 
 // ============================================================================
-// Idempotent: ensure the SAD topic has a "System Architect" sim level. Runs
-// every boot independently of seedSADPlayToLearn (which guards on first run)
-// so existing DBs that were seeded earlier still pick up the new game.
+// Cleanup: remove any leftover "System Architect" level + its questions and
+// progress rows. The game was rolled back per user request; this runs every
+// boot so already-seeded databases self-heal without manual SQL.
 // ============================================================================
-export async function seedSystemArchitectLevel() {
+export async function removeSystemArchitectLevel() {
   try {
-    const sadRows = await q("SELECT id FROM topics WHERE name ILIKE '%system analysis%' LIMIT 1");
-    if (sadRows.length === 0) return;
-    const sadId = sadRows[0].id as string;
-
-    const existing = await q(
-      "SELECT id FROM levels WHERE topic_id = $1 AND game_type = 'system_architect' LIMIT 1",
-      [sadId]
-    );
-    if (existing.length > 0) return;
-
-    // Pick the next free level number after the existing SAD levels.
-    const nums = await q("SELECT COALESCE(MAX(level_number),0) as n FROM levels WHERE topic_id = $1", [sadId]);
-    const nextNum = Number(nums[0].n) + 1;
-
-    const [lvl] = await q(
-      "INSERT INTO levels (topic_id, level_number, name, game_type, xp_reward, coin_reward, difficulty) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
-      [sadId, nextNum, "System Architect", "system_architect", 110, 35, "hard"]
-    );
-    // The sim is the game; one round seed so the runner has at least one row.
-    await q(
-      "INSERT INTO questions (level_id, content, answer, options, order_index) VALUES ($1,$2,$3,$4::jsonb,$5)",
-      [
-        lvl.id,
-        "Build a server infrastructure that survives the surge of users without crashing!",
-        "survive",
-        JSON.stringify({ sim: true, explanation: "Real systems use Firewall + Load Balancer + many Web Servers + Database to scale horizontally. Add capacity faster than traffic grows." }),
-        0,
-      ]
-    );
-    console.log("[IKUGAMES] System Architect level seeded.");
+    const rows = await q("SELECT id FROM levels WHERE game_type = 'system_architect'");
+    if (rows.length === 0) return;
+    for (const r of rows) {
+      await q("DELETE FROM user_progress WHERE level_id = $1", [r.id]);
+      await q("DELETE FROM questions     WHERE level_id = $1", [r.id]);
+      await q("DELETE FROM levels        WHERE id       = $1", [r.id]);
+    }
+    console.log(`[IKUGAMES] Removed ${rows.length} System Architect level(s).`);
   } catch (e) {
-    console.warn("[IKUGAMES] seedSystemArchitectLevel failed:", e);
+    console.warn("[IKUGAMES] removeSystemArchitectLevel failed:", e);
   }
 }
 

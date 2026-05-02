@@ -215,7 +215,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const SAD_VISIBLE_GAMES = new Set([
     "sdlc_sorter", "req_sorter", "usecase_builder",
     "erd_doctor",  "dfd_detective", "sequence_stacker",
-    "system_architect",
     "memory_flip", "wordle",
   ]);
 

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useParams } from "wouter";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import { getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   ArrowLeft, Zap, Coins, Hash, Link2, Smile, Lock, CheckCircle2,
-  Star, ChevronRight, BookOpen, Gamepad2, Sparkles,
+  Star, ChevronRight, ChevronDown, BookOpen, Gamepad2, Sparkles,
   Layers, Boxes, Workflow, Database, Activity, ListOrdered, Play
 } from "lucide-react";
 import { isSADGame, difficultyLabel } from "@/components/sad-games";
@@ -44,6 +45,10 @@ export default function TopicPage() {
   const { user } = useAuth();
   const { data: topic, isLoading } = useQuery<any>({ queryKey: ["/api/topics", id] });
   const { data: progress } = useQuery<any[]>({ queryKey: ["/api/progress"] });
+
+  // Which SAD level is currently expanded to reveal its stage chips.
+  // Only one level can be open at a time; clicking the same one collapses it.
+  const [expandedLevelId, setExpandedLevelId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -231,12 +236,20 @@ export default function TopicPage() {
                   <Coins className="w-3 h-3 text-yellow-400" />
                   <span className="text-yellow-400 font-bold">{level.coinReward}</span>
                 </div>
-                {!isSAD && (
+                {isSAD ? (
+                  <ChevronDown
+                    className={`w-4 h-4 text-muted-foreground group-hover:text-primary transition-all duration-300 mt-1 ${
+                      expandedLevelId === level.id ? "rotate-180 text-primary" : ""
+                    }`}
+                  />
+                ) : (
                   <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors mt-1" />
                 )}
               </div>
             </div>
           );
+
+          const isExpanded = expandedLevelId === level.id;
 
           return (
             <motion.div
@@ -249,78 +262,102 @@ export default function TopicPage() {
                 className={`relative rounded-xl border p-4 transition-all duration-200 group ${
                   isFullyCompleted
                     ? "border-emerald-500/30 bg-emerald-500/5"
+                    : isExpanded
+                    ? "border-primary/40 bg-card/90 shadow-lg shadow-primary/10"
                     : "border-border/40 bg-card/80 hover:border-primary/30"
                 }`}
                 data-testid={`card-level-${level.id}`}
               >
                 {isSAD ? (
-                  cardBody
+                  // Click the entire SAD card to reveal/hide its stage chips.
+                  // Same level click closes; clicking another level swaps focus.
+                  <div
+                    onClick={() => setExpandedLevelId(prev => prev === level.id ? null : level.id)}
+                    className="cursor-pointer select-none"
+                    data-testid={`btn-expand-${level.id}`}
+                    role="button"
+                    aria-expanded={isExpanded}
+                  >
+                    {cardBody}
+                  </div>
                 ) : (
                   <Link href={`/game/${level.id}`}>
                     <div className="cursor-pointer">{cardBody}</div>
                   </Link>
                 )}
 
-                {/* Stage chips for SAD games — pick a stage to play */}
-                {isSAD && totalStages > 0 && (
-                  <div className="mt-3 pt-3 border-t border-border/30">
-                    <div className="text-[10px] font-mono tracking-widest text-muted-foreground mb-2">PICK A STAGE</div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {Array.from({ length: totalStages }).map((_, sIdx) => {
-                        const sDone = completedStages.has(sIdx);
-                        const sScore = stageScores.get(sIdx) || 0;
-                        const sDiff = totalStages > 1 ? sIdx / (totalStages - 1) : 0;
-                        const sLabel = difficultyLabel(sDiff);
-                        const isNextUp = !sDone && completedStages.size === sIdx;
-                        return (
-                          <Link key={sIdx} href={`/game/${level.id}?stage=${sIdx}`}>
-                            <motion.div
-                              whileHover={{ scale: 1.03 }}
-                              whileTap={{ scale: 0.98 }}
-                              className={`relative overflow-hidden rounded-lg border p-2 cursor-pointer transition-colors ${
-                                sDone
-                                  ? "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-400/70"
-                                  : isNextUp
-                                  ? "border-primary/50 bg-primary/10 hover:border-primary"
-                                  : "border-border/40 bg-background/40 hover:border-primary/40 hover:bg-primary/5"
-                              }`}
-                              data-testid={`chip-stage-${level.id}-${sIdx}`}
-                            >
-                              {/* Shimmer on completed */}
-                              {sDone && (
-                                <motion.div
-                                  className="absolute inset-0 pointer-events-none"
-                                  style={{
-                                    background: "linear-gradient(110deg, transparent 30%, rgba(52,211,153,0.18) 50%, transparent 70%)",
-                                  }}
-                                  initial={{ x: "-100%" }}
-                                  animate={{ x: "100%" }}
-                                  transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.6, ease: "easeInOut" }}
-                                />
-                              )}
-                              <div className="relative flex items-center justify-between mb-1">
-                                <span className="text-xs font-bold font-mono">STAGE {sIdx + 1}</span>
-                                {sDone ? (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                                ) : (
-                                  <Play className="w-3 h-3 text-muted-foreground" />
+                {/* Stage chips — collapsed by default, only expand for the
+                    currently-clicked SAD level. AnimatePresence handles the
+                    smooth height + opacity transition both ways. */}
+                <AnimatePresence initial={false}>
+                  {isSAD && isExpanded && totalStages > 0 && (
+                    <motion.div
+                      key="stages"
+                      initial={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0 }}
+                      animate={{ height: "auto", opacity: 1, marginTop: 12, paddingTop: 12 }}
+                      exit={{ height: 0, opacity: 0, marginTop: 0, paddingTop: 0 }}
+                      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                      style={{ overflow: "hidden", borderTop: "1px solid hsl(var(--border) / 0.3)" }}
+                    >
+                      <div className="text-[10px] font-mono tracking-widest text-muted-foreground mb-2">PICK A STAGE</div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {Array.from({ length: totalStages }).map((_, sIdx) => {
+                          const sDone = completedStages.has(sIdx);
+                          const sScore = stageScores.get(sIdx) || 0;
+                          const sDiff = totalStages > 1 ? sIdx / (totalStages - 1) : 0;
+                          const sLabel = difficultyLabel(sDiff);
+                          const isNextUp = !sDone && completedStages.size === sIdx;
+                          return (
+                            <Link key={sIdx} href={`/game/${level.id}?stage=${sIdx}`}>
+                              <motion.div
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className={`relative overflow-hidden rounded-lg border p-2 cursor-pointer transition-colors ${
+                                  sDone
+                                    ? "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-400/70"
+                                    : isNextUp
+                                    ? "border-primary/50 bg-primary/10 hover:border-primary"
+                                    : "border-border/40 bg-background/40 hover:border-primary/40 hover:bg-primary/5"
+                                }`}
+                                data-testid={`chip-stage-${level.id}-${sIdx}`}
+                              >
+                                {/* Shimmer on completed */}
+                                {sDone && (
+                                  <motion.div
+                                    className="absolute inset-0 pointer-events-none"
+                                    style={{
+                                      background: "linear-gradient(110deg, transparent 30%, rgba(52,211,153,0.18) 50%, transparent 70%)",
+                                    }}
+                                    initial={{ x: "-100%" }}
+                                    animate={{ x: "100%" }}
+                                    transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.6, ease: "easeInOut" }}
+                                  />
                                 )}
-                              </div>
-                              <div className="relative flex items-center justify-between">
-                                <span className={`text-[10px] font-mono tracking-wider font-bold ${sLabel.color}`}>
-                                  {sLabel.label}
-                                </span>
-                                {sScore > 0 && (
-                                  <span className="text-[10px] text-yellow-400 font-mono">★ {sScore}</span>
-                                )}
-                              </div>
-                            </motion.div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                                <div className="relative flex items-center justify-between mb-1">
+                                  <span className="text-xs font-bold font-mono">STAGE {sIdx + 1}</span>
+                                  {sDone ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Play className="w-3 h-3 text-muted-foreground" />
+                                  )}
+                                </div>
+                                <div className="relative flex items-center justify-between">
+                                  <span className={`text-[10px] font-mono tracking-wider font-bold ${sLabel.color}`}>
+                                    {sLabel.label}
+                                  </span>
+                                  {sScore > 0 && (
+                                    <span className="text-[10px] text-yellow-400 font-mono">★ {sScore}</span>
+                                  )}
+                                </div>
+                              </motion.div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           );

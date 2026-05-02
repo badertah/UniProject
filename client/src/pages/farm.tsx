@@ -8,6 +8,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
+import {
+  useAtmosphere, skyGradient, CelestialBody, Stars, WeatherLayer,
+  AmbientCreatures, TickProgress, BankMeter, WeatherBadge,
+  GoldenCropOverlay, useGoldenCropSpawner, HarvestBurst, LightningFlash,
+} from "@/components/farm-extras";
 
 const TICK_INTERVAL_MS = 30_000;
 const MAX_FARM_BANK    = 500;
@@ -212,8 +217,32 @@ export default function FarmPage() {
 
   const sortedBuildings = [...BUILDINGS].sort((a, b) => (a.col + a.row) - (b.col + b.row));
 
+  // === ATMOSPHERE: dynamic day/night sky + weather + golden crop events ===
+  const atm = useAtmosphere();
+  const ownedIds = BUILDINGS.filter(b => (farmSave.owned[b.id] || 0) > 0).map(b => b.id);
+  const golden = useGoldenCropSpawner(ownedIds, totalOwned > 0);
+  const collectGolden = () => {
+    golden.collect((amount) => {
+      // Route the bonus through farmBank so the existing harvest mutation
+      // can pay it out — no new server endpoint needed. Bonus may briefly
+      // exceed MAX_FARM_BANK (a deliberate "treat") and is auto-clipped on
+      // the next regular tick.
+      setFarmSave(prev => {
+        const next = { ...prev, farmBank: prev.farmBank + amount };
+        if (user) saveState(next, user.id);
+        return next;
+      });
+      setCoinPops(cur => [...cur, { id: `gold-${Date.now()}`, bId: golden.spawn!.bId, amount }]);
+      toast({ title: "🌟 Golden Harvest!", description: `+${amount} coins added to the bank.` });
+    });
+  };
+  const goldenPos = golden.spawn ? (() => {
+    const b = BUILDINGS.find(bb => bb.id === golden.spawn!.bId);
+    return b ? isoPos(b.col, b.row) : null;
+  })() : null;
+
   return (
-    <div className="fixed inset-0 overflow-hidden select-none" style={{ background: "linear-gradient(180deg, #87CEEB 0%, #B4E4FF 30%, #9DC654 48%, #7CB342 52%, #5A9A2A 100%)" }}>
+    <div className="fixed inset-0 overflow-hidden select-none" style={{ background: skyGradient(atm.phase, atm.weather), transition: "background 1.5s linear" }}>
       <style>{`
         @keyframes cloudDrift { 0% { transform: translateX(-200px); } 100% { transform: translateX(calc(100vw + 200px)); } }
         @keyframes cloudDrift2 { 0% { transform: translateX(calc(100vw + 200px)); } 100% { transform: translateX(-200px); } }
@@ -228,29 +257,21 @@ export default function FarmPage() {
         .iso-tile:active { transform: translateY(-2px) scale(0.98); }
       `}</style>
 
-      {[
-        { w: 130, h: 40, top: "6%", dur: "50s", del: "0s", op: 0.9 },
-        { w: 95, h: 30, top: "3%", dur: "60s", del: "-20s", op: 0.7 },
-        { w: 150, h: 45, top: "12%", dur: "70s", del: "-35s", op: 0.8 },
-        { w: 80, h: 25, top: "9%", dur: "55s", del: "-10s", op: 0.65 },
-      ].map((c, i) => (
-        <div key={`cloud-${i}`} className="absolute" style={{ top: c.top, width: c.w, height: c.h, opacity: c.op, animation: `${i % 2 === 0 ? 'cloudDrift' : 'cloudDrift2'} ${c.dur} linear infinite`, animationDelay: c.del }}>
-          <svg viewBox="0 0 140 50" width="100%" height="100%">
-            <ellipse cx="70" cy="30" rx="60" ry="18" fill="white"/><ellipse cx="45" cy="25" rx="35" ry="16" fill="white"/><ellipse cx="95" cy="25" rx="35" ry="16" fill="white"/><ellipse cx="70" cy="20" rx="40" ry="15" fill="white"/>
-          </svg>
-        </div>
-      ))}
+      {/* === SKY: stars (night) → moving sun/moon → weather (clouds/rain) === */}
+      <Stars phase={atm.phase} />
+      <CelestialBody phase={atm.phase} />
+      <WeatherLayer weather={atm.weather} phase={atm.phase} />
+      <LightningFlash weather={atm.weather} />
 
-      <svg className="absolute" style={{ top: "3%", left: "8%", animation: "sunPulse 4s ease-in-out infinite" }} width="50" height="50" viewBox="0 0 50 50">
-        <circle cx="25" cy="25" r="15" fill="#FFD54F"/><circle cx="25" cy="25" r="11" fill="#FFEB3B"/>
-        {[0,45,90,135,180,225,270,315].map(a => { const r = a * Math.PI / 180; return <line key={a} x1={25+Math.cos(r)*18} y1={25+Math.sin(r)*18} x2={25+Math.cos(r)*23} y2={25+Math.sin(r)*23} stroke="#FFD54F" strokeWidth="2.5" strokeLinecap="round"/>; })}
-      </svg>
-
-      {[0,1].map(i => (
-        <svg key={`bird-${i}`} className="absolute" width="14" height="8" style={{ top: `${5+i*6}%`, animation: `birdFly ${16+i*8}s linear infinite`, animationDelay: `${-i*6}s` }}>
+      {/* Birds only fly during the day window */}
+      {atm.isDay && [0,1].map(i => (
+        <svg key={`bird-${i}`} className="absolute" width="14" height="8" style={{ top: `${5+i*6}%`, animation: `birdFly ${16+i*8}s linear infinite`, animationDelay: `${-i*6}s`, zIndex: 3 }}>
           <path d="M0 4 L4 1 M8 4 L4 1" stroke="#37474F" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
         </svg>
       ))}
+
+      {/* Ambient critters: butterflies by day, fireflies by night */}
+      <AmbientCreatures isDay={atm.isDay} />
 
       <div className="absolute inset-0 flex items-center justify-center" style={{ paddingTop: 50 }}>
         <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${boardScale})`, transformOrigin: "top center" }}>
@@ -546,6 +567,18 @@ export default function FarmPage() {
           })}
 
 
+          {/* Golden crop bonus event — sparkly clickable coin on a random
+              owned plot. Pays out immediately into the farm bank. */}
+          {golden.spawn && goldenPos && (
+            <GoldenCropOverlay
+              x={goldenPos.x}
+              y={goldenPos.y}
+              reward={golden.spawn.reward}
+              expiresAt={golden.spawn.expiresAt}
+              onCollect={collectGolden}
+            />
+          )}
+
           <AnimatePresence>
             {coinPops.map(pop => {
               const b = BUILDINGS.find(bb => bb.id === pop.bId);
@@ -584,7 +617,10 @@ export default function FarmPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 flex-1 justify-end flex-wrap">
-          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(76,175,80,0.2)", color: "#A8D8A8", border: "1px solid rgba(76,175,80,0.3)" }}>⚡ {Math.round(incomePerMin)}/min</div>
+          <WeatherBadge atm={atm} />
+          <TickProgress lastTickTime={farmSave.lastTickTime} intervalMs={TICK_INTERVAL_MS} />
+          <BankMeter value={farmSave.farmBank} max={MAX_FARM_BANK} />
+          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(76,175,80,0.2)", color: "#A8D8A8", border: "1px solid rgba(76,175,80,0.3)" }}>⚡ {Math.round(incomePerMin * atm.cropBoost)}/min</div>
           <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(33,150,243,0.2)", color: "#90CAF9", border: "1px solid rgba(33,150,243,0.3)" }}>🏗️ {totalOwned}/12</div>
           {farmSave.farmBank > 0 && (
             <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="flex items-center gap-1 px-3 py-1 rounded-xl text-sm font-black" style={{ background: "linear-gradient(135deg, rgba(46,125,50,0.9), rgba(67,160,71,0.9))", color: "white", boxShadow: "0 2px 12px rgba(46,125,50,0.5)", border: "1px solid rgba(255,255,255,0.2)" }}>🌾 {farmSave.farmBank}</motion.div>
@@ -615,13 +651,8 @@ export default function FarmPage() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {isHarvesting && (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="text-8xl" animate={{ scale: [0.5, 1.4, 1], rotate: [0, 15, -15, 0] }} transition={{ duration: 0.8 }}>🌾</motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Harvest burst — wheat icon + golden coin shower radiating outward */}
+      <HarvestBurst active={isHarvesting} />
     </div>
   );
 }
