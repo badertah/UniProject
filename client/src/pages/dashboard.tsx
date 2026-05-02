@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useSettings } from "@/hooks/use-settings";
 import { getTierInfo, getXpToNextLevel, formatXp, getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import IkuflyGame from "@/components/ikufly-game";
+import WelcomeTutorial, { TUTORIAL_LS_KEY } from "@/components/welcome-tutorial";
+import OnboardingChecklist from "@/components/onboarding-checklist";
 import {
   Zap, Flame, Coins, Trophy, BookOpen, ChevronRight, Star,
   TrendingUp, Target, Award, Lock, Hash, Link2, Smile, Gamepad2, Play
@@ -50,9 +52,27 @@ export default function Dashboard() {
   const { user } = useAuth();
   const { settings } = useSettings();
   const [showGame, setShowGame] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const { data: topics } = useQuery<any[]>({ queryKey: ["/api/topics"] });
   const { data: leaderboard } = useQuery<any[]>({ queryKey: ["/api/leaderboard"] });
   const { data: progress } = useQuery<any[]>({ queryKey: ["/api/progress"] });
+
+  // First-visit welcome tutorial — auto-opens for new users; flag stored
+  // in localStorage so it never re-pops without user action.
+  useEffect(() => {
+    if (!user?.id) return;
+    const seen = localStorage.getItem(TUTORIAL_LS_KEY(user.id));
+    if (!seen) setShowTutorial(true);
+  }, [user?.id]);
+
+  function dismissTutorial() {
+    if (user?.id) localStorage.setItem(TUTORIAL_LS_KEY(user.id), "1");
+    setShowTutorial(false);
+  }
+
+  function replayTutorial() {
+    setShowTutorial(true);
+  }
 
   if (!user) return null;
 
@@ -96,6 +116,15 @@ export default function Dashboard() {
       <AnimatePresence>
         {showGame && <IkuflyGame onClose={() => setShowGame(false)} />}
       </AnimatePresence>
+
+      {/* First-visit welcome tutorial (story-driven onboarding) */}
+      <AnimatePresence>
+        {showTutorial && <WelcomeTutorial onClose={dismissTutorial} />}
+      </AnimatePresence>
+
+      {/* Starter quest checklist — auto-hides once dismissed by the user */}
+      <OnboardingChecklist user={user} onReplayTutorial={replayTutorial} />
+
       {/* Hero Section */}
       <motion.div
         className="relative rounded-xl overflow-hidden"

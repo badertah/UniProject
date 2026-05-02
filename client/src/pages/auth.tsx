@@ -92,7 +92,7 @@ export default function AuthPage() {
         {/* Hero text */}
         <motion.div className="relative z-10 flex-1 flex flex-col justify-center"
           initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
-a          <h2 className="text-4xl font-black text-white leading-tight mb-4" style={{ fontFamily: "Oxanium, sans-serif" }}>
+          <h2 className="text-4xl font-black text-white leading-tight mb-4" style={{ fontFamily: "Oxanium, sans-serif" }}>
             Level Up Your<br />
             <span className="text-transparent bg-clip-text"
               style={{ backgroundImage: "linear-gradient(90deg, #a855f7, #06b6d4)" }}>
