@@ -105,20 +105,23 @@ const HIRE_BONUS_MULT = 8;
 //   • cluster thematically (equipment yard north, livestock by pasture)
 //   • give the production-chain arrows readable geometry (no major crossings)
 const BUILDING_POS: Record<string, { x: number; y: number }> = {
-  // North row — equipment yard / mill
+  // North row — equipment yard / mill (clear grass band, no water/paths)
   tractor:         { x: 560,  y: 770 },
   windmill:        { x: 1200, y: 720 },
   silo:            { x: 1840, y: 770 },
-  // Center row — utilities + hub
-  irrigation:      { x: 470,  y: 970 },
+  // Center row — utilities + hub. Irrigation moved EAST of the left pond
+  // (pond x∈[80,560]) so it stops sitting in the water.
+  irrigation:      { x: 700,  y: 880 },
   farmhouse:       { x: 1200, y: 970 },
   barn:            { x: 1900, y: 1000 },
-  // South fields — crops
-  apple_orchard:   { x: 310,  y: 1360 },
+  // South fields — crops. Apple Orchard moved NORTH off the river
+  // (river curves through y≈1310-1430) and EAST off the left dirt path
+  // so it sits on solid grass between pond and river.
+  apple_orchard:   { x: 450,  y: 1200 },
   wheat_field:     { x: 820,  y: 1140 },
   greenhouse:      { x: 1680, y: 1100 },
   vegetable_patch: { x: 2010, y: 1200 },
-  // Pasture row — livestock
+  // Pasture row — livestock (north of river, clear of paths)
   chicken_coop:    { x: 1060, y: 1250 },
   dairy_cows:      { x: 1500, y: 1250 },
 };
@@ -1510,46 +1513,63 @@ export default function FarmPage() {
                 onClick={tileClickGuard(() => setSelected(b))}
                 data-testid={`tile-${b.id}`}
               >
+                {/* === Ground platform — flat soil/grass disc that sits
+                    flush with the terrain so the building reads as PART of
+                    the ground (one designed block) instead of floating
+                    above it. Crops get a tilled-soil brown patch, livestock
+                    a tan earth patch, equipment/buildings a stone-dirt
+                    patch. The platform extends slightly past the sprite
+                    footprint and has a darker rim + drop shadow so it
+                    looks carved into the terrain.  */}
+                {(() => {
+                  const palette: Record<string, { fill: string; rim: string }> = {
+                    crops:     { fill: "radial-gradient(ellipse at center, #6B4A2A 0%, #553818 60%, #3A2510 100%)", rim: "rgba(30,20,8,0.7)" },
+                    livestock: { fill: "radial-gradient(ellipse at center, #B89968 0%, #8E6F42 60%, #5A4528 100%)", rim: "rgba(40,28,12,0.65)" },
+                    buildings: { fill: "radial-gradient(ellipse at center, #8E8470 0%, #6E6450 60%, #463E2C 100%)", rim: "rgba(30,25,15,0.65)" },
+                    equipment: { fill: "radial-gradient(ellipse at center, #8E8470 0%, #6E6450 60%, #463E2C 100%)", rim: "rgba(30,25,15,0.65)" },
+                  };
+                  const p = palette[b.category] ?? palette.buildings;
+                  return (
+                    <div className="absolute pointer-events-none" style={{
+                      left: "50%",
+                      bottom: -2,
+                      width: "94%",
+                      height: 30,
+                      transform: "translateX(-50%)",
+                      borderRadius: "50%",
+                      background: p.fill,
+                      border: `1.5px solid ${p.rim}`,
+                      boxShadow: "inset 0 -3px 6px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.12), 0 5px 10px rgba(0,0,0,0.45)",
+                      opacity: isOwned ? 1 : 0.55,
+                    }}/>
+                  );
+                })()}
+
                 {isOwned ? (
                   BUILDING_IMAGES[b.id] && !failedSprites[b.id] ? (
-                    <div className="relative w-full h-full">
-                      {/* Contact shadow — sits flush under the sprite's foot
-                          so the building looks planted on the soil patch
-                          instead of floating above it. */}
-                      <div className="absolute pointer-events-none" style={{
-                        left: "50%",
-                        bottom: 4,
-                        width: "78%",
-                        height: 16,
-                        transform: "translateX(-50%)",
-                        background: "radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 55%, rgba(0,0,0,0) 80%)",
-                        borderRadius: "50%",
-                        filter: "blur(1px)",
-                      }}/>
-                      <img
-                        src={BUILDING_IMAGES[b.id]}
-                        alt={b.name}
-                        draggable={false}
-                        onError={() => setFailedSprites(s => s[b.id] ? s : { ...s, [b.id]: true })}
-                        className="w-full h-full"
-                        style={{
-                          objectFit: "contain",
-                          objectPosition: "center bottom",
-                          filter: "drop-shadow(0 6px 5px rgba(0,0,0,0.45))",
-                          // Subtle level-based scale so upgrades feel bigger.
-                          transform: `scale(${0.92 + level * 0.05})`,
-                          transformOrigin: "center bottom",
-                          imageRendering: "auto",
-                        }}
-                      />
-                    </div>
+                    <img
+                      src={BUILDING_IMAGES[b.id]}
+                      alt={b.name}
+                      draggable={false}
+                      onError={() => setFailedSprites(s => s[b.id] ? s : { ...s, [b.id]: true })}
+                      className="relative w-full h-full"
+                      style={{
+                        objectFit: "contain",
+                        objectPosition: "center bottom",
+                        filter: "drop-shadow(0 4px 4px rgba(0,0,0,0.5))",
+                        // Subtle level-based scale so upgrades feel bigger.
+                        transform: `scale(${0.92 + level * 0.05})`,
+                        transformOrigin: "center bottom",
+                        imageRendering: "auto",
+                      }}
+                    />
                   ) : (
-                    <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
+                    <div className="relative w-full h-full" style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.4))" }}>
                       <BuildingSVG buildingId={b.id} level={level}/>
                     </div>
                   )
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>
+                  <div className="relative w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.3))" }}>
                     <div className="flex flex-col items-center gap-1 py-3 px-4 rounded-xl" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(200,180,140,0.7)" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                       <span style={{ color: "#FFD700", fontSize: 12, fontWeight: 800 }}>🪙 {b.buyCost}</span>
