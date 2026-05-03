@@ -1513,37 +1513,45 @@ export default function FarmPage() {
                 onClick={tileClickGuard(() => setSelected(b))}
                 data-testid={`tile-${b.id}`}
               >
-                {/* === Ground platform — flat soil/grass disc that sits
-                    flush with the terrain so the building reads as PART of
-                    the ground (one designed block) instead of floating
-                    above it. Crops get a tilled-soil brown patch, livestock
-                    a tan earth patch, equipment/buildings a stone-dirt
-                    patch. The platform extends slightly past the sprite
-                    footprint and has a darker rim + drop shadow so it
-                    looks carved into the terrain.  */}
-                {(() => {
-                  const palette: Record<string, { fill: string; rim: string }> = {
-                    crops:     { fill: "radial-gradient(ellipse at center, #6B4A2A 0%, #553818 60%, #3A2510 100%)", rim: "rgba(30,20,8,0.7)" },
-                    livestock: { fill: "radial-gradient(ellipse at center, #B89968 0%, #8E6F42 60%, #5A4528 100%)", rim: "rgba(40,28,12,0.65)" },
-                    buildings: { fill: "radial-gradient(ellipse at center, #8E8470 0%, #6E6450 60%, #463E2C 100%)", rim: "rgba(30,25,15,0.65)" },
-                    equipment: { fill: "radial-gradient(ellipse at center, #8E8470 0%, #6E6450 60%, #463E2C 100%)", rim: "rgba(30,25,15,0.65)" },
-                  };
-                  const p = palette[b.category] ?? palette.buildings;
-                  return (
-                    <div className="absolute pointer-events-none" style={{
-                      left: "50%",
-                      bottom: -2,
-                      width: "94%",
-                      height: 30,
-                      transform: "translateX(-50%)",
-                      borderRadius: "50%",
-                      background: p.fill,
-                      border: `1.5px solid ${p.rim}`,
-                      boxShadow: "inset 0 -3px 6px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.12), 0 5px 10px rgba(0,0,0,0.45)",
-                      opacity: isOwned ? 1 : 0.55,
-                    }}/>
-                  );
-                })()}
+                {/* === Ground anchor — TWO layers that together make the
+                    building read as planted on the terrain instead of
+                    floating:
+
+                    Layer 1 (clearing): a wide, very soft GRASS-darker
+                    ellipse painted ON the lawn beneath the building. Same
+                    hue family as the surrounding grass (dark green-brown),
+                    so it blends in like a worn-down patch / plot the
+                    building sits on — it does NOT read as a separate
+                    brown object.
+
+                    Layer 2 (cast shadow): a smaller, darker, blurred
+                    contact shadow tucked right under the sprite's foot.
+                    This is what eliminates the "floating" look — every
+                    real object on grass has this shadow.  */}
+                <div className="absolute pointer-events-none" style={{
+                  left: "50%",
+                  bottom: 0,
+                  width: "120%",
+                  height: 38,
+                  transform: "translateX(-50%)",
+                  borderRadius: "50%",
+                  background:
+                    "radial-gradient(ellipse at center, rgba(48,72,22,0.80) 0%, rgba(58,82,30,0.55) 40%, rgba(70,100,35,0.20) 70%, rgba(80,120,40,0) 90%)",
+                  filter: "blur(3px)",
+                  opacity: isOwned ? 1 : 0.5,
+                }}/>
+                <div className="absolute pointer-events-none" style={{
+                  left: "50%",
+                  bottom: 6,
+                  width: "82%",
+                  height: 18,
+                  transform: "translateX(-50%)",
+                  borderRadius: "50%",
+                  background:
+                    "radial-gradient(ellipse at center, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.40) 50%, rgba(0,0,0,0) 85%)",
+                  filter: "blur(2px)",
+                  opacity: isOwned ? 1 : 0.5,
+                }}/>
 
                 {isOwned ? (
                   BUILDING_IMAGES[b.id] && !failedSprites[b.id] ? (
