@@ -10,17 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ShoppingBag, Coins, CheckCircle2, Lock, Sparkles, User, Frame, Palette, X, ShoppingCart, Zap, TrendingUp } from "lucide-react";
 import { AVATAR_PERKS, FRAME_PERKS, THEME_PERKS } from "@shared/cosmetic-perks";
+// AI portraits / theme key-art live in cosmetics.tsx so any other surface
+// (sidebar avatar, leaderboard) shares the same lookup.
+import { AVATAR_META as AVATAR_META_SHARED, THEME_IMAGE } from "@/components/cosmetics";
 
-// Visual metadata for cosmetics by icon key
-const AVATAR_META: Record<string, { emoji: string; gradient: string; aura: string }> = {
-  wizard:  { emoji: "🧙", gradient: "from-violet-600 via-purple-700 to-indigo-900", aura: "shadow-violet-500/40" },
-  robot:   { emoji: "🤖", gradient: "from-cyan-500 via-blue-600 to-slate-800", aura: "shadow-cyan-500/40" },
-  phoenix: { emoji: "🦅", gradient: "from-orange-500 via-red-600 to-rose-900", aura: "shadow-orange-500/40" },
-  dragon:  { emoji: "🐲", gradient: "from-emerald-500 via-teal-600 to-green-900", aura: "shadow-emerald-500/40" },
-  knight:  { emoji: "⚔️", gradient: "from-slate-400 via-slate-600 to-slate-900", aura: "shadow-slate-500/30" },
-  sage:    { emoji: "📜", gradient: "from-amber-400 via-orange-500 to-red-700", aura: "shadow-amber-400/40" },
-  tycoon:  { emoji: "💼", gradient: "from-yellow-500 via-amber-600 to-yellow-900", aura: "shadow-yellow-400/50" },
-};
+// Visual metadata — re-exported from cosmetics.tsx so the shop and the
+// sidebar/leaderboard never drift. AVATAR_META here is the same object
+// (with the AI portrait `image` field) used everywhere else.
+const AVATAR_META = AVATAR_META_SHARED;
 
 const FRAME_META: Record<string, { border: string; glow: string; label: string; preview: string }> = {
   "neon-purple": { border: "border-2 border-violet-400", glow: "shadow-lg shadow-violet-500/50", label: "Neon Purple", preview: "bg-gradient-to-br from-violet-900/60 to-purple-950" },
@@ -60,8 +57,21 @@ function AvatarPreview({ icon, gradient, aura, size = "h-24" }: { icon: string; 
   const meta = AVATAR_META[icon];
   return (
     <div className={`w-full ${size} rounded-xl flex items-center justify-center relative overflow-hidden bg-gradient-to-br ${meta?.gradient || gradient} shadow-xl ${meta?.aura || ""}`}>
-      <div className="absolute inset-0 bg-black/20" />
-      <span className="relative text-5xl drop-shadow-xl">{meta?.emoji || icon?.charAt(0)}</span>
+      {meta?.image ? (
+        <img
+          src={meta.image}
+          alt={icon}
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      ) : (
+        <>
+          <div className="absolute inset-0 bg-black/20" />
+          <span className="relative text-5xl drop-shadow-xl">{meta?.emoji || icon?.charAt(0)}</span>
+        </>
+      )}
+      {/* Subtle inner gloss to match the live UserAvatar treatment */}
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.12), transparent 40%, rgba(0,0,0,0.18))" }} />
     </div>
   );
 }
@@ -84,19 +94,42 @@ function FramePreview({ icon, size = "h-24" }: { icon: string; size?: string }) 
 
 function ThemePreview({ icon, size = "h-24" }: { icon: string; size?: string }) {
   const meta = THEME_META[icon];
+  const image = THEME_IMAGE[icon];
   const swatches = meta?.swatches || ["#7c3aed", "#6d28d9", "#4c1d95", "#1e1b4b"];
   return (
-    <div className={`w-full ${size} rounded-xl overflow-hidden flex flex-col`}>
-      <div className="flex flex-1">
-        {swatches.slice(0, 2).map((color, i) => (
-          <div key={i} className="flex-1" style={{ backgroundColor: color }} />
-        ))}
-      </div>
-      <div className="flex flex-1">
-        {swatches.slice(2, 4).map((color, i) => (
-          <div key={i} className="flex-1" style={{ backgroundColor: color }} />
-        ))}
-      </div>
+    <div className={`relative w-full ${size} rounded-xl overflow-hidden flex flex-col`}>
+      {image ? (
+        <>
+          <img
+            src={image}
+            alt={meta?.label || icon}
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {/* Tiny swatch strip pinned to the bottom so players still see
+              the literal colour palette the theme will apply. */}
+          <div className="absolute bottom-0 left-0 right-0 flex h-2.5 z-10">
+            {swatches.map((color, i) => (
+              <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+            ))}
+          </div>
+          {/* Soft gradient so the swatch strip stays readable */}
+          <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0) 60%, rgba(0,0,0,0.45))" }} />
+        </>
+      ) : (
+        <>
+          <div className="flex flex-1">
+            {swatches.slice(0, 2).map((color, i) => (
+              <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+            ))}
+          </div>
+          <div className="flex flex-1">
+            {swatches.slice(2, 4).map((color, i) => (
+              <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -60,3 +60,87 @@ id = "w382rTBVsBkshGtH1Y9Bl"
 uri = "file://client/src/assets/farm/tractor.png"
 type = "image"
 title = "tractor"
+
+[[generated]]
+id = "i2oYdHUxv5yD9ILnNd0QE"
+uri = "file://attached_assets/generated_images/avatar_wizard.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "dV3GM8OC3eNKhOEakeLkS"
+uri = "file://attached_assets/generated_images/avatar_robot.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "INhBjNsEMyn1Wz202Opub"
+uri = "file://attached_assets/generated_images/avatar_phoenix.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "4fBnooTEGc2RTEPwgW_Rr"
+uri = "file://attached_assets/generated_images/avatar_dragon.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "ThmbNyQRu3rUwsE_zCWtJ"
+uri = "file://attached_assets/generated_images/avatar_knight.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "DuEHgGnB2rDgiOgNHCIV3"
+uri = "file://attached_assets/generated_images/avatar_sage.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "NZJaC9bcmoUKRDqeazDrx"
+uri = "file://attached_assets/generated_images/avatar_tycoon.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "1PenV6Dgd-F2OB1EdfqOO"
+uri = "file://attached_assets/generated_images/theme_cyberpunk.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "e2NSXoAugrRnRM5XPvjKc"
+uri = "file://attached_assets/generated_images/theme_space.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "D56qixs6YHRRzetqFS05G"
+uri = "file://attached_assets/generated_images/theme_matrix.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "FVDn0snVkAoTaRfSrjssK"
+uri = "file://attached_assets/generated_images/theme_ocean.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "87ecpJoiak1-YeaoQK-za"
+uri = "file://attached_assets/generated_images/theme_fireice.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "7jNM_OAg7u8Sj9Z6zyNL_"
+uri = "file://attached_assets/generated_images/theme_sunset.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "MyLqlzRd3xA0K55Im4WiB"
+uri = "file://attached_assets/generated_images/theme_forest.png"
+type = "image"
+title = "generated_image"

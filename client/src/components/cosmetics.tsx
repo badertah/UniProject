@@ -6,19 +6,53 @@ import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 import { THEME_CSS_VARS } from "@shared/cosmetic-perks";
+// AI-generated avatar portraits — bundled via Vite @assets alias so they
+// hash + ship with the build. Replaces the previous emoji-only avatars.
+import avatarWizard  from "@assets/generated_images/avatar_wizard.png";
+import avatarRobot   from "@assets/generated_images/avatar_robot.png";
+import avatarPhoenix from "@assets/generated_images/avatar_phoenix.png";
+import avatarDragon  from "@assets/generated_images/avatar_dragon.png";
+import avatarKnight  from "@assets/generated_images/avatar_knight.png";
+import avatarSage    from "@assets/generated_images/avatar_sage.png";
+import avatarTycoon  from "@assets/generated_images/avatar_tycoon.png";
+// AI-generated theme key art used by shop previews.
+import themeCyberpunk from "@assets/generated_images/theme_cyberpunk.png";
+import themeSpace     from "@assets/generated_images/theme_space.png";
+import themeMatrix    from "@assets/generated_images/theme_matrix.png";
+import themeOcean     from "@assets/generated_images/theme_ocean.png";
+import themeFireIce   from "@assets/generated_images/theme_fireice.png";
+import themeSunset    from "@assets/generated_images/theme_sunset.png";
+import themeForest    from "@assets/generated_images/theme_forest.png";
 
 // --- Visual metadata, mirrored from shop.tsx so anywhere can render the
 // equipped cosmetic without re-fetching /api/cosmetics. Keys are the
 // cosmetic.icon field — same as the seed.
+//
+// `image` is the AI portrait used as the primary visual; `emoji` stays
+// as a tiny fallback (e.g. for tooltip text or other-player rows on the
+// leaderboard where we don't yet load remote avatars).
 
-export const AVATAR_META: Record<string, { emoji: string; gradient: string; aura: string }> = {
-  wizard:  { emoji: "🧙", gradient: "from-violet-600 via-purple-700 to-indigo-900", aura: "shadow-violet-500/40" },
-  robot:   { emoji: "🤖", gradient: "from-cyan-500 via-blue-600 to-slate-800",      aura: "shadow-cyan-500/40" },
-  phoenix: { emoji: "🦅", gradient: "from-orange-500 via-red-600 to-rose-900",      aura: "shadow-orange-500/40" },
-  dragon:  { emoji: "🐲", gradient: "from-emerald-500 via-teal-600 to-green-900",   aura: "shadow-emerald-500/40" },
-  knight:  { emoji: "⚔️", gradient: "from-slate-400 via-slate-600 to-slate-900",    aura: "shadow-slate-500/30" },
-  sage:    { emoji: "📜", gradient: "from-amber-400 via-orange-500 to-red-700",     aura: "shadow-amber-400/40" },
-  tycoon:  { emoji: "💼", gradient: "from-yellow-500 via-amber-600 to-yellow-900",  aura: "shadow-yellow-400/50" },
+export const AVATAR_META: Record<string, { emoji: string; gradient: string; aura: string; image: string }> = {
+  wizard:  { emoji: "🧙", gradient: "from-violet-600 via-purple-700 to-indigo-900", aura: "shadow-violet-500/40", image: avatarWizard },
+  robot:   { emoji: "🤖", gradient: "from-cyan-500 via-blue-600 to-slate-800",      aura: "shadow-cyan-500/40",   image: avatarRobot },
+  phoenix: { emoji: "🦅", gradient: "from-orange-500 via-red-600 to-rose-900",      aura: "shadow-orange-500/40", image: avatarPhoenix },
+  dragon:  { emoji: "🐲", gradient: "from-emerald-500 via-teal-600 to-green-900",   aura: "shadow-emerald-500/40", image: avatarDragon },
+  knight:  { emoji: "⚔️", gradient: "from-slate-400 via-slate-600 to-slate-900",    aura: "shadow-slate-500/30",  image: avatarKnight },
+  sage:    { emoji: "📜", gradient: "from-amber-400 via-orange-500 to-red-700",     aura: "shadow-amber-400/40",  image: avatarSage },
+  tycoon:  { emoji: "💼", gradient: "from-yellow-500 via-amber-600 to-yellow-900",  aura: "shadow-yellow-400/50", image: avatarTycoon },
+};
+
+// Theme key-art images for shop preview cards. Used by ThemePreview in
+// shop.tsx — the in-app theming itself still uses CSS vars from
+// THEME_CSS_VARS; these are visual previews only.
+export const THEME_IMAGE: Record<string, string> = {
+  cyberpunk:      themeCyberpunk,
+  space:          themeSpace,
+  "matrix-theme": themeMatrix,
+  ocean:          themeOcean,
+  "fire-ice":     themeFireIce,
+  sunset:         themeSunset,
+  forest:         themeForest,
 };
 
 export const FRAME_META: Record<string, { ring: string; glow: string; label: string; preview: string }> = {
@@ -85,11 +119,22 @@ export function UserAvatar({
 
   return (
     <div
-      className={`relative rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 ${gradientCls} ${ringCls} ${className}`}
+      className={`relative rounded-xl overflow-hidden flex items-center justify-center text-white font-bold flex-shrink-0 ${gradientCls} ${ringCls} ${className}`}
       style={{ width: dims.box, height: dims.box, fontSize: dims.emoji }}
       data-testid="user-avatar"
     >
-      {showEmoji ? (
+      {/* Prefer the AI portrait when this user has one of OUR avatars
+          equipped (we know the icon -> image mapping). Otherwise fall
+          back to the emoji (forced from the leaderboard for other
+          players) or the username initial. */}
+      {avatarMeta?.image && !forceEmoji ? (
+        <img
+          src={avatarMeta.image}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      ) : showEmoji ? (
         <span style={{ fontSize: Math.round(dims.emoji * 1.2), filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.4))" }}>
           {showEmoji}
         </span>

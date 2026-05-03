@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import { getTierInfo, getXpToNextLevel, formatXp, getRarityConfig } from "@/lib/utils";
-import { UserAvatar } from "@/components/cosmetics";
+import { UserAvatar, AVATAR_META, THEME_IMAGE } from "@/components/cosmetics";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,15 +122,30 @@ export default function ProfilePage() {
                   <Separator className="my-4 bg-border/40" />
                   <div className="space-y-2">
                     <p className="text-xs font-bold tracking-widest text-muted-foreground font-mono">EQUIPPED</p>
-                    {[equippedAvatar, equippedFrame, equippedTheme].filter(Boolean).map((item: any) => (
-                      <div key={item.id} className="flex items-center gap-2 text-xs">
-                        <div className={`w-6 h-6 rounded-md bg-gradient-to-br ${COSMETIC_COLORS[item.icon] || "from-primary to-accent"} flex items-center justify-center text-white text-xs font-bold`}>
-                          {item.icon?.charAt(0)?.toUpperCase()}
+                    {[equippedAvatar, equippedFrame, equippedTheme].filter(Boolean).map((item: any) => {
+                      // Prefer the AI portrait / theme key art if we have
+                      // one for this icon; fall back to the legacy gradient
+                      // chip with the first-letter glyph for unknown icons
+                      // (custom future cosmetics).
+                      const avatarImg = item.type === "avatar" ? AVATAR_META[item.icon]?.image : null;
+                      const themeImg  = item.type === "theme"  ? THEME_IMAGE[item.icon]       : null;
+                      const img = avatarImg || themeImg;
+                      return (
+                        <div key={item.id} className="flex items-center gap-2 text-xs">
+                          {img ? (
+                            <div className="w-6 h-6 rounded-md overflow-hidden border border-border/40 flex-shrink-0">
+                              <img src={img} alt="" className="w-full h-full object-cover" draggable={false} />
+                            </div>
+                          ) : (
+                            <div className={`w-6 h-6 rounded-md bg-gradient-to-br ${COSMETIC_COLORS[item.icon] || "from-primary to-accent"} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                              {item.icon?.charAt(0)?.toUpperCase()}
+                            </div>
+                          )}
+                          <span className="flex-1 text-left truncate">{item.name}</span>
+                          <Badge variant="outline" className="text-xs capitalize">{item.type}</Badge>
                         </div>
-                        <span className="flex-1 text-left truncate">{item.name}</span>
-                        <Badge variant="outline" className="text-xs capitalize">{item.type}</Badge>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </>
               )}
