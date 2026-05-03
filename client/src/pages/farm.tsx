@@ -138,6 +138,14 @@ function bldgPos(id: string): { x: number; y: number } {
 const GRID = 40;
 const snapToGrid = (v: number) => Math.round(v / GRID) * GRID;
 
+// === Farmhouse roundabout ===
+// All production roads that touch the Farmhouse end at the OUTER edge of a
+// circular roundabout drawn around it (not at the building footprint), so
+// the network reads as "all roads radiate from the central hub" — like a
+// real town square. Other building endpoints still trim at PATCH_CLEAR.
+const ROUNDABOUT_R = 95;
+const ROUNDABOUT_HUB_ID = "farmhouse";
+
 // === Production / data-flow chain (SAD: data flow diagram-style edges) ===
 // Each edge represents a "flow" from a source building to a sink. Visualised
 // as an animated dashed arrow ONLY when both endpoints are owned. Players
@@ -467,6 +475,15 @@ function loadLayout(uid: string): Record<string, { x: number; y: number }> {
 function saveLayout(uid: string, ov: Record<string, { x: number; y: number }>) {
   try { localStorage.setItem(layoutKey(uid), JSON.stringify(ov)); } catch {}
 }
+// Per-user road curviness (0=straight .. 100=very wavy). Stored separately
+// from layout so resetting positions doesn't flip the road style.
+const curveKey = (uid: string) => `farm_road_curve_v1_${uid}`;
+function loadCurve(uid: string): number {
+  try { const raw = localStorage.getItem(curveKey(uid)); if (raw != null) return Math.max(0, Math.min(100, parseInt(raw, 10) || 0)); } catch {} return 0;
+}
+function saveCurve(uid: string, v: number) {
+  try { localStorage.setItem(curveKey(uid), String(Math.max(0, Math.min(100, Math.round(v))))); } catch {}
+}
 
 type CoinPop = { id: string; bId: string; amount: number };
 
@@ -598,6 +615,9 @@ export default function FarmPage() {
   // the new positions on the next paint.
   const [editorMode, setEditorMode] = useState(false);
   const [posOverrides, setPosOverrides] = useState<Record<string, { x: number; y: number }>>({});
+  // Road curviness (0 = straight, 100 = max wave). User-tunable in editor.
+  // Persisted alongside the layout so each player keeps their own road feel.
+  const [roadCurve, setRoadCurve] = useState<number>(0);
   // Apply overrides to BUILDING_POS synchronously during render so that
   // sortedBuildings, edges and trucks all see the same coords this paint.
   useMemo(() => {
@@ -612,12 +632,17 @@ export default function FarmPage() {
     if (!user) return;
     const ov = loadLayout(user.id);
     if (Object.keys(ov).length) setPosOverrides(ov);
+    setRoadCurve(loadCurve(user.id));
   }, [user?.id]);
   // Persist whenever overrides change.
   useEffect(() => {
     if (!user) return;
     saveLayout(user.id, posOverrides);
   }, [posOverrides, user?.id]);
+  useEffect(() => {
+    if (!user) return;
+    saveCurve(user.id, roadCurve);
+  }, [roadCurve, user?.id]);
 
   // Debounced sync of farm-leaderboard stats to the server. We only
   // surface the rankable summary (bank / day / total earned) — the
@@ -1426,16 +1451,31 @@ export default function FarmPage() {
                 const dx = b.x - a.x;
                 const dy = by - ay;
                 const len = Math.max(Math.hypot(dx, dy), 1);
-                // Clean STRAIGHT-LINE roads — like a real tycoon game.
-                // No more meandering Bezier curves. Roads connect endpoints
-                // with a straight diagonal so parallel routes fan out
-                // neatly and intersections meet at clean angles.
-                const tCut = Math.min(0.40, PATCH_CLEAR / len);
-                const sx = a.x + dx * tCut;
-                const sy = ay  + dy * tCut;
-                const ex = a.x + dx * (1 - tCut);
-                const ey = ay  + dy * (1 - tCut);
-                const d = `M ${sx} ${sy} L ${ex} ${ey}`;
+                // Per-end trim: if the endpoint is the Farmhouse hub, stop at
+                // the OUTER edge of its roundabout (so the road visibly meets
+                // the ring). Other endpoints stop at the patch edge.
+                const trimA = (e.from === ROUNDABOUT_HUB_ID ? ROUNDABOUT_R : PATCH_CLEAR) / len;
+                const trimB = (e.to   === ROUNDABOUT_HUB_ID ? ROUNDABOUT_R : PATCH_CLEAR) / len;
+                const tCutA = Math.min(0.45, trimA);
+                const tCutB = Math.min(0.45, trimB);
+                const sx = a.x + dx * tCutA;
+                const sy = ay  + dy * tCutA;
+                const ex = a.x + dx * (1 - tCutB);
+                const ey = ay  + dy * (1 - tCutB);
+                // Optional curve: roadCurve 0..100 from the Editor slider.
+                // Alternate the bow direction by edge index so parallel
+                // routes diverge into a pleasing fan instead of overlapping.
+                let d: string;
+                if (roadCurve > 0) {
+                  const px = -dy / len, py = dx / len;
+                  const sign = (i % 2 === 0) ? 1 : -1;
+                  const mag = (roadCurve / 100) * Math.min(90, len * 0.28) * sign;
+                  const cx = (sx + ex) / 2 + px * mag;
+                  const cy = (sy + ey) / 2 + py * mag;
+                  d = `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`;
+                } else {
+                  d = `M ${sx} ${sy} L ${ex} ${ey}`;
+                }
                 return { i, edge: e, d, style, lv, built };
               }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number; built: boolean } => r !== null);
               const roads = allRoads.filter(r => r.built);
@@ -1477,6 +1517,34 @@ export default function FarmPage() {
                       <path d={r.d} stroke="rgba(255,235,180,0.55)" strokeWidth={4} fill="none" strokeLinecap="round" strokeDasharray="10 8"/>
                     </g>
                   ))}
+
+                  {/* === Farmhouse ROUNDABOUT === Drawn ON TOP of road ends
+                       (so road tips meet the ring cleanly) but UNDER the
+                       trucks (so they appear to drive over it). Only shows
+                       once the Farmhouse is owned. Pure visual. */}
+                  {(farmSave.owned[ROUNDABOUT_HUB_ID] || 0) > 0 && (() => {
+                    const hub = bldgPos(ROUNDABOUT_HUB_ID);
+                    const cx = hub.x;
+                    const cy = hub.y + 14; // foot anchor — matches road math
+                    return (
+                      <g key="roundabout">
+                        {/* soft ground shadow */}
+                        <circle cx={cx} cy={cy + 6} r={ROUNDABOUT_R + 4} fill="rgba(0,0,0,0.28)"/>
+                        {/* sandy bank ring */}
+                        <circle cx={cx} cy={cy} r={ROUNDABOUT_R + 6} fill="none" stroke="#d8b779" strokeWidth={6} opacity={0.85}/>
+                        {/* dark dirt ring (the actual road) */}
+                        <circle cx={cx} cy={cy} r={ROUNDABOUT_R} fill="none" stroke="#5a3a22" strokeWidth={22}/>
+                        {/* lighter wear strip on the ring */}
+                        <circle cx={cx} cy={cy} r={ROUNDABOUT_R} fill="none" stroke="#7a5232" strokeWidth={14} opacity={0.95}/>
+                        {/* dashed yellow lane markers around the circle */}
+                        <circle cx={cx} cy={cy} r={ROUNDABOUT_R} fill="none" stroke="#f3d265" strokeWidth={2.5} strokeDasharray="8 12" opacity={0.85}/>
+                        {/* central grass island with lime border */}
+                        <circle cx={cx} cy={cy} r={ROUNDABOUT_R - 18} fill="#3d7a2a" stroke="#a4d96a" strokeWidth={2.5}/>
+                        {/* tiny highlight on the grass for depth */}
+                        <ellipse cx={cx - 10} cy={cy - 14} rx={ROUNDABOUT_R - 38} ry={10} fill="rgba(255,255,255,0.18)"/>
+                      </g>
+                    );
+                  })()}
 
                   {/* Pass 2 — trucks. Every rendered road has both endpoints
                        owned, so every road carries traffic. During the
@@ -2043,6 +2111,38 @@ export default function FarmPage() {
               <Move className="w-3.5 h-3.5"/>
               <span>{editorMode ? "EDITING" : "EDITOR"}</span>
             </button>
+
+            {editorMode && (
+              <div
+                data-no-pan="true"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                style={{
+                  background: "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))",
+                  border: "1.5px solid rgba(255,215,0,0.4)",
+                  backdropFilter: "blur(8px)",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                  color: "#FFD700",
+                  fontWeight: 900,
+                  fontSize: 11,
+                }}
+                title="Adjust how curvy the roads are. 0 = straight, 100 = very wavy."
+              >
+                <span>WAVE</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={roadCurve}
+                  onChange={(e) => setRoadCurve(parseInt(e.target.value, 10) || 0)}
+                  data-testid="slider-road-curve"
+                  style={{ width: 90, accentColor: "#FFD700", cursor: "pointer" }}
+                />
+                <span style={{ width: 24, textAlign: "right" }}>{roadCurve}</span>
+              </div>
+            )}
 
             {editorMode && (
               <button
