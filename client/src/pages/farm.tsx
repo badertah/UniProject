@@ -413,31 +413,30 @@ function questProgress(q: QuestDef, owned: Record<string, number>, employees: Re
 
 type FarmSave = {
   owned: Record<string, number>;
-  // Number of farmers hired at each building. Indexed by building id.
-  // Cap is `BUILDINGS[].staffCap[level-1]`. Hiring boosts effective
-  // income; wages are auto-deducted from farmBank each production tick.
   employees: Record<string, number>;
-  // Lifetime coins paid in wages (used by the "Pay 50c in wages" quest
-  // and as a stat in the SAD diagram modal).
   wagesPaidTotal: number;
   farmBank: number;
-  // Lifetime coins ever banked from harvests on this farm. Monotonic.
-  // Used as the primary metric on the FARM TYCOONS leaderboard so a
-  // player's all-time management performance is what's ranked.
   farmTotalEarned: number;
   lastTickTime: number;
   tickCounters: Record<string, number>;
   day: number;
   completedQuests: string[];
-  // IDs of story chapters the player has dismissed/acknowledged. Drives the
-  // "NEW!" badge on the StoryPanel — purely client-side, localStorage only.
   acknowledgedChapters: string[];
+  roads: Record<string, number>;
 };
+
+const ROAD_COST = 60;
+const ROAD_INCOME_PCT = 0.05;
+const roadKey = (from: string, to: string) => `${from}__${to}`;
+const builtRoadCount = (roads: Record<string, number> | undefined) =>
+  Object.values(roads || {}).filter(v => v > 0).length;
+const roadBonusMultiplier = (roads: Record<string, number> | undefined) =>
+  1 + builtRoadCount(roads) * ROAD_INCOME_PCT;
 
 function loadState(uid: string): FarmSave {
   try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
-function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [], acknowledgedChapters: [] }; }
+function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [], acknowledgedChapters: [], roads: {} }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 type CoinPop = { id: string; bId: string; amount: number };
@@ -556,6 +555,7 @@ export default function FarmPage() {
   // next render falls through to the legacy hand-drawn BuildingSVG.
   const [failedSprites, setFailedSprites] = useState<Record<string, true>>({});
   const [showDiagrams, setShowDiagrams] = useState(false);
+  const [showRoadShop, setShowRoadShop] = useState(false);
   // Roads + trucks are ON by default so the farm reads as a populated
   // working world (per reference art). Players can toggle the FLOW
   // overlay off if they want to study terrain alone.
@@ -601,7 +601,12 @@ export default function FarmPage() {
   const sadBonusRef = useRef(1);
   const sadMastery = sadMasteryCount(user?.sadConceptMastery);
   const sadBonus = sadBonusMultiplier(sadMastery);
+  // econBonusRef = sadBonus × roadBonus. Used by the tick loop so it
+  // always reads the current combined multiplier without re-binding.
+  const econBonusRef = useRef(1);
   useEffect(() => { sadBonusRef.current = sadBonus; }, [sadBonus]);
+  // Combined economy multiplier (SAD mastery × roads). Updated below
+  // once farmSave is in scope; kept here so the hook order stays stable.
 
   useEffect(() => {
     if (!user) return;
@@ -612,7 +617,7 @@ export default function FarmPage() {
     const elapsed = Date.now() - saved.lastTickTime;
     const missed = Math.min(Math.floor(elapsed / TICK_INTERVAL_MS), MAX_OFFLINE_TICKS);
     if (missed > 0) {
-      const { state: ns } = processTicks(saved, missed, true, sadBonusRef.current);
+      const { state: ns } = processTicks(saved, missed, true, sadBonusRef.current * roadBonusMultiplier(saved.roads));
       ns.lastTickTime = Date.now();
       saveState(ns, user.id);
       setFarmSave(ns);
@@ -626,7 +631,7 @@ export default function FarmPage() {
       const uid = userIdRef.current;
       if (!uid) return;
       setFarmSave(prev => {
-        const { state: ns, pops } = processTicks(prev, 1, false, sadBonusRef.current);
+        const { state: ns, pops } = processTicks(prev, 1, false, sadBonusRef.current * roadBonusMultiplier(prev.roads));
         ns.lastTickTime = Date.now();
         saveState(ns, uid);
         if (pops.length) setCoinPops(cur => [...cur, ...pops]);
@@ -760,6 +765,32 @@ export default function FarmPage() {
       },
     });
   }, [user, farmSave.owned, spendMutation, toast]);
+
+  // === Buy a road segment ===
+  // Roads are buyable per production-edge. Owning a road adds +5% farm
+  // income (stacks with SAD mastery bonus) and renders the segment as a
+  // proper paved/dirt road with trucks. Available only when both endpoints
+  // are owned (otherwise there's nothing to connect).
+  const handleBuyRoad = useCallback((edge: Edge) => {
+    if (!user) return;
+    const k = roadKey(edge.from, edge.to);
+    if ((farmSave.roads || {})[k]) return;
+    if ((farmSave.owned[edge.from] || 0) <= 0 || (farmSave.owned[edge.to] || 0) <= 0) {
+      toast({ title: "Build both endpoints first", variant: "destructive" });
+      return;
+    }
+    if (user.eduCoins < ROAD_COST) { toast({ title: "Not enough EduCoins", variant: "destructive" }); return; }
+    spendMutation.mutate(ROAD_COST, {
+      onSuccess: () => {
+        setFarmSave(prev => {
+          const ns = { ...prev, roads: { ...(prev.roads || {}), [k]: 1 } };
+          if (user) saveState(ns, user.id);
+          return ns;
+        });
+        toast({ title: `🛣️ Road built · +${Math.round(ROAD_INCOME_PCT * 100)}% farm income` });
+      },
+    });
+  }, [user, farmSave.roads, farmSave.owned, spendMutation, toast]);
 
   const [, setLocation] = useLocation();
 
@@ -971,6 +1002,13 @@ export default function FarmPage() {
     cb();
   };
 
+  // Combined economy multiplier (SAD mastery × built-roads). Computed
+  // once per render and threaded through every income calculation +
+  // the tick loop's ref so offline/online ticks both honour roads.
+  const roadBonus = roadBonusMultiplier(farmSave.roads);
+  const econBonus = sadBonus * roadBonus;
+  useEffect(() => { econBonusRef.current = econBonus; }, [econBonus]);
+
   if (!user) return null;
 
   const totalOwned = Object.values(farmSave.owned).filter(v => v > 0).length;
@@ -978,13 +1016,13 @@ export default function FarmPage() {
   const incomePerMin = BUILDINGS.reduce((s, b) => {
     const lv = farmSave.owned[b.id] || 0;
     if (!lv) return s;
-    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0, sadBonus);
+    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0, econBonus);
     return s + (econ.net / b.tickMultiplier) * 2;
   }, 0);
   const totalWagesPerMin = BUILDINGS.reduce((s, b) => {
     const lv = farmSave.owned[b.id] || 0;
     if (!lv) return s;
-    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0, sadBonus);
+    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0, econBonus);
     return s + (econ.wages / b.tickMultiplier) * 2;
   }, 0);
   // Active story chapter — pure derived from current state + SAD mastery.
@@ -1253,63 +1291,60 @@ export default function FarmPage() {
               // Distance to keep clear from each endpoint so the road stops
               // at the patch edge instead of intruding under the building.
               const PATCH_CLEAR = 95;
-              const roads = PRODUCTION_EDGES.map((e, i) => {
+              // World centroid roughly matches the BUILDING_POS bbox center.
+              // Roads bow AWAY from this point so the network forms a
+              // sweeping ring instead of crossing through the middle.
+              const WORLD_CX = 1200;
+              const WORLD_CY = 1000;
+              const builtMap = farmSave.roads || {};
+              const allRoads = PRODUCTION_EDGES.map((e, i) => {
                 const fromLv = farmSave.owned[e.from] || 0;
                 const toLv = farmSave.owned[e.to] || 0;
-                // Roads only exist when BOTH endpoints are owned/built —
-                // matches the user's mental model: unlock a building, the
-                // road that serves it appears. Avoids the "ugly sticks"
-                // that planned-trail overlays produced on a fresh farm.
+                // Need both endpoints owned for a road to exist at all
+                // (built or as a buyable preview).
                 if (fromLv <= 0 || toLv <= 0) return null;
+                const built = (builtMap[roadKey(e.from, e.to)] || 0) > 0;
                 const a = bldgPos(e.from);
                 const b = bldgPos(e.to);
                 const lv = Math.min(fromLv, toLv);
                 const style = roadStyleFor(lv);
-                // Two pseudo-random perpendicular offsets along the path
-                // create an S-curve. Sign alternates by edge index so the
-                // network gets organic variety instead of all bowing the
-                // same way.
-                const dx = b.x - a.x;
-                const dy = (b.y + 14) - (a.y + 14);
-                const len = Math.max(Math.hypot(dx, dy), 1);
-                // Perpendicular unit vector
-                const px = -dy / len;
-                const py =  dx / len;
-                const sign = (i % 2 === 0) ? 1 : -1;
-                // Curve magnitude scales with edge length (long roads
-                // bend more, short ones stay tight).
-                const mag1 = (16 + ((i * 17) % 22)) * sign;
-                const mag2 = (14 + ((i * 23) % 20)) * -sign;
                 const ay = a.y + 14;
                 const by = b.y + 14;
-                // Two control points at 1/3 and 2/3 along the chord, each
-                // pushed perpendicular by mag1/mag2 -> S-shape.
-                const c1x = a.x + dx * 0.33 + px * mag1;
-                const c1y = ay  + dy * 0.33 + py * mag1;
-                const c2x = a.x + dx * 0.66 + px * mag2;
-                const c2y = ay  + dy * 0.66 + py * mag2;
+                const dx = b.x - a.x;
+                const dy = by - ay;
+                const len = Math.max(Math.hypot(dx, dy), 1);
+                // Perpendicular unit vectors (two choices). Pick the one
+                // pointing AWAY from the world centroid so curves fan
+                // outward instead of piling up in the middle.
+                const px = -dy / len;
+                const py =  dx / len;
+                const mx = (a.x + b.x) / 2;
+                const my = (ay + by) / 2;
+                const outX = mx - WORLD_CX;
+                const outY = my - WORLD_CY;
+                const outward = (px * outX + py * outY) >= 0 ? 1 : -1;
+                // Magnitude scales with edge length (long roads bend more,
+                // short ones stay tight). Mild ±4 jitter by edge index
+                // separates parallel runs without re-creating crossings.
+                const baseMag = Math.min(60, len * 0.18) + ((i * 7) % 9);
+                const mag = baseMag * outward;
+                // SINGLE outward C-bend (not S) — same sign for both control
+                // points => simple arc, no inflection, no self-overlap.
+                const c1x = a.x + dx * 0.33 + px * mag;
+                const c1y = ay  + dy * 0.33 + py * mag;
+                const c2x = a.x + dx * 0.66 + px * mag;
+                const c2y = ay  + dy * 0.66 + py * mag;
                 // Trim ends so the road stops at the patch edge.
                 const tCut = Math.min(0.40, PATCH_CLEAR / len);
-                const t1 = tCut, t2 = 1 - tCut;
-                const sx = cubic(t1, a.x, c1x, c2x, b.x);
-                const sy = cubic(t1, ay,  c1y, c2y, by);
-                const ex = cubic(t2, a.x, c1x, c2x, b.x);
-                const ey = cubic(t2, ay,  c1y, c2y, by);
-                // Re-fit a fresh cubic between the trimmed endpoints by
-                // pulling the control points along the same offsets — keeps
-                // the curve shape consistent after trimming.
-                const ndx = ex - sx;
-                const ndy = ey - sy;
-                const nlen = Math.max(Math.hypot(ndx, ndy), 1);
-                const npx = -ndy / nlen;
-                const npy =  ndx / nlen;
-                const nc1x = sx + ndx * 0.33 + npx * mag1 * 0.7;
-                const nc1y = sy + ndy * 0.33 + npy * mag1 * 0.7;
-                const nc2x = sx + ndx * 0.66 + npx * mag2 * 0.7;
-                const nc2y = sy + ndy * 0.66 + npy * mag2 * 0.7;
-                const d = `M ${sx} ${sy} C ${nc1x} ${nc1y}, ${nc2x} ${nc2y}, ${ex} ${ey}`;
-                return { i, edge: e, d, style, lv };
-              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number } => r !== null);
+                const sx = cubic(tCut, a.x, c1x, c2x, b.x);
+                const sy = cubic(tCut, ay,  c1y, c2y, by);
+                const ex = cubic(1 - tCut, a.x, c1x, c2x, b.x);
+                const ey = cubic(1 - tCut, ay,  c1y, c2y, by);
+                const d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`;
+                return { i, edge: e, d, style, lv, built };
+              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number; built: boolean } => r !== null);
+              const roads = allRoads.filter(r => r.built);
+              const planned = allRoads.filter(r => !r.built);
 
               return (
                 <>
@@ -1329,6 +1364,22 @@ export default function FarmPage() {
                       {r.style.dash && (
                         <path d={r.d} stroke={r.style.dash.color} strokeWidth={r.style.dash.w} fill="none" strokeDasharray={r.style.dash.array} opacity={r.style.dash.opacity}/>
                       )}
+                    </g>
+                  ))}
+
+                  {/* Planned-road previews — faint dashed cream lines along
+                       the same outward-bow curve. Clicking opens the Roads
+                       modal so the player can confirm the buy. */}
+                  {planned.map(r => (
+                    <g
+                      key={`planned-${r.i}`}
+                      style={{ cursor: "pointer" }}
+                      onClick={(e) => { e.stopPropagation(); setShowRoadShop(true); }}
+                      data-testid={`planned-road-${r.edge.from}-${r.edge.to}`}
+                    >
+                      {/* Wide invisible hit target for easier tapping */}
+                      <path d={r.d} stroke="rgba(0,0,0,0)" strokeWidth={28} fill="none" strokeLinecap="round"/>
+                      <path d={r.d} stroke="rgba(255,235,180,0.55)" strokeWidth={4} fill="none" strokeLinecap="round" strokeDasharray="10 8"/>
                     </g>
                   ))}
 
@@ -1758,6 +1809,43 @@ export default function FarmPage() {
         <span>{showRoads ? "FLOW: ON" : "FLOW"}</span>
       </button>
 
+      {/* === ROADS button — opens the Build Roads modal where players buy
+           paved segments between owned buildings. Each road adds +5%
+           farm income and shows trucks moving along the production
+           chain. === */}
+      <button
+        data-no-pan="true"
+        onClick={() => setShowRoadShop(true)}
+        className="absolute z-30 flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+        style={{
+          right: 10, top: 206,
+          background: "linear-gradient(135deg, rgba(60,40,15,0.95), rgba(80,55,20,0.92))",
+          color: "#FFD700",
+          border: "1.5px solid rgba(255,215,0,0.55)",
+          backdropFilter: "blur(8px)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+        }}
+        data-testid="btn-open-roads"
+        title="Build roads to boost farm income"
+      >
+        <span>🛣️</span>
+        <span>ROADS · +{Math.round((roadBonus - 1) * 100)}%</span>
+      </button>
+
+      {/* Roads modal */}
+      <AnimatePresence>
+        {showRoadShop && (
+          <RoadShopModal
+            owned={farmSave.owned}
+            roads={farmSave.roads || {}}
+            userCoins={user.eduCoins}
+            isPending={spendMutation.isPending}
+            onBuy={handleBuyRoad}
+            onClose={() => setShowRoadShop(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Building modal */}
       <AnimatePresence>
         {selected && (
@@ -1797,6 +1885,139 @@ export default function FarmPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// === Build Roads modal ===
+// Lists every road segment that connects two owned buildings. Each row
+// shows from→to, current status (Built / Available / Locked), and a Build
+// button. Built roads add +5% farm income each.
+function RoadShopModal({ owned, roads, userCoins, isPending, onBuy, onClose }: {
+  owned: Record<string, number>;
+  roads: Record<string, number>;
+  userCoins: number;
+  isPending: boolean;
+  onBuy: (e: Edge) => void;
+  onClose: () => void;
+}) {
+  const nameOf = (id: string) => BUILDINGS.find(x => x.id === id)?.name || id;
+  const emojiOf = (id: string) => BUILDINGS.find(x => x.id === id)?.emoji || "?";
+  const built = PRODUCTION_EDGES.filter(e => (roads[roadKey(e.from, e.to)] || 0) > 0);
+  const available = PRODUCTION_EDGES.filter(e =>
+    (roads[roadKey(e.from, e.to)] || 0) <= 0 &&
+    (owned[e.from] || 0) > 0 &&
+    (owned[e.to] || 0) > 0
+  );
+  const locked = PRODUCTION_EDGES.filter(e =>
+    (roads[roadKey(e.from, e.to)] || 0) <= 0 &&
+    ((owned[e.from] || 0) <= 0 || (owned[e.to] || 0) <= 0)
+  );
+  const totalBonusPct = built.length * Math.round(ROAD_INCOME_PCT * 100);
+
+  const renderRow = (e: Edge, status: "built" | "available" | "locked") => {
+    const k = `${e.from}__${e.to}`;
+    const canAfford = userCoins >= ROAD_COST;
+    return (
+      <div
+        key={k}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
+        style={{
+          background: status === "built" ? "rgba(76,175,80,0.12)" : status === "available" ? "rgba(255,215,0,0.06)" : "rgba(255,255,255,0.03)",
+          border: status === "built" ? "1px solid rgba(76,175,80,0.45)" : status === "available" ? "1px solid rgba(255,215,0,0.30)" : "1px dashed rgba(255,255,255,0.10)",
+          opacity: status === "locked" ? 0.55 : 1,
+        }}
+        data-testid={`road-row-${k}`}
+      >
+        <div className="text-base shrink-0">{emojiOf(e.from)}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs sm:text-sm font-bold text-white truncate">
+            {nameOf(e.from)} → {nameOf(e.to)}
+          </div>
+          <div className="text-[10px] text-amber-200/70 capitalize">{e.kind} road</div>
+        </div>
+        <div className="text-base shrink-0">{emojiOf(e.to)}</div>
+        {status === "built" && (
+          <div className="text-[10px] font-black px-2 py-1 rounded-md" style={{ background: "rgba(76,175,80,0.25)", color: "#A5D6A7", border: "1px solid rgba(76,175,80,0.5)" }}>
+            BUILT · +{Math.round(ROAD_INCOME_PCT * 100)}%
+          </div>
+        )}
+        {status === "available" && (
+          <button
+            onClick={() => onBuy(e)}
+            disabled={isPending || !canAfford}
+            className="text-[11px] font-black px-3 py-1.5 rounded-md transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: canAfford ? "linear-gradient(135deg, #FFD700, #F5A623)" : "rgba(120,120,120,0.4)", color: canAfford ? "#3E2716" : "#999" }}
+            data-testid={`btn-build-road-${k}`}
+          >
+            Build · {ROAD_COST}🪙
+          </button>
+        )}
+        {status === "locked" && (
+          <div className="text-[10px] font-bold text-amber-200/55 italic">
+            Build endpoints first
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <motion.div className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}/>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 pointer-events-none"
+        initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.94 }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="pointer-events-auto flex flex-col w-full max-w-md rounded-xl overflow-hidden"
+          style={{ background: "linear-gradient(180deg, #1a2410 0%, #0f1a08 100%)", border: "2px solid rgba(255,215,0,0.4)", boxShadow: "0 20px 60px rgba(0,0,0,0.6)", maxHeight: "90vh" }}
+          data-testid="modal-roads"
+        >
+          <div className="px-4 py-3 flex items-center justify-between" style={{ background: "linear-gradient(135deg, rgba(60,40,15,0.9), rgba(80,55,20,0.85))", borderBottom: "1px solid rgba(255,215,0,0.3)" }}>
+            <div>
+              <div className="text-base font-black text-amber-100 flex items-center gap-2">
+                <span>🛣️</span> Build Roads
+              </div>
+              <div className="text-[11px] text-amber-200/80 mt-0.5">
+                {built.length}/{PRODUCTION_EDGES.length} built · <span className="text-amber-300 font-bold">+{totalBonusPct}%</span> farm income
+              </div>
+            </div>
+            <button onClick={onClose} className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-white/10" data-testid="btn-close-roads">
+              <X className="w-4 h-4 text-amber-200"/>
+            </button>
+          </div>
+          <div className="overflow-y-auto p-3 space-y-3">
+            <div className="text-[11px] text-amber-200/70 leading-relaxed px-1">
+              Each road connects two of your buildings and pays <span className="text-amber-300 font-bold">+{Math.round(ROAD_INCOME_PCT * 100)}% farm income</span>. Build all {PRODUCTION_EDGES.length} for <span className="text-amber-300 font-bold">+{PRODUCTION_EDGES.length * Math.round(ROAD_INCOME_PCT * 100)}%</span>.
+            </div>
+            {available.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-black tracking-wider text-amber-300/90 px-1">AVAILABLE TO BUILD ({available.length})</div>
+                {available.map(e => renderRow(e, "available"))}
+              </div>
+            )}
+            {built.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-black tracking-wider text-green-300/90 px-1">BUILT ({built.length})</div>
+                {built.map(e => renderRow(e, "built"))}
+              </div>
+            )}
+            {locked.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-black tracking-wider text-amber-200/50 px-1">LOCKED ({locked.length})</div>
+                {locked.map(e => renderRow(e, "locked"))}
+              </div>
+            )}
+            {available.length === 0 && built.length === 0 && (
+              <div className="text-center py-6 text-amber-200/60 text-xs">
+                Build at least 2 connected buildings to unlock roads.
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </>
   );
 }
 
