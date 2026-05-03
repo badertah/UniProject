@@ -61,15 +61,67 @@ export function combinePerks(avatarIcon?: string | null, frameIcon?: string | nu
 }
 
 // HSL CSS variables (H S% L%) for each theme — applied at <html> level.
-// Keys: primary, accent, background tweaks.
+// Themes now retint the WHOLE backdrop (background, card, sidebar, popover,
+// muted, border) toward the theme's hue, not just the primary/accent. Each
+// palette stays dark enough to keep text readable, but the page is no
+// longer the same generic dark blue under every theme.
 export const THEME_CSS_VARS: Record<string, Record<string, string>> = {
-  cyberpunk:      { "--primary": "330 100% 55%", "--accent": "50 100% 55%", "--ring": "330 100% 55%" },
-  space:          { "--primary": "210 80% 60%",  "--accent": "190 90% 60%", "--ring": "210 80% 60%" },
-  "matrix-theme": { "--primary": "135 80% 50%",  "--accent": "135 70% 60%", "--ring": "135 80% 50%" },
-  ocean:          { "--primary": "195 85% 50%",  "--accent": "175 80% 55%", "--ring": "195 85% 50%" },
-  "fire-ice":     { "--primary": "10 90% 60%",   "--accent": "200 90% 60%", "--ring": "10 90% 60%" },
-  sunset:         { "--primary": "25 90% 60%",   "--accent": "330 80% 65%", "--ring": "25 90% 60%" },
-  forest:         { "--primary": "140 50% 50%",  "--accent": "85 60% 55%",  "--ring": "140 50% 50%" },
+  cyberpunk: {
+    "--primary": "330 100% 55%", "--accent": "50 100% 55%",  "--ring": "330 100% 55%",
+    "--background": "300 60% 6%",  "--card": "300 50% 10%",   "--card-border": "320 60% 22%",
+    "--sidebar": "300 55% 8%",     "--sidebar-border": "320 60% 18%",
+    "--sidebar-accent": "320 60% 16%", "--sidebar-primary": "330 100% 55%", "--sidebar-ring": "330 100% 55%",
+    "--popover": "300 55% 9%",     "--popover-border": "320 60% 22%",
+    "--secondary": "320 50% 16%",  "--muted": "300 40% 13%",  "--border": "320 50% 22%", "--input": "320 50% 22%",
+  },
+  space: {
+    "--primary": "210 80% 60%",   "--accent": "190 90% 60%",  "--ring": "210 80% 60%",
+    "--background": "220 60% 6%", "--card": "220 50% 10%",   "--card-border": "215 50% 24%",
+    "--sidebar": "220 55% 8%",    "--sidebar-border": "220 45% 18%",
+    "--sidebar-accent": "215 45% 16%", "--sidebar-primary": "210 80% 60%", "--sidebar-ring": "210 80% 60%",
+    "--popover": "220 55% 9%",    "--popover-border": "215 50% 24%",
+    "--secondary": "215 45% 16%", "--muted": "220 40% 13%",  "--border": "215 45% 22%", "--input": "215 45% 22%",
+  },
+  "matrix-theme": {
+    "--primary": "135 80% 50%",   "--accent": "135 70% 60%",  "--ring": "135 80% 50%",
+    "--background": "135 60% 4%", "--card": "135 50% 8%",    "--card-border": "135 60% 22%",
+    "--sidebar": "135 55% 6%",    "--sidebar-border": "135 50% 16%",
+    "--sidebar-accent": "135 45% 14%", "--sidebar-primary": "135 80% 50%", "--sidebar-ring": "135 80% 50%",
+    "--popover": "135 55% 7%",    "--popover-border": "135 60% 22%",
+    "--secondary": "135 40% 14%", "--muted": "135 35% 11%",  "--border": "135 50% 20%", "--input": "135 50% 20%",
+  },
+  ocean: {
+    "--primary": "195 85% 50%",   "--accent": "175 80% 55%",  "--ring": "195 85% 50%",
+    "--background": "200 70% 6%", "--card": "200 55% 10%",   "--card-border": "195 60% 24%",
+    "--sidebar": "200 60% 8%",    "--sidebar-border": "195 55% 18%",
+    "--sidebar-accent": "195 50% 16%", "--sidebar-primary": "195 85% 50%", "--sidebar-ring": "195 85% 50%",
+    "--popover": "200 60% 9%",    "--popover-border": "195 60% 24%",
+    "--secondary": "195 50% 16%", "--muted": "200 45% 13%",  "--border": "195 50% 22%", "--input": "195 50% 22%",
+  },
+  "fire-ice": {
+    "--primary": "10 90% 60%",    "--accent": "200 90% 60%",  "--ring": "10 90% 60%",
+    "--background": "260 40% 6%", "--card": "260 35% 10%",   "--card-border": "10 60% 24%",
+    "--sidebar": "260 35% 8%",    "--sidebar-border": "10 50% 20%",
+    "--sidebar-accent": "10 45% 16%", "--sidebar-primary": "10 90% 60%", "--sidebar-ring": "10 90% 60%",
+    "--popover": "260 35% 9%",    "--popover-border": "10 50% 24%",
+    "--secondary": "10 40% 16%",  "--muted": "260 30% 13%",  "--border": "10 45% 22%", "--input": "10 45% 22%",
+  },
+  sunset: {
+    "--primary": "25 90% 60%",    "--accent": "330 80% 65%",  "--ring": "25 90% 60%",
+    "--background": "20 50% 6%",  "--card": "20 45% 10%",    "--card-border": "25 60% 24%",
+    "--sidebar": "20 45% 8%",     "--sidebar-border": "25 55% 18%",
+    "--sidebar-accent": "25 50% 16%", "--sidebar-primary": "25 90% 60%", "--sidebar-ring": "25 90% 60%",
+    "--popover": "20 45% 9%",     "--popover-border": "25 60% 24%",
+    "--secondary": "25 50% 16%",  "--muted": "20 40% 13%",   "--border": "25 50% 22%", "--input": "25 50% 22%",
+  },
+  forest: {
+    "--primary": "140 50% 50%",   "--accent": "85 60% 55%",   "--ring": "140 50% 50%",
+    "--background": "140 45% 5%", "--card": "140 40% 9%",    "--card-border": "140 45% 22%",
+    "--sidebar": "140 40% 7%",    "--sidebar-border": "140 40% 16%",
+    "--sidebar-accent": "140 35% 14%", "--sidebar-primary": "140 50% 50%", "--sidebar-ring": "140 50% 50%",
+    "--popover": "140 40% 8%",    "--popover-border": "140 45% 22%",
+    "--secondary": "140 35% 14%", "--muted": "140 30% 11%",  "--border": "140 40% 20%", "--input": "140 40% 20%",
+  },
 };
 
 // Sky-colour overrides for the farm scene per theme (4 stops, 0..1 in time of day)

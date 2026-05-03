@@ -511,8 +511,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============ LEADERBOARD ============
   app.get("/api/leaderboard", async (req, res) => {
     try {
-      const leaders = await storage.getLeaderboard(20);
-      const safe = leaders.map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
+      // Pull a wider window then filter admins out so the admin/staff
+      // accounts never appear on the public leaderboard, no matter how
+      // much XP they have.
+      const leaders = await storage.getLeaderboard(50);
+      const safe = leaders
+        .filter(u => !u.isAdmin)
+        .slice(0, 20)
+        .map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
       res.json(safe);
     } catch {
       res.status(500).json({ error: "Failed to fetch leaderboard" });
@@ -524,8 +530,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // leaderboard tracks course completions, this one tracks management.
   app.get("/api/leaderboard/farm", async (req, res) => {
     try {
-      const leaders = await storage.getFarmLeaderboard(20);
-      const safe = leaders.map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
+      const leaders = await storage.getFarmLeaderboard(50);
+      const safe = leaders
+        .filter(u => !u.isAdmin)
+        .slice(0, 20)
+        .map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
       res.json(safe);
     } catch {
       res.status(500).json({ error: "Failed to fetch farm leaderboard" });
