@@ -19,6 +19,10 @@ interface User {
   farmBank?: number;
   farmDay?: number;
   farmTotalEarned?: number;
+  // SAD concept teach-back mastery — keys are SAD_GAME_TYPE ids,
+  // values are truthy when the player has passed teach-back. Drives
+  // the +5%/concept farm income multiplier in the farm page.
+  sadConceptMastery?: Record<string, unknown>;
 }
 
 interface AuthContext {

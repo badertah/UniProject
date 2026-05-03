@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap, Truck } from "lucide-react";
+import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap, Truck, BookOpen, Brain } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import imgBarn       from "@/assets/farm/barn.png";
 import imgFarmhouse  from "@/assets/farm/farmhouse.png";
@@ -271,6 +271,105 @@ const QUESTS: QuestDef[] = [
   },
 ];
 
+// === STORYLINE — "Mira's Turnaround" =======================================
+// You're brought in as a junior systems analyst to revive the family farm.
+// Each chapter unlocks automatically from farm state + SAD mastery and
+// re-frames a SAD concept as a farm-business problem you have to solve.
+// Chapters are pure-derived: no extra persistence beyond
+// `acknowledgedChapters` (which chapter intros has the player dismissed).
+type StoryChapter = {
+  id: string;
+  index: number;       // 1-based, shown to player
+  title: string;
+  sadConcept: string;  // taught/reinforced concept
+  narrator: string;    // 1-2 sentence in-character intro
+  objective: string;   // what the player must do to advance
+  // `done` is computed from farm state (owned/employees) + SAD mastery
+  // count so chapters that require academy work also clear here.
+  done: (s: { owned: Record<string, number>; employees: Record<string, number> }, sadMastery: number) => boolean;
+};
+
+const PRODUCERS = ["wheat_field","vegetable_patch","apple_orchard","greenhouse","chicken_coop","dairy_cows"];
+const totalEmp = (e: Record<string, number>) => Object.values(e || {}).reduce((a, b) => a + b, 0);
+
+const STORY_CHAPTERS: StoryChapter[] = [
+  {
+    id: "ch1_inheritance", index: 1,
+    title: "The Inheritance",
+    sadConcept: "System Initialization",
+    narrator: "Grandpa Joe left you the family farm. The fields are bare, the bank is empty, and the neighbours are watching. Time to bootstrap.",
+    objective: "Build your first plot from the shop.",
+    done: (s) => Object.values(s.owned).some(v => v > 0),
+  },
+  {
+    id: "ch2_inputs", index: 2,
+    title: "Identify Your Inputs",
+    sadConcept: "Requirements · Input Sources",
+    narrator: "Every system needs raw inputs. Stop daydreaming about export contracts and stand up the producers that actually feed the chain.",
+    objective: "Build a Wheat Field, Chicken Coop, and Dairy Cows.",
+    done: (s) => ["wheat_field","chicken_coop","dairy_cows"].every(id => (s.owned[id] || 0) > 0),
+  },
+  {
+    id: "ch3_storage", index: 3,
+    title: "Buffer the Flow",
+    sadConcept: "DFD · Data Stores",
+    narrator: "Production without storage chokes the pipeline. The silo and the barn are your data stores — they let producers and the farmhouse run at different speeds.",
+    objective: "Build the Silo and the Barn.",
+    done: (s) => (s.owned.silo || 0) > 0 && (s.owned.barn || 0) > 0,
+  },
+  {
+    id: "ch4_output", index: 4,
+    title: "Close the Loop",
+    sadConcept: "DFD · End-to-End Flow",
+    narrator: "A farm only earns when finished goods reach the farmhouse. Map the entire data flow — producer → store → output — or you're just burning wages.",
+    objective: "Build the Farmhouse and at least 3 producers.",
+    done: (s) => (s.owned.farmhouse || 0) > 0 && PRODUCERS.filter(id => (s.owned[id] || 0) > 0).length >= 3,
+  },
+  {
+    id: "ch5_actors", index: 5,
+    title: "Hire the Actors",
+    sadConcept: "Use Case · Actors",
+    narrator: "Every use case needs an actor. An empty barn is just a building — pay people and the system actually runs.",
+    objective: "Hire at least 3 farmers across your buildings.",
+    done: (s) => totalEmp(s.employees) >= 3,
+  },
+  {
+    id: "ch6_scale", index: 6,
+    title: "Refactor & Scale",
+    sadConcept: "Iterative Architecture",
+    narrator: "Your v1 prototype is barely keeping up. Refactor a building to v3 and watch throughput climb — that's iterative architecture in action.",
+    objective: "Upgrade any building to LV3 ★.",
+    done: (s) => Object.values(s.owned).some(v => v >= 3),
+  },
+  {
+    id: "ch7_analyst", index: 7,
+    title: "Earn the Title",
+    sadConcept: "Theory + Practice",
+    narrator: "Running a farm is one thing. UNDERSTANDING the system is another. Pass teach-back on 4 SAD concepts in the academy and you'll be a real systems analyst — and the bank will reward you with permanent income bonuses.",
+    objective: "Master 4 SAD concepts in courses (+5% farm income each).",
+    done: (_s, mastery) => mastery >= 4,
+  },
+];
+
+// Derive the currently-active chapter: the first one whose `done` is false.
+// If every chapter is done we return the last one (always-visible epilogue).
+function currentChapter(s: { owned: Record<string, number>; employees: Record<string, number> }, sadMastery: number): StoryChapter {
+  return STORY_CHAPTERS.find(c => !c.done(s, sadMastery)) ?? STORY_CHAPTERS[STORY_CHAPTERS.length - 1];
+}
+
+// === SAD MASTERY → FARM ECONOMY BRIDGE ====================================
+// Each SAD concept the player has passed teach-back on grants a permanent
+// +5% multiplier on farm income (gross per tick). Capped at the number of
+// SAD game types so it can't run away.
+const SAD_BONUS_PER_CONCEPT = 0.05;
+function sadMasteryCount(scm: unknown): number {
+  if (!scm || typeof scm !== "object") return 0;
+  return Object.keys(scm as Record<string, unknown>).filter(k => (scm as Record<string, unknown>)[k]).length;
+}
+function sadBonusMultiplier(masteryCount: number): number {
+  return 1 + masteryCount * SAD_BONUS_PER_CONCEPT;
+}
+
 function questProgress(q: QuestDef, owned: Record<string, number>, employees: Record<string, number> = {}, wagesPaid = 0): { done: boolean; pct: number; label: string } {
   switch (q.req.kind) {
     case "any_owned": {
@@ -330,12 +429,15 @@ type FarmSave = {
   tickCounters: Record<string, number>;
   day: number;
   completedQuests: string[];
+  // IDs of story chapters the player has dismissed/acknowledged. Drives the
+  // "NEW!" badge on the StoryPanel — purely client-side, localStorage only.
+  acknowledgedChapters: string[];
 };
 
 function loadState(uid: string): FarmSave {
   try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
-function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [] }; }
+function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [], acknowledgedChapters: [] }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 type CoinPop = { id: string; bId: string; amount: number };
@@ -349,19 +451,22 @@ type CoinPop = { id: string; bId: string; amount: number };
 //   - fully staffed: 100% of base
 // Wage cost per tick = effectiveStaff * wagePerTick (paid from farmBank).
 // Net is what actually lands in the bank that tick.
-function buildingTickEcon(b: BuildingDef, level: number, hired: number) {
+// `incomeMultiplier` is the SAD mastery bonus from sadBonusMultiplier();
+// defaults to 1 so callers that don't care (e.g. raw "is this profitable?"
+// checks) still work. Wages are NOT multiplied — only gross output is.
+function buildingTickEcon(b: BuildingDef, level: number, hired: number, incomeMultiplier = 1) {
   if (level <= 0) return { gross: 0, wages: 0, net: 0, effectiveStaff: 0, capped: 0 };
   const cap = b.staffCap[level - 1];
   const effectiveStaff = Math.max(0, Math.min(hired, cap));
   const ratio = cap === 0 ? 1 : effectiveStaff / cap;
   const base = b.incomePerTick[level - 1];
-  const gross = Math.floor(base * (0.5 + 0.5 * ratio));
+  const gross = Math.floor(base * (0.5 + 0.5 * ratio) * incomeMultiplier);
   const wages = effectiveStaff * b.wagePerTick;
   const net = gross - wages;
   return { gross, wages, net, effectiveStaff, capped: cap };
 }
 
-function processTicks(state: FarmSave, n: number, silent = false) {
+function processTicks(state: FarmSave, n: number, silent = false, incomeMultiplier = 1) {
   let farmBank = state.farmBank;
   let wagesPaidTotal = state.wagesPaidTotal || 0;
   const tickCounters = { ...state.tickCounters };
@@ -374,7 +479,7 @@ function processTicks(state: FarmSave, n: number, silent = false) {
       if (tickCounters[b.id] >= b.tickMultiplier) {
         tickCounters[b.id] = 0;
         const hired = state.employees?.[b.id] || 0;
-        const econ = buildingTickEcon(b, lv, hired);
+        const econ = buildingTickEcon(b, lv, hired, incomeMultiplier);
         // Wages always attempt to come out, but we only count what was
         // actually deducted from the bank — bank is clamped at 0, so if
         // net would push it negative we cap the wages-paid credit to
@@ -490,6 +595,13 @@ export default function FarmPage() {
   const tickRef = useRef<NodeJS.Timeout | null>(null);
   const userIdRef = useRef<string | null>(null);
   const loadedForRef = useRef<string | null>(null);
+  // SAD mastery → income multiplier. Held in a ref so the tick interval
+  // (which closes over its initial scope) always reads the current value
+  // without re-binding the timer when the user picks up a new concept.
+  const sadBonusRef = useRef(1);
+  const sadMastery = sadMasteryCount(user?.sadConceptMastery);
+  const sadBonus = sadBonusMultiplier(sadMastery);
+  useEffect(() => { sadBonusRef.current = sadBonus; }, [sadBonus]);
 
   useEffect(() => {
     if (!user) return;
@@ -500,7 +612,7 @@ export default function FarmPage() {
     const elapsed = Date.now() - saved.lastTickTime;
     const missed = Math.min(Math.floor(elapsed / TICK_INTERVAL_MS), MAX_OFFLINE_TICKS);
     if (missed > 0) {
-      const { state: ns } = processTicks(saved, missed, true);
+      const { state: ns } = processTicks(saved, missed, true, sadBonusRef.current);
       ns.lastTickTime = Date.now();
       saveState(ns, user.id);
       setFarmSave(ns);
@@ -514,7 +626,7 @@ export default function FarmPage() {
       const uid = userIdRef.current;
       if (!uid) return;
       setFarmSave(prev => {
-        const { state: ns, pops } = processTicks(prev, 1, false);
+        const { state: ns, pops } = processTicks(prev, 1, false, sadBonusRef.current);
         ns.lastTickTime = Date.now();
         saveState(ns, uid);
         if (pops.length) setCoinPops(cur => [...cur, ...pops]);
@@ -866,15 +978,27 @@ export default function FarmPage() {
   const incomePerMin = BUILDINGS.reduce((s, b) => {
     const lv = farmSave.owned[b.id] || 0;
     if (!lv) return s;
-    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0);
+    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0, sadBonus);
     return s + (econ.net / b.tickMultiplier) * 2;
   }, 0);
   const totalWagesPerMin = BUILDINGS.reduce((s, b) => {
     const lv = farmSave.owned[b.id] || 0;
     if (!lv) return s;
-    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0);
+    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0, sadBonus);
     return s + (econ.wages / b.tickMultiplier) * 2;
   }, 0);
+  // Active story chapter — pure derived from current state + SAD mastery.
+  const storyCh = currentChapter(farmSave, sadMastery);
+  const storyAcked = (farmSave.acknowledgedChapters || []).includes(storyCh.id);
+  const acknowledgeChapter = (chapterId: string) => {
+    setFarmSave(prev => {
+      if ((prev.acknowledgedChapters || []).includes(chapterId)) return prev;
+      const ns = { ...prev, acknowledgedChapters: [...(prev.acknowledgedChapters || []), chapterId] };
+      const uid = userIdRef.current;
+      if (uid) saveState(ns, uid);
+      return ns;
+    });
+  };
   const totalEmployees = Object.values(farmSave.employees || {}).reduce((a, b) => a + b, 0);
 
   const hasChickens = (farmSave.owned["chicken_coop"] || 0) > 0;
@@ -1510,6 +1634,24 @@ export default function FarmPage() {
             {totalWagesPerMin > 0 && (
               <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(198,40,40,0.18)", color: "#FFAB91", border: "1px solid rgba(198,40,40,0.35)" }} data-testid="chip-wages">💸 −{Math.round(totalWagesPerMin)}/min</div>
             )}
+            {/* SAD MASTERY income bonus — earned by passing teach-back in
+                 the academy. Each concept = +5% on every gross production
+                 tick. Shown as a permanent chip so players see WHY the
+                 farm pays better after they study. */}
+            <div
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
+              style={{
+                background: sadMastery > 0 ? "rgba(124,77,255,0.24)" : "rgba(120,120,120,0.18)",
+                color: sadMastery > 0 ? "#D0BCFF" : "rgba(200,180,140,0.65)",
+                border: sadMastery > 0 ? "1px solid rgba(124,77,255,0.45)" : "1px dashed rgba(200,180,140,0.3)",
+              }}
+              title={sadMastery > 0
+                ? `Each SAD concept you've mastered in the academy gives +5% farm income. You have ${sadMastery}/6.`
+                : "Pass teach-back on a SAD game in the academy to earn +5% farm income (per concept)."}
+              data-testid="chip-sad-bonus"
+            >
+              <Brain className="w-3.5 h-3.5"/> {sadMastery}/6 · {sadMastery > 0 ? `+${Math.round((sadBonus - 1) * 100)}%` : "study to boost"}
+            </div>
             {farmSave.farmBank > 0 && (
               <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: "linear-gradient(135deg, rgba(46,125,50,0.85), rgba(67,160,71,0.85))", color: "white", boxShadow: "0 2px 8px rgba(46,125,50,0.4)", border: "1px solid rgba(255,255,255,0.2)" }}>🌾 {farmSave.farmBank}</motion.div>
             )}
@@ -1565,6 +1707,18 @@ export default function FarmPage() {
         isPending={claimQuestMutation.isPending}
       />
 
+      {/* === STORYLINE PANEL (top-right, collapsible). Shows the active
+           chapter narrative + objective + SAD mastery bonus. New chapters
+           pulse with a NEW! badge until the player dismisses them. === */}
+      <StoryPanel
+        chapter={storyCh}
+        acked={storyAcked}
+        sadMastery={sadMastery}
+        sadBonusPct={Math.round((sadBonus - 1) * 100)}
+        totalConcepts={6}
+        onAck={() => acknowledgeChapter(storyCh.id)}
+      />
+
       {/* === SAD DIAGRAMS BUTTON (top-right, below HUD) === */}
       <button
         data-no-pan="true"
@@ -1614,6 +1768,7 @@ export default function FarmPage() {
               level={farmSave.owned[selected.id] || 0}
               hired={farmSave.employees?.[selected.id] || 0}
               userCoins={user.eduCoins}
+              sadBonus={sadBonus}
               onBuy={() => handleBuy(selected)}
               onUpgrade={() => handleUpgrade(selected)}
               onHire={() => handleHire(selected)}
@@ -1645,15 +1800,15 @@ export default function FarmPage() {
   );
 }
 
-function BuildingModal({ b, level, hired, userCoins, onBuy, onUpgrade, onHire, onFire, onClose, isPending }: {
-  b: BuildingDef; level: number; hired: number; userCoins: number;
+function BuildingModal({ b, level, hired, userCoins, sadBonus, onBuy, onUpgrade, onHire, onFire, onClose, isPending }: {
+  b: BuildingDef; level: number; hired: number; userCoins: number; sadBonus: number;
   onBuy: () => void; onUpgrade: () => void; onHire: () => void; onFire: () => void;
   onClose: () => void; isPending: boolean;
 }) {
   const action = level === 0 ? { type: "buy" as const, label: "Build", cost: b.buyCost } : level < 3 ? { type: "upgrade" as const, label: `Upgrade → Level ${level + 1}`, cost: b.upgradeCost[level - 1] } : null;
   const canAfford = action ? userCoins >= action.cost : true;
   const cap = level > 0 ? b.staffCap[level - 1] : 0;
-  const econ = buildingTickEcon(b, level, hired);
+  const econ = buildingTickEcon(b, level, hired, sadBonus);
   const hireCost = b.wagePerTick * HIRE_BONUS_MULT;
   const canHire = level > 0 && hired < cap && userCoins >= hireCost && !isPending;
 
@@ -2077,6 +2232,133 @@ function UCSvg({ ownedBuildings, employees }: { ownedBuildings: BuildingDef[]; e
 // === SAD-themed quest panel (collapsible, top-left) ===
 // Shows the 6 systems-analysis-themed side quests, their progress, and a
 // claim button when complete. Persists "completedQuests" via the parent.
+// === STORYLINE PANEL — top-right floating card ============================
+// Mirrors QuestPanel's visual language but uses a parchment-scroll palette
+// so players read it as the in-character "owner's manual" voice rather
+// than a checklist. Collapsed = small icon with NEW! pip if unread.
+function StoryPanel({
+  chapter, acked, sadMastery, sadBonusPct, totalConcepts, onAck,
+}: {
+  chapter: StoryChapter;
+  acked: boolean;
+  sadMastery: number;
+  sadBonusPct: number;
+  totalConcepts: number;
+  onAck: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const isNew = !acked;
+  return (
+    <div
+      data-no-pan="true"
+      className="absolute"
+      style={{
+        zIndex: 40,
+        right: 10,
+        top: 102,
+        width: open ? 300 : 64,
+        background: "linear-gradient(180deg, rgba(48,28,12,0.94) 0%, rgba(38,22,10,0.92) 100%)",
+        border: "1.5px solid rgba(245,166,35,0.55)",
+        borderRadius: 12,
+        backdropFilter: "blur(8px)",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+        overflow: "hidden",
+        transition: "width 0.25s ease",
+      }}
+      data-testid="story-panel"
+    >
+      <button
+        onClick={() => setOpen(o => !o)}
+        data-no-pan="true"
+        className="w-full flex items-center gap-2 px-3 py-2 transition-colors hover:bg-white/5"
+        style={{ background: "rgba(0,0,0,0.30)", borderBottom: open ? "1px solid rgba(245,166,35,0.3)" : "none" }}
+        data-testid="btn-toggle-story"
+        aria-label={open ? "Collapse story" : "Expand story"}
+      >
+        <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 relative" style={{ background: "linear-gradient(135deg, #FFD27A, #C97A2A)", boxShadow: "0 1px 4px rgba(201,122,42,0.5)" }}>
+          <BookOpen className="w-4 h-4" style={{ color: "#3E2716" }}/>
+          {isNew && (
+            <motion.span
+              animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 1.4 }}
+              className="absolute -top-1 -right-1 flex items-center justify-center font-black text-[8px] rounded-full"
+              style={{ width: 14, height: 14, background: "#FF5252", color: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }}
+            >!</motion.span>
+          )}
+        </div>
+        {open && (
+          <>
+            <div className="flex-1 text-left min-w-0">
+              <div className="text-[10px] font-bold tracking-widest leading-tight" style={{ color: "#C9A76A" }}>STORY · CH {chapter.index}/7</div>
+              <div className="text-[12px] font-black leading-tight truncate" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD27A" }}>
+                {chapter.title}
+              </div>
+            </div>
+            <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "#FFD27A" }}/>
+          </>
+        )}
+        {!open && <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "#FFD27A" }}/>}
+      </button>
+
+      {open && (
+        <div className="p-3 space-y-2.5">
+          {/* SAD concept tag */}
+          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-black tracking-wider" style={{ background: "rgba(124,77,255,0.25)", color: "#D0BCFF", border: "1px solid rgba(124,77,255,0.45)" }}>
+            <Brain className="w-2.5 h-2.5"/> {chapter.sadConcept.toUpperCase()}
+          </div>
+          {/* Narrator quote */}
+          <p
+            className="text-[11px] leading-relaxed italic"
+            style={{
+              color: "#F0DCB0",
+              borderLeft: "2px solid rgba(245,166,35,0.5)",
+              paddingLeft: 8,
+              fontFamily: "Georgia, serif",
+            }}
+            data-testid="text-story-narrator"
+          >
+            "{chapter.narrator}"
+          </p>
+          {/* Objective */}
+          <div className="rounded-md px-2.5 py-2" style={{ background: "rgba(0,0,0,0.30)", border: "1px solid rgba(245,166,35,0.25)" }}>
+            <div className="text-[9px] font-black tracking-widest mb-0.5" style={{ color: "#C9A76A" }}>OBJECTIVE</div>
+            <div className="text-[11px] font-semibold leading-snug" style={{ color: "#FFE9C4" }} data-testid="text-story-objective">
+              {chapter.objective}
+            </div>
+          </div>
+          {/* Live SAD-mastery readout — explicitly ties academy → economy */}
+          <div className="rounded-md px-2.5 py-1.5 flex items-center gap-2" style={{ background: "rgba(124,77,255,0.16)", border: "1px solid rgba(124,77,255,0.35)" }}>
+            <Brain className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#D0BCFF" }}/>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-black tracking-wider" style={{ color: "#D0BCFF" }}>SAD MASTERY · {sadMastery}/{totalConcepts}</div>
+              <div className="text-[9px] leading-tight" style={{ color: "#B6A0E8" }}>
+                {sadMastery > 0
+                  ? `+${sadBonusPct}% farm income from concepts mastered`
+                  : "Master concepts in courses → permanent farm income bonus"}
+              </div>
+            </div>
+          </div>
+          {isNew && (
+            <button
+              onClick={onAck}
+              data-no-pan="true"
+              data-testid="btn-ack-chapter"
+              className="w-full px-2.5 py-1.5 rounded-md text-[11px] font-black transition-all hover:scale-[1.02] active:scale-95"
+              style={{
+                background: "linear-gradient(135deg, #F5A623, #C97A2A)",
+                color: "#2E1A06",
+                boxShadow: "0 2px 8px rgba(201,122,42,0.45)",
+                border: "1px solid rgba(255,215,0,0.5)",
+              }}
+            >
+              Got it — let's get to work
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QuestPanel({
   owned, employees, wagesPaid, completed, onClaim, isPending,
 }: {
