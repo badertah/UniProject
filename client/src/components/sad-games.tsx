@@ -393,24 +393,28 @@ interface PRObject {
 }
 
 function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
-  const totalRounds = questions.length || 1;
   const meta = SAD_GAMES.sdlc_sorter;
   const [howSeen, dismissHow] = useHowTo("sdlc_sorter");
   const [showHowOverlay, setShowHowOverlay] = useState(!howSeen);
 
   // Difficulty-scaled knobs (component remounts per stage so these stay constant per game).
   const _d = Math.max(0, Math.min(1, difficulty));
-  const ROUND_DURATION_SEC = Math.round(48 - _d * 14); // 48 → 34s
+  const ROUND_DURATION_SEC = Math.round(60 - _d * 18); // 60 → 42s — single longer continuous run
   const SPAWN_EVERY_SEC = 0.85 - _d * 0.40;            // 0.85 → 0.45s
   const OBJECT_SPEED = 32 + _d * 22;                   // 32 → 54 %/s
   // Bumped to 5 because missing a deliverable now also costs a heart (was bug-only).
   const PR_HEARTS = Math.max(2, 5 - Math.floor(_d * 2)); // 5, 5, 4, 3
 
-  const [round, setRound] = useState(0);
-  const [totalScore, setTotalScore] = useState(0);
   const [done, setDone] = useState(false);
 
-  const q = questions[round] || {};
+  // Pick ONE methodology for the whole session (random from the question pool).
+  // This drops the per-question round counter and between-round summaries the
+  // user asked to remove — Phase Runner now plays as a single continuous run
+  // with one set of canonical phases as the lanes.
+  const q = useMemo(() => {
+    if (!questions || questions.length === 0) return {} as any;
+    return questions[Math.floor(Math.random() * questions.length)] || {};
+  }, [questions]);
   const opts = (q.options || {}) as { phases?: string[]; explanation?: string; methodology?: string };
   // Bind to q.answer (pipe-joined canonical order) — falls back to options.phases or defaults.
   const phases = useMemo<string[]>(() => {
@@ -451,22 +455,6 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
   const spawnAcc = useRef(0);
 
   const active = !showHowOverlay && !paused && !roundOver;
-
-  // Reset on round change
-  useEffect(() => {
-    setLane(0);
-    setObjects([]);
-    setHearts(PR_HEARTS);
-    setCollected(0);
-    setMissed(0);
-    setTarget(0);
-    setTimeLeft(ROUND_DURATION_SEC);
-    setRoundOver(false);
-    objectsRef.current = [];
-    timeLeftRef.current = ROUND_DURATION_SEC;
-    spawnAcc.current = 0;
-    nextId.current = 1;
-  }, [round]);
 
   // Game loop — sweeps through phases in q.answer order, biases spawns toward current phase.
   // The tick is structured as a PURE computation that reads from refs and applies all
@@ -576,24 +564,18 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [moveLane]);
 
-  // Round result — task spec requires ≥80% collection to win.
+  // Run result — task spec requires ≥80% collection to win.
   const ratio = target > 0 ? collected / target : 0;
   const won = !roundOver
     ? false
     : hearts > 0 && ratio >= 0.8;
-  const roundDelta = roundOver
+  const finalScore = roundOver
     ? collected * 10 + (won ? 30 : 0) + hearts * 5
     : 0;
 
-  function next() {
-    const newTotal = totalScore + roundDelta;
-    setTotalScore(newTotal);
-    if (round + 1 >= totalRounds) {
-      setDone(true);
-      onComplete(newTotal);
-    } else {
-      setRound(r => r + 1);
-    }
+  function finish() {
+    setDone(true);
+    onComplete(finalScore);
   }
 
   if (done) return null;
@@ -602,12 +584,21 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
 
   return (
     <div className="w-full max-w-xl select-none">
-      <RoundHeader
-        index={round}
-        total={totalRounds}
-        label={opts.methodology || "Phase Runner"}
-        onPause={() => setPaused(p => !p)}
-      />
+      {/* Slim header — methodology label + pause button. No round counter; this
+          is a single continuous run, not a multi-question quiz. */}
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <span className="text-xs font-mono tracking-widest text-muted-foreground truncate">
+          {opts.methodology || "Phase Runner"}
+        </span>
+        <button
+          onClick={() => setPaused(p => !p)}
+          aria-label="Pause"
+          className="w-7 h-7 rounded-md border border-border/40 bg-card/40 flex items-center justify-center hover:bg-card/80 transition"
+          data-testid="button-pause"
+        >
+          <Pause className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       <ScreenShake trigger={shake}>
         <div
@@ -743,7 +734,7 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
                 {won ? <Trophy className="w-12 h-12 mx-auto text-amber-400 mb-2" /> : <X className="w-12 h-12 mx-auto text-rose-400 mb-2" />}
                 <p className="text-xl font-bold">{won ? "Wave cleared!" : hearts === 0 ? "Out of hearts" : "Time's up!"}</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {collected} / {target} caught • +{roundDelta} pts
+                  {collected} / {target} caught • +{finalScore} pts
                 </p>
               </div>
             </motion.div>
@@ -765,11 +756,11 @@ function PhaseRunner({ questions, onComplete, difficulty = 0 }: SADGameProps) {
       {roundOver && (
         <RoundSummary
           correct={won}
-          headline={won ? `Phase mastered (+${roundDelta} pts)` : `Try again (+${roundDelta} pts)`}
+          headline={won ? `Phase mastered (+${finalScore} pts)` : `Run over (+${finalScore} pts)`}
           explanation={opts.explanation || "Each deliverable belongs to a specific SDLC phase. Switch into the matching lane to catch it."}
-          scoreDelta={roundDelta}
-          onNext={next}
-          isLast={round + 1 >= totalRounds}
+          scoreDelta={finalScore}
+          onNext={finish}
+          isLast={true}
         />
       )}
     </div>
