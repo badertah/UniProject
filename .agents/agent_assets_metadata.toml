@@ -1,0 +1,62 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "9tUQPha88wdTnI2Iw3wkj"
+uri = "file://client/src/assets/farm/barn.png"
+type = "image"
+title = "barn"
+
+[[generated]]
+id = "YWo2HBowYDe5Pdo5UJQhw"
+uri = "file://client/src/assets/farm/farmhouse.png"
+type = "image"
+title = "farmhouse"
+
+[[generated]]
+id = "6WK-AUkZdwScP1kB_zHd1"
+uri = "file://client/src/assets/farm/windmill.png"
+type = "image"
+title = "windmill"
+
+[[generated]]
+id = "tNdWEovZ5dGC4vtZq0Qyv"
+uri = "file://client/src/assets/farm/silo.png"
+type = "image"
+title = "silo"
+
+[[generated]]
+id = "AL-JLxrVD-T8QlHIkXigE"
+uri = "file://client/src/assets/farm/coop.png"
+type = "image"
+title = "chicken coop"
+
+[[generated]]
+id = "u9VEnZ5Hrw4XCzMBtkzsi"
+uri = "file://client/src/assets/farm/greenhouse.png"
+type = "image"
+title = "greenhouse"
+
+[[generated]]
+id = "AL6_T-At-Yw1Ac-ip80Vl"
+uri = "file://client/src/assets/farm/wheat.png"
+type = "image"
+title = "wheat field"
+
+[[generated]]
+id = "iVBv7TBU7QgjUJ4XtPKtS"
+uri = "file://client/src/assets/farm/veggies.png"
+type = "image"
+title = "vegetable patch"
+
+[[generated]]
+id = "dQn0FFdByg7BI00-IeW28"
+uri = "file://client/src/assets/farm/orchard.png"
+type = "image"
+title = "apple orchard"
+
+[[generated]]
+id = "w382rTBVsBkshGtH1Y9Bl"
+uri = "file://client/src/assets/farm/tractor.png"
+type = "image"
+title = "tractor"

@@ -10,6 +10,16 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
+import imgBarn       from "@/assets/farm/barn.png";
+import imgFarmhouse  from "@/assets/farm/farmhouse.png";
+import imgWindmill   from "@/assets/farm/windmill.png";
+import imgSilo       from "@/assets/farm/silo.png";
+import imgCoop       from "@/assets/farm/coop.png";
+import imgGreenhouse from "@/assets/farm/greenhouse.png";
+import imgWheat      from "@/assets/farm/wheat.png";
+import imgVeggies    from "@/assets/farm/veggies.png";
+import imgOrchard    from "@/assets/farm/orchard.png";
+import imgTractor    from "@/assets/farm/tractor.png";
 import {
   useAtmosphere, skyGradient as baseSkyGradient, CelestialBody, Stars, WeatherLayer, SkyBalloon,
   AmbientCreatures, TickProgress, BankMeter, WeatherBadge,
@@ -19,6 +29,23 @@ import {
   WORLD_W, WORLD_H,
   WorldGround, Minimap,
 } from "@/components/farm-world";
+
+// Map of building id → AI-generated isometric sprite. Buildings without an
+// entry fall back to the legacy hand-drawn BuildingSVG (e.g. dairy_cows,
+// irrigation). Each sprite is rendered with a contact shadow underneath so
+// it visually "lands" on the soil patch instead of floating above it.
+const BUILDING_IMAGES: Record<string, string> = {
+  barn: imgBarn,
+  farmhouse: imgFarmhouse,
+  windmill: imgWindmill,
+  silo: imgSilo,
+  chicken_coop: imgCoop,
+  greenhouse: imgGreenhouse,
+  wheat_field: imgWheat,
+  vegetable_patch: imgVeggies,
+  apple_orchard: imgOrchard,
+  tractor: imgTractor,
+};
 
 const TICK_INTERVAL_MS = 30_000;
 const MAX_FARM_BANK    = 500;
@@ -411,6 +438,10 @@ export default function FarmPage() {
   const [farmSave, setFarmSave] = useState<FarmSave>(defaultState);
   const [coinPops, setCoinPops] = useState<CoinPop[]>([]);
   const [selected, setSelected] = useState<BuildingDef | null>(null);
+  // Per-building runtime fallback: if an AI sprite ever fails to load
+  // (404, corrupt asset, blocked CDN…), we mark that id as failed so the
+  // next render falls through to the legacy hand-drawn BuildingSVG.
+  const [failedSprites, setFailedSprites] = useState<Record<string, true>>({});
   const [showDiagrams, setShowDiagrams] = useState(false);
   const [isHarvesting, setIsHarvesting] = useState(false);
   // harvestPulse holds true for ~3s after a harvest click so trucks have time
@@ -1044,9 +1075,43 @@ export default function FarmPage() {
                 data-testid={`tile-${b.id}`}
               >
                 {isOwned ? (
-                  <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
-                    <BuildingSVG buildingId={b.id} level={level}/>
-                  </div>
+                  BUILDING_IMAGES[b.id] && !failedSprites[b.id] ? (
+                    <div className="relative w-full h-full">
+                      {/* Contact shadow — sits flush under the sprite's foot
+                          so the building looks planted on the soil patch
+                          instead of floating above it. */}
+                      <div className="absolute pointer-events-none" style={{
+                        left: "50%",
+                        bottom: 4,
+                        width: "78%",
+                        height: 16,
+                        transform: "translateX(-50%)",
+                        background: "radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 55%, rgba(0,0,0,0) 80%)",
+                        borderRadius: "50%",
+                        filter: "blur(1px)",
+                      }}/>
+                      <img
+                        src={BUILDING_IMAGES[b.id]}
+                        alt={b.name}
+                        draggable={false}
+                        onError={() => setFailedSprites(s => s[b.id] ? s : { ...s, [b.id]: true })}
+                        className="w-full h-full"
+                        style={{
+                          objectFit: "contain",
+                          objectPosition: "center bottom",
+                          filter: "drop-shadow(0 6px 5px rgba(0,0,0,0.45))",
+                          // Subtle level-based scale so upgrades feel bigger.
+                          transform: `scale(${0.92 + level * 0.05})`,
+                          transformOrigin: "center bottom",
+                          imageRendering: "auto",
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.3))" }}>
+                      <BuildingSVG buildingId={b.id} level={level}/>
+                    </div>
+                  )
                 ) : (
                   <div className="w-full h-full flex items-center justify-center" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>
                     <div className="flex flex-col items-center gap-1 py-3 px-4 rounded-xl" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>
@@ -1510,33 +1575,53 @@ function SADDiagramsModal({
 
   return (
     <>
-      <motion.div className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}/>
+      <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}/>
+      {/* Modal lives in its own flex centered container so it's visually
+          centered regardless of viewport height — no more bottom-anchored
+          overflow when the inner SVG is tall. The inner content area is
+          the only scrollable region. */}
       <motion.div
-        className="fixed inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 top-1/2 -translate-y-1/2 z-50 overflow-hidden"
-        style={{ width: "min(640px, calc(100vw - 16px))", maxHeight: "calc(100vh - 40px)", background: "linear-gradient(180deg, #1a2410 0%, #0f1908 100%)", borderRadius: 16, border: "2px solid rgba(255,215,0,0.4)", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
-        initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.92 }}
-        data-testid="modal-sad-diagrams"
+        className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 pointer-events-none"
+        initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.94 }}
       >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="pointer-events-auto flex flex-col w-full"
+          style={{
+            maxWidth: 640,
+            maxHeight: "calc(100dvh - 24px)",
+            background: "linear-gradient(180deg, #1a2410 0%, #0f1908 100%)",
+            borderRadius: 16,
+            border: "2px solid rgba(255,215,0,0.4)",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            overflow: "hidden",
+          }}
+          data-testid="modal-sad-diagrams"
+        >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ background: "rgba(0,0,0,0.35)", borderBottom: "1px solid rgba(255,215,0,0.25)" }}>
-          <div>
-            <h2 className="font-black text-base tracking-wide" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700" }}>📐 SAD DIAGRAMS · DAY {day}</h2>
-            <p className="text-[10px] font-semibold" style={{ color: "#A8C8A0" }}>Your farm, drawn three ways · Built from live game state</p>
+        <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ background: "rgba(0,0,0,0.35)", borderBottom: "1px solid rgba(255,215,0,0.25)" }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <GraduationCap className="w-5 h-5 flex-shrink-0" style={{ color: "#FFD700" }}/>
+            <div className="min-w-0">
+              <h2 className="font-black text-sm sm:text-base tracking-wide truncate" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700" }}>SAD DIAGRAMS · DAY {day}</h2>
+              <p className="text-[10px] font-semibold truncate" style={{ color: "#A8C8A0" }}>Your farm, drawn three ways · Built from live game state</p>
+            </div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,215,0,0.15)" }} data-testid="btn-close-diagrams">
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,215,0,0.15)" }} data-testid="btn-close-diagrams">
             <X className="w-4 h-4" style={{ color: "#FFD700" }}/>
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex" style={{ background: "rgba(0,0,0,0.2)" }}>
+        <div className="flex flex-shrink-0" style={{ background: "rgba(0,0,0,0.2)" }}>
           {tabBtn("dfd", "DFD · Data Flow")}
           {tabBtn("er", "ER · Entities")}
           {tabBtn("uc", "UC · Use Case")}
         </div>
 
-        {/* Content */}
-        <div className="p-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 180px)" }}>
+        {/* Content — only scrollable region; flex-1 so it grows/shrinks
+            within the modal's max-height instead of pushing it offscreen. */}
+        <div className="p-4 overflow-y-auto flex-1 min-h-0">
           {ownedBuildings.length === 0 ? (
             <p className="text-center text-sm py-8" style={{ color: "#A8C8A0" }}>Build at least one structure to see diagrams.</p>
           ) : tab === "dfd" ? (
@@ -1575,6 +1660,7 @@ function SADDiagramsModal({
               <UCSvg ownedBuildings={ownedBuildings} employees={employees}/>
             </div>
           )}
+        </div>
         </div>
       </motion.div>
     </>
