@@ -2341,6 +2341,16 @@ export default function FarmPage() {
         onAck={() => acknowledgeChapter(storyCh.id)}
       />
 
+      {/* === FIRST-TIME GUIDED TUTORIAL ===
+           Grandpa Joe walks the player through harvest, build, story, HUD,
+           and the SAD-academy bonus on their first ever visit. Persists a
+           "done" flag per user in localStorage so it never re-fires. */}
+      <FarmTutorial
+        userId={user?.id || null}
+        farmSave={farmSave}
+        isGameOver={isGameOver}
+      />
+
       {/* === Toolbar cluster (SAD / FLOW / ROADS) ===
            A single horizontal row pinned to the TOP-CENTER, just below the
            HUD. Centering avoids the QuestPanel (top-left) and the
@@ -3485,6 +3495,329 @@ function QuestPanel({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+// =============================================================================
+// === FIRST-TIME GUIDED TUTORIAL ==============================================
+// =============================================================================
+// Walks new players through the core farm loop, narrated in-character as
+// Grandpa Joe writing to the player from "Mira's Turnaround". Each step:
+//   - shows a dialog card with narrator text + an objective hint
+//   - optionally spotlights a target element (by data-testid) with a
+//     pulsing gold ring
+//   - advances on Next OR auto-advances when the implied action is taken
+//     (e.g. step "build something" advances when farmSave.owned > 0)
+// Persists `farm_tutorial_v1_<userId>` = "done" so it only fires once per
+// user. Skip Tour also writes "done".
+
+type TutorialStep = {
+  id: string;
+  title: string;
+  narrator: string;     // Grandpa Joe's voice
+  hint?: string;        // small action hint
+  targetTestId?: string; // element to spotlight (null = centered modal)
+  // If provided, the step auto-advances when this returns true. Polled
+  // each render against the live farmSave passed in by FarmPage.
+  autoAdvance?: (s: FarmSave) => boolean;
+};
+
+const TUTORIAL_STEPS: TutorialStep[] = [
+  {
+    id: "welcome",
+    title: "📜 A Letter from Grandpa Joe",
+    narrator:
+      "Kid — by the time you read this, the farm is yours. Fields are bare, bank's at zero, and the neighbours are watching. I taught you systems analysis for a reason. Time to use it.",
+    hint: "This 30-second walkthrough won't fire again.",
+  },
+  {
+    id: "story",
+    title: "Your Field Manual",
+    narrator:
+      "I left you a chapter book. Each chapter is a real systems-analysis lesson dressed up as a farm problem you have to solve. Read it. It's your map.",
+    hint: "The Story panel lives in the top-right.",
+    targetTestId: "story-panel",
+  },
+  {
+    id: "build",
+    title: "Chapter 1 — Inputs",
+    narrator:
+      "Every system needs INPUTS. Click the wheat field tile on the map, then BUY. It's only 30 coins and it's where the whole pipeline begins.",
+    hint: "Tap the wheat field, then Buy. (I'll continue automatically.)",
+    targetTestId: "tile-wheat_field",
+    autoAdvance: (s) => Object.values(s.owned || {}).some(v => v > 0),
+  },
+  {
+    id: "hud",
+    title: "Mind the Numbers",
+    narrator:
+      "Up top: bank, day, employees, wages-per-minute. Production fills the bank, wages drain it. If the bank stays at zero too long, the farm goes bankrupt. Watch these chips like a hawk.",
+    hint: "Top bar — left side has your stats.",
+    targetTestId: "chip-employees",
+  },
+  {
+    id: "harvest",
+    title: "Cash Out the Bank",
+    narrator:
+      "When the bank fills, smash HARVEST. It cashes the bank into EduCoins, ticks the day forward, and empties the storage buffers so production can run again. Harvest often.",
+    hint: "Big green button, top-right of the HUD.",
+    targetTestId: "button-harvest",
+  },
+  {
+    id: "academy",
+    title: "The Classroom Funds the Farm",
+    narrator:
+      "One last thing. Every SAD concept you master in the courses gives your farm a permanent +5% income bonus. The classroom literally funds the farm. Don't skip it.",
+    hint: "Tap SAD DIAGRAMS up top, or open Courses from the sidebar.",
+    targetTestId: "btn-sad-diagrams",
+  },
+  {
+    id: "close",
+    title: "Make Me Proud",
+    narrator:
+      "That's everything. Build smart, harvest often, master the diagrams. Don't go bankrupt. The leaderboard's waiting. — Grandpa Joe",
+    hint: "Good luck out there.",
+  },
+];
+
+const TUTORIAL_KEY = (uid: string) => `farm_tutorial_v1_${uid}`;
+
+function FarmTutorial({ userId, farmSave, isGameOver }: { userId: string | null; farmSave: FarmSave; isGameOver: boolean }) {
+  // Initialize from localStorage SYNCHRONOUSLY so we never flash the
+  // tutorial overlay on returning users. -1 means "done / not running".
+  const [step, setStep] = useState<number>(() => {
+    if (!userId || typeof window === "undefined") return -1;
+    try {
+      return localStorage.getItem(TUTORIAL_KEY(userId)) === "done" ? -1 : 0;
+    } catch { return -1; }
+  });
+  const [rect, setRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  const current = step >= 0 ? TUTORIAL_STEPS[step] : null;
+
+  // Switch tutorial state if the user identity actually changes (e.g.
+  // after a fresh login on the same browser).
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const done = localStorage.getItem(TUTORIAL_KEY(userId)) === "done";
+      setStep(done ? -1 : 0);
+    } catch { /* ignore — stay closed */ }
+  }, [userId]);
+
+  // Auto-advance check — runs whenever farmSave changes. Skips if the
+  // current step has no autoAdvance predicate.
+  useEffect(() => {
+    if (!current?.autoAdvance) return;
+    if (current.autoAdvance(farmSave)) {
+      setStep(s => Math.min(s + 1, TUTORIAL_STEPS.length - 1) === s ? s : s + 1);
+    }
+  }, [farmSave, current]);
+
+  // Re-measure the spotlight target whenever the step changes. We keep
+  // polling at 250ms forever (cheap getBoundingClientRect call) so that
+  // late-mounting targets (story panel, HUD chips that animate in) and
+  // viewport changes (resize, scroll, camera pan) are all handled with
+  // a single mechanism. Cleared when step changes or unmounts.
+  useEffect(() => {
+    if (!current?.targetTestId) { setRect(null); return; }
+    let cancelled = false;
+    let lastJson = "";
+    const measure = () => {
+      if (cancelled) return;
+      const el = document.querySelector(`[data-testid="${current.targetTestId}"]`);
+      if (!el) { setRect(null); return; }
+      const r = (el as HTMLElement).getBoundingClientRect();
+      const next = { x: r.left, y: r.top, w: r.width, h: r.height };
+      const sig = `${Math.round(next.x)},${Math.round(next.y)},${Math.round(next.w)},${Math.round(next.h)}`;
+      if (sig !== lastJson) { lastJson = sig; setRect(next); }
+    };
+    measure();
+    const iv = setInterval(measure, 250);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [current]);
+
+  // Hide the tutorial entirely if the player hits Game Over — the GO
+  // modal sits at z-100 and the player needs unblocked access to its
+  // RESTART button. We don't mark the tutorial done here; if they
+  // restart and revisit, it can resume from where they left off.
+  if (!current || !userId || isGameOver) return null;
+
+  const finish = () => {
+    try { localStorage.setItem(TUTORIAL_KEY(userId), "done"); } catch { /* ignore */ }
+    setStep(-1);
+  };
+  const next = () => {
+    if (step >= TUTORIAL_STEPS.length - 1) { finish(); return; }
+    setStep(step + 1);
+  };
+
+  // Card placement: if we have a target rect, dock the card to the
+  // opposite side of the screen so the spotlight stays visible. If the
+  // target is in the top half, put the card near the bottom; if it's
+  // on the right, put the card on the left, etc. Falls back to centered.
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const cardW = Math.min(380, vw - 32);
+  let cardLeft: number;
+  let cardTop: number;
+  if (rect) {
+    // Bias to the side opposite the target's center
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    cardLeft = cx > vw / 2 ? Math.max(16, vw / 2 - cardW - 24 + (vw / 2 - cx) * 0.3) : Math.min(vw - cardW - 16, vw / 2 + 24);
+    cardLeft = Math.max(16, Math.min(vw - cardW - 16, cardLeft));
+    cardTop = cy > vh / 2 ? Math.max(16, vh * 0.08) : Math.min(vh - 260, vh * 0.55);
+  } else {
+    cardLeft = (vw - cardW) / 2;
+    cardTop = vh * 0.28;
+  }
+
+  return (
+    <div
+      className="fixed inset-0"
+      style={{ zIndex: 90, pointerEvents: "none" }}
+      data-testid="farm-tutorial"
+    >
+      {/* === Backdrop ===
+          When we have a spotlight rect we render the dim overlay as FOUR
+          separate rectangles surrounding the target, leaving a true
+          click-through hole over the target. This is what lets the
+          player actually tap the wheat field tile during the build step
+          (the original full-screen backdrop intercepted those clicks).
+          When there's no target (welcome / closing steps), we fall back
+          to a single full-screen backdrop. */}
+      {rect ? (
+        <>
+          {/* top */}
+          <div className="absolute" style={{ left: 0, top: 0, right: 0, height: Math.max(0, rect.y - 8), background: "rgba(8,14,6,0.55)", pointerEvents: "auto", backdropFilter: "blur(1.5px)" }} />
+          {/* bottom */}
+          <div className="absolute" style={{ left: 0, top: rect.y + rect.h + 8, right: 0, bottom: 0, background: "rgba(8,14,6,0.55)", pointerEvents: "auto", backdropFilter: "blur(1.5px)" }} />
+          {/* left */}
+          <div className="absolute" style={{ left: 0, top: Math.max(0, rect.y - 8), width: Math.max(0, rect.x - 8), height: rect.h + 16, background: "rgba(8,14,6,0.55)", pointerEvents: "auto", backdropFilter: "blur(1.5px)" }} />
+          {/* right */}
+          <div className="absolute" style={{ left: rect.x + rect.w + 8, top: Math.max(0, rect.y - 8), right: 0, height: rect.h + 16, background: "rgba(8,14,6,0.55)", pointerEvents: "auto", backdropFilter: "blur(1.5px)" }} />
+        </>
+      ) : (
+        <div className="absolute inset-0" style={{ background: "rgba(8,14,6,0.55)", pointerEvents: "auto", backdropFilter: "blur(1.5px)" }} />
+      )}
+
+      {/* Spotlight ring around the target element — pointer-events:none
+          so it never intercepts the actual tap on the spotlit element. */}
+      {rect && (
+        <motion.div
+          className="absolute"
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          style={{
+            left: rect.x - 8,
+            top: rect.y - 8,
+            width: rect.w + 16,
+            height: rect.h + 16,
+            borderRadius: 14,
+            border: "2.5px solid #FFD700",
+            boxShadow: "0 0 28px 4px rgba(255,215,0,0.65)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
+      {/* Tutorial card — Grandpa Joe's letter style */}
+      <motion.div
+        key={current.id}
+        className="absolute"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          left: cardLeft,
+          top: cardTop,
+          width: cardW,
+          pointerEvents: "auto",
+          background: "linear-gradient(180deg, #FAF3E0 0%, #F2E5C7 100%)",
+          color: "#3E2716",
+          border: "2px solid #B8860B",
+          borderRadius: 14,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.4)",
+          padding: 16,
+          fontFamily: "Georgia, serif",
+        }}
+        data-testid="farm-tutorial-card"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black tracking-widest" style={{ color: "#8B6914" }}>
+              STEP {step + 1} / {TUTORIAL_STEPS.length}
+            </span>
+          </div>
+          <button
+            onClick={finish}
+            className="text-[11px] font-bold underline opacity-70 hover:opacity-100"
+            style={{ color: "#5D4037" }}
+            data-testid="btn-tutorial-skip"
+          >
+            Skip Tour
+          </button>
+        </div>
+
+        <h3 className="text-base font-black mb-1.5" style={{ color: "#5D2E0E" }} data-testid="text-tutorial-title">
+          {current.title}
+        </h3>
+        <p className="text-[13px] leading-snug mb-2 italic" data-testid="text-tutorial-narrator">
+          "{current.narrator}"
+        </p>
+        {current.hint && (
+          <p className="text-[11px] mb-3 px-2 py-1.5 rounded" style={{ background: "rgba(184,134,11,0.15)", borderLeft: "3px solid #B8860B", color: "#5D4037" }} data-testid="text-tutorial-hint">
+            👉 {current.hint}
+          </p>
+        )}
+
+        {/* Progress dots */}
+        <div className="flex items-center gap-1.5 mb-3">
+          {TUTORIAL_STEPS.map((_, i) => (
+            <div
+              key={i}
+              className="h-1.5 rounded-full transition-all"
+              style={{
+                width: i === step ? 18 : 6,
+                background: i <= step ? "#B8860B" : "rgba(184,134,11,0.25)",
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setStep(s => Math.max(0, s - 1))}
+            disabled={step === 0}
+            className="text-[12px] font-bold px-3 py-1.5 rounded disabled:opacity-30"
+            style={{ color: "#5D4037" }}
+            data-testid="btn-tutorial-back"
+          >
+            ← Back
+          </button>
+          <button
+            onClick={next}
+            className="text-[13px] font-black px-4 py-2 rounded transition-all hover:scale-105 active:scale-95"
+            style={{
+              background: "linear-gradient(135deg, #F5A623, #FFD700)",
+              color: "#3E2716",
+              border: "1.5px solid #8B6914",
+              boxShadow: "0 2px 6px rgba(139,105,20,0.4)",
+            }}
+            data-testid="btn-tutorial-next"
+          >
+            {step >= TUTORIAL_STEPS.length - 1 ? "Start Farming →" : "Next →"}
+          </button>
+        </div>
+      </motion.div>
     </div>
   );
 }
