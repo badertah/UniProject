@@ -32,22 +32,42 @@ interface BuildingDef {
   buyCost: number; upgradeCost: [number, number];
   incomePerTick: [number, number, number];
   tickMultiplier: number;
+  // Max number of farmer-employees that can be hired at each level. Hiring
+  // up to this number boosts the building's effective income; running
+  // understaffed gives only the base 50% income multiplier. This models
+  // "actor → process" relationships from a Use Case diagram (the actor
+  // here is a farmer, the process is the building's production).
+  staffCap: [number, number, number];
+  // Coin cost paid every production tick PER hired employee. Wages are
+  // deducted from the farm bank automatically, so understaffing might
+  // actually be more profitable for low-margin buildings — players have
+  // to learn to budget. Wages also feed the Data Flow Diagram (cash
+  // flow from Farm Bank → Employees).
+  wagePerTick: number;
+  // Role label used in the Use Case / Actor diagram. Different roles
+  // make the on-board diagrams more diverse and easier to read.
+  role: string;
 }
 
 const BUILDINGS: BuildingDef[] = [
-  { id: "wheat_field",     name: "Wheat Field",      emoji: "🌾", description: "Golden wheat rows — steady income.", category: "crops",     buyCost: 30,  upgradeCost: [60,  120], incomePerTick: [2,  5,  10], tickMultiplier: 1 },
-  { id: "vegetable_patch", name: "Vegetable Patch",  emoji: "🥕", description: "Fresh vegetables that grow faster.", category: "crops",     buyCost: 50,  upgradeCost: [100, 200], incomePerTick: [3,  7,  14], tickMultiplier: 1 },
-  { id: "apple_orchard",   name: "Apple Orchard",    emoji: "🍎", description: "Beautiful orchard trees.", category: "crops",     buyCost: 80,  upgradeCost: [150, 300], incomePerTick: [4,  9,  18], tickMultiplier: 1 },
-  { id: "greenhouse",      name: "Greenhouse",       emoji: "🌿", description: "Year-round glass house.", category: "crops",     buyCost: 120, upgradeCost: [240, 480], incomePerTick: [5,  11, 22], tickMultiplier: 1 },
-  { id: "chicken_coop",    name: "Chicken Coop",     emoji: "🐔", description: "Free-range hens.", category: "livestock", buyCost: 55,  upgradeCost: [110, 220], incomePerTick: [4,  8,  16], tickMultiplier: 2 },
-  { id: "dairy_cows",      name: "Dairy Cows",       emoji: "🐄", description: "Happy cows producing milk.", category: "livestock", buyCost: 90,  upgradeCost: [180, 360], incomePerTick: [5,  11, 22], tickMultiplier: 2 },
-  { id: "farmhouse",       name: "Farmhouse",        emoji: "🏠", description: "Your home base — production hub.", category: "buildings", buyCost: 40,  upgradeCost: [90,  180], incomePerTick: [3,  6,  13], tickMultiplier: 2 },
-  { id: "windmill",        name: "Windmill",         emoji: "⚙️", description: "Harnessing wind power.", category: "buildings", buyCost: 100, upgradeCost: [200, 400], incomePerTick: [6,  12, 24], tickMultiplier: 2 },
-  { id: "barn",            name: "Red Barn",         emoji: "🏚️", description: "Classic red barn.", category: "buildings", buyCost: 70,  upgradeCost: [140, 280], incomePerTick: [5,  10, 20], tickMultiplier: 3 },
-  { id: "tractor",         name: "Tractor",          emoji: "🚜", description: "Heavy-duty machine.", category: "equipment", buyCost: 150, upgradeCost: [300, 600], incomePerTick: [8,  16, 32], tickMultiplier: 3 },
-  { id: "silo",            name: "Grain Silo",       emoji: "🏗️", description: "Store grain in bulk.", category: "equipment", buyCost: 130, upgradeCost: [260, 520], incomePerTick: [7,  14, 28], tickMultiplier: 3 },
-  { id: "irrigation",      name: "Irrigation",       emoji: "💧", description: "Automated water system.", category: "equipment", buyCost: 110, upgradeCost: [220, 440], incomePerTick: [6,  13, 26], tickMultiplier: 3 },
+  { id: "wheat_field",     name: "Wheat Field",      emoji: "🌾", description: "Golden wheat rows — steady income.", category: "crops",     buyCost: 30,  upgradeCost: [60,  120], incomePerTick: [2,  5,  10], tickMultiplier: 1, staffCap: [1, 2, 3], wagePerTick: 1, role: "Field Hand" },
+  { id: "vegetable_patch", name: "Vegetable Patch",  emoji: "🥕", description: "Fresh vegetables that grow faster.", category: "crops",     buyCost: 50,  upgradeCost: [100, 200], incomePerTick: [3,  7,  14], tickMultiplier: 1, staffCap: [1, 2, 3], wagePerTick: 1, role: "Gardener" },
+  { id: "apple_orchard",   name: "Apple Orchard",    emoji: "🍎", description: "Beautiful orchard trees.", category: "crops",     buyCost: 80,  upgradeCost: [150, 300], incomePerTick: [4,  9,  18], tickMultiplier: 1, staffCap: [1, 2, 3], wagePerTick: 2, role: "Picker" },
+  { id: "greenhouse",      name: "Greenhouse",       emoji: "🌿", description: "Year-round glass house.", category: "crops",     buyCost: 120, upgradeCost: [240, 480], incomePerTick: [5,  11, 22], tickMultiplier: 1, staffCap: [1, 2, 3], wagePerTick: 2, role: "Botanist" },
+  { id: "chicken_coop",    name: "Chicken Coop",     emoji: "🐔", description: "Free-range hens.", category: "livestock", buyCost: 55,  upgradeCost: [110, 220], incomePerTick: [4,  8,  16], tickMultiplier: 2, staffCap: [1, 2, 2], wagePerTick: 1, role: "Keeper" },
+  { id: "dairy_cows",      name: "Dairy Cows",       emoji: "🐄", description: "Happy cows producing milk.", category: "livestock", buyCost: 90,  upgradeCost: [180, 360], incomePerTick: [5,  11, 22], tickMultiplier: 2, staffCap: [1, 2, 3], wagePerTick: 2, role: "Dairy Hand" },
+  { id: "farmhouse",       name: "Farmhouse",        emoji: "🏠", description: "Your home base — production hub.", category: "buildings", buyCost: 40,  upgradeCost: [90,  180], incomePerTick: [3,  6,  13], tickMultiplier: 2, staffCap: [1, 2, 3], wagePerTick: 2, role: "Manager" },
+  { id: "windmill",        name: "Windmill",         emoji: "⚙️", description: "Harnessing wind power.", category: "buildings", buyCost: 100, upgradeCost: [200, 400], incomePerTick: [6,  12, 24], tickMultiplier: 2, staffCap: [1, 1, 2], wagePerTick: 3, role: "Miller" },
+  { id: "barn",            name: "Red Barn",         emoji: "🏚️", description: "Classic red barn.", category: "buildings", buyCost: 70,  upgradeCost: [140, 280], incomePerTick: [5,  10, 20], tickMultiplier: 3, staffCap: [1, 2, 2], wagePerTick: 2, role: "Stocker" },
+  { id: "tractor",         name: "Tractor",          emoji: "🚜", description: "Heavy-duty machine.", category: "equipment", buyCost: 150, upgradeCost: [300, 600], incomePerTick: [8,  16, 32], tickMultiplier: 3, staffCap: [1, 1, 2], wagePerTick: 4, role: "Driver" },
+  { id: "silo",            name: "Grain Silo",       emoji: "🏗️", description: "Store grain in bulk.", category: "equipment", buyCost: 130, upgradeCost: [260, 520], incomePerTick: [7,  14, 28], tickMultiplier: 3, staffCap: [0, 1, 1], wagePerTick: 3, role: "Operator" },
+  { id: "irrigation",      name: "Irrigation",       emoji: "💧", description: "Automated water system.", category: "equipment", buyCost: 110, upgradeCost: [220, 440], incomePerTick: [6,  13, 26], tickMultiplier: 3, staffCap: [0, 1, 1], wagePerTick: 2, role: "Technician" },
 ];
+
+// Cost to hire one farmer = HIRE_BONUS_MULT × wagePerTick (one-time
+// "signing bonus" paid out of EduCoins via the spend endpoint). Firing
+// is free — players can re-balance their workforce risk-free.
+const HIRE_BONUS_MULT = 8;
 
 // Each building lives at its own world (x,y) — scattered across the 2400x1700
 // world rather than stacked on a tiny grid. Positions are picked to:
@@ -138,7 +158,11 @@ type QuestReq =
   | { kind: "any_owned"; count: number }
   | { kind: "all_owned"; ids: string[] }
   | { kind: "category_coverage"; count: number }
-  | { kind: "max_level" };
+  | { kind: "max_level" }
+  // SAD: Use Case / Actor — at least N farmers hired across the farm.
+  | { kind: "employees"; count: number }
+  // SAD: Cash-flow data flow — total lifetime wages paid >= N coins.
+  | { kind: "wages_paid"; amount: number };
 
 type QuestDef = {
   id: string;
@@ -198,9 +222,25 @@ const QUESTS: QuestDef[] = [
     reward: 200,
     req: { kind: "max_level" },
   },
+  {
+    id: "hire_actors",
+    title: "Identify Actors",
+    hint: "Hire your first 3 farmers — every actor performs a use case.",
+    sadConcept: "Use Case · Actors",
+    reward: 90,
+    req: { kind: "employees", count: 3 },
+  },
+  {
+    id: "payroll",
+    title: "Run Payroll",
+    hint: "Pay 50 coins in total wages — model the cash-flow data flow.",
+    sadConcept: "Data Flow · Cash Flow",
+    reward: 110,
+    req: { kind: "wages_paid", amount: 50 },
+  },
 ];
 
-function questProgress(q: QuestDef, owned: Record<string, number>): { done: boolean; pct: number; label: string } {
+function questProgress(q: QuestDef, owned: Record<string, number>, employees: Record<string, number> = {}, wagesPaid = 0): { done: boolean; pct: number; label: string } {
   switch (q.req.kind) {
     case "any_owned": {
       const have = Object.values(owned).filter(v => v > 0).length;
@@ -229,11 +269,27 @@ function questProgress(q: QuestDef, owned: Record<string, number>): { done: bool
       const maxed = Object.values(owned).filter(v => v >= 3).length;
       return { done: maxed >= 1, pct: maxed >= 1 ? 1 : 0, label: maxed >= 1 ? "Done" : "0 / 1" };
     }
+    case "employees": {
+      const have = Object.values(employees).reduce((a, b) => a + b, 0);
+      const need = q.req.count;
+      return { done: have >= need, pct: Math.min(1, have / need), label: `${Math.min(have, need)} / ${need}` };
+    }
+    case "wages_paid": {
+      const need = q.req.amount;
+      return { done: wagesPaid >= need, pct: Math.min(1, wagesPaid / need), label: `${Math.min(wagesPaid, need)} / ${need}` };
+    }
   }
 }
 
 type FarmSave = {
   owned: Record<string, number>;
+  // Number of farmers hired at each building. Indexed by building id.
+  // Cap is `BUILDINGS[].staffCap[level-1]`. Hiring boosts effective
+  // income; wages are auto-deducted from farmBank each production tick.
+  employees: Record<string, number>;
+  // Lifetime coins paid in wages (used by the "Pay 50c in wages" quest
+  // and as a stat in the SAD diagram modal).
+  wagesPaidTotal: number;
   farmBank: number;
   lastTickTime: number;
   tickCounters: Record<string, number>;
@@ -244,13 +300,35 @@ type FarmSave = {
 function loadState(uid: string): FarmSave {
   try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
-function defaultState(): FarmSave { return { owned: {}, farmBank: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [] }; }
+function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [] }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 type CoinPop = { id: string; bId: string; amount: number };
 
+// One-stop helper for net per-tick income calculation. Encapsulates the
+// "staff ratio" curve so the in-game tooltip and the actual processTicks
+// math stay in sync (both call this).
+//
+// Income curve: production = base * (0.5 + 0.5 * effectiveStaffRatio)
+//   - 0 hired: 50% of base (a building still works at half pace)
+//   - fully staffed: 100% of base
+// Wage cost per tick = effectiveStaff * wagePerTick (paid from farmBank).
+// Net is what actually lands in the bank that tick.
+function buildingTickEcon(b: BuildingDef, level: number, hired: number) {
+  if (level <= 0) return { gross: 0, wages: 0, net: 0, effectiveStaff: 0, capped: 0 };
+  const cap = b.staffCap[level - 1];
+  const effectiveStaff = Math.max(0, Math.min(hired, cap));
+  const ratio = cap === 0 ? 1 : effectiveStaff / cap;
+  const base = b.incomePerTick[level - 1];
+  const gross = Math.floor(base * (0.5 + 0.5 * ratio));
+  const wages = effectiveStaff * b.wagePerTick;
+  const net = gross - wages;
+  return { gross, wages, net, effectiveStaff, capped: cap };
+}
+
 function processTicks(state: FarmSave, n: number, silent = false) {
   let farmBank = state.farmBank;
+  let wagesPaidTotal = state.wagesPaidTotal || 0;
   const tickCounters = { ...state.tickCounters };
   const pops: CoinPop[] = [];
   for (let t = 0; t < n; t++) {
@@ -260,13 +338,28 @@ function processTicks(state: FarmSave, n: number, silent = false) {
       tickCounters[b.id] = (tickCounters[b.id] || 0) + 1;
       if (tickCounters[b.id] >= b.tickMultiplier) {
         tickCounters[b.id] = 0;
-        const income = b.incomePerTick[lv - 1];
-        farmBank = Math.min(farmBank + income, MAX_FARM_BANK);
-        if (!silent) pops.push({ id: `${b.id}-${Date.now()}-${Math.random()}`, bId: b.id, amount: income });
+        const hired = state.employees?.[b.id] || 0;
+        const econ = buildingTickEcon(b, lv, hired);
+        // Wages always attempt to come out, but we only count what was
+        // actually deducted from the bank — bank is clamped at 0, so if
+        // net would push it negative we cap the wages-paid credit to
+        // whatever could really be paid (gross + remaining bank balance).
+        const proposedBank = farmBank + econ.net;
+        const newBank = Math.max(0, Math.min(proposedBank, MAX_FARM_BANK));
+        // Actual deduction = wages we could afford from (farmBank + gross).
+        const wagesActual = Math.max(0, Math.min(econ.wages, farmBank + econ.gross));
+        wagesPaidTotal += wagesActual;
+        // Only show a positive coin-pop for net-positive ticks. Negative
+        // or zero net ticks are silently absorbed so the map doesn't
+        // render misleading "+-2" pops above unprofitable buildings.
+        if (!silent && econ.net > 0) {
+          pops.push({ id: `${b.id}-${Date.now()}-${Math.random()}`, bId: b.id, amount: econ.net });
+        }
+        farmBank = newBank;
       }
     }
   }
-  return { state: { ...state, farmBank, tickCounters }, pops };
+  return { state: { ...state, farmBank, tickCounters, wagesPaidTotal }, pops };
 }
 
 const LVL_LABEL = ["", "LV1", "LV2", "LV3★"];
@@ -318,6 +411,7 @@ export default function FarmPage() {
   const [farmSave, setFarmSave] = useState<FarmSave>(defaultState);
   const [coinPops, setCoinPops] = useState<CoinPop[]>([]);
   const [selected, setSelected] = useState<BuildingDef | null>(null);
+  const [showDiagrams, setShowDiagrams] = useState(false);
   const [isHarvesting, setIsHarvesting] = useState(false);
   // harvestPulse holds true for ~3s after a harvest click so trucks have time
   // to be visibly faster + carry gold cargo even though the API call resolves
@@ -396,7 +490,7 @@ export default function FarmPage() {
   const claimQuest = useCallback((q: QuestDef) => {
     if (!user) return;
     if (farmSave.completedQuests.includes(q.id)) return;
-    const prog = questProgress(q, farmSave.owned);
+    const prog = questProgress(q, farmSave.owned, farmSave.employees || {}, farmSave.wagesPaidTotal || 0);
     if (!prog.done) return;
     // Optimistically mark complete so the button can't be double-clicked.
     setFarmSave(prev => {
@@ -420,7 +514,7 @@ export default function FarmPage() {
         toast({ title: "Could not claim reward", variant: "destructive" });
       },
     });
-  }, [user, farmSave.owned, farmSave.completedQuests, claimQuestMutation, updateUser, toast]);
+  }, [user, farmSave.owned, farmSave.employees, farmSave.wagesPaidTotal, farmSave.completedQuests, claimQuestMutation, updateUser, toast]);
 
   const handleBuy = useCallback((b: BuildingDef) => {
     if (!user || user.eduCoins < b.buyCost) { toast({ title: "Not enough EduCoins", variant: "destructive" }); return; }
@@ -432,6 +526,39 @@ export default function FarmPage() {
       },
     });
   }, [user, spendMutation, toast]);
+
+  const handleHire = useCallback((b: BuildingDef) => {
+    if (!user) return;
+    const lv = farmSave.owned[b.id] || 0;
+    if (!lv) return;
+    const cap = b.staffCap[lv - 1];
+    const current = farmSave.employees?.[b.id] || 0;
+    if (current >= cap) { toast({ title: "Max staff reached" }); return; }
+    const cost = b.wagePerTick * HIRE_BONUS_MULT;
+    if (user.eduCoins < cost) { toast({ title: "Not enough EduCoins for signing bonus", variant: "destructive" }); return; }
+    spendMutation.mutate(cost, {
+      onSuccess: () => {
+        setFarmSave(prev => {
+          const ns = { ...prev, employees: { ...(prev.employees || {}), [b.id]: (prev.employees?.[b.id] || 0) + 1 } };
+          if (user) saveState(ns, user.id);
+          return ns;
+        });
+        toast({ title: `👷 Hired a ${b.role} for ${b.name}!`, description: `Wage: ${b.wagePerTick}🪙/tick` });
+      },
+    });
+  }, [user, farmSave.owned, farmSave.employees, spendMutation, toast]);
+
+  const handleFire = useCallback((b: BuildingDef) => {
+    if (!user) return;
+    const current = farmSave.employees?.[b.id] || 0;
+    if (current <= 0) return;
+    setFarmSave(prev => {
+      const ns = { ...prev, employees: { ...(prev.employees || {}), [b.id]: Math.max(0, (prev.employees?.[b.id] || 0) - 1) } };
+      if (user) saveState(ns, user.id);
+      return ns;
+    });
+    toast({ title: `📤 Fired a ${b.role}`, description: "Wage cost reduced." });
+  }, [user, farmSave.employees, toast]);
 
   const handleUpgrade = useCallback((b: BuildingDef) => {
     if (!user) return;
@@ -663,7 +790,19 @@ export default function FarmPage() {
 
   const totalOwned = Object.values(farmSave.owned).filter(v => v > 0).length;
   const farmRating = totalOwned === 0 ? "Empty Farm" : totalOwned < 4 ? "Seedling" : totalOwned < 8 ? "Growing" : totalOwned < 12 ? "Thriving" : "Legendary";
-  const incomePerMin = BUILDINGS.reduce((s, b) => { const lv = farmSave.owned[b.id] || 0; return lv ? s + (b.incomePerTick[lv - 1] / b.tickMultiplier) * 2 : s; }, 0);
+  const incomePerMin = BUILDINGS.reduce((s, b) => {
+    const lv = farmSave.owned[b.id] || 0;
+    if (!lv) return s;
+    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0);
+    return s + (econ.net / b.tickMultiplier) * 2;
+  }, 0);
+  const totalWagesPerMin = BUILDINGS.reduce((s, b) => {
+    const lv = farmSave.owned[b.id] || 0;
+    if (!lv) return s;
+    const econ = buildingTickEcon(b, lv, farmSave.employees?.[b.id] || 0);
+    return s + (econ.wages / b.tickMultiplier) * 2;
+  }, 0);
+  const totalEmployees = Object.values(farmSave.employees || {}).reduce((a, b) => a + b, 0);
 
   const hasChickens = (farmSave.owned["chicken_coop"] || 0) > 0;
   const hasCows = (farmSave.owned["dairy_cows"] || 0) > 0;
@@ -953,6 +1092,21 @@ export default function FarmPage() {
                     +{b.incomePerTick[level - 1]}🪙/{b.tickMultiplier * 30}s
                   </div>
                 )}
+                {/* Tiny farmer figures for each hired employee — visual cue
+                    that this building has actors performing its use case. */}
+                {isOwned && (farmSave.employees?.[b.id] || 0) > 0 && (
+                  <div className="absolute pointer-events-none flex gap-0.5" style={{ left: 6, bottom: -2 }}>
+                    {Array.from({ length: Math.min(farmSave.employees?.[b.id] || 0, 3) }).map((_, i) => (
+                      <svg key={i} width="14" height="18" viewBox="0 0 14 18" style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.5))" }}>
+                        <circle cx="7" cy="4" r="3" fill="#F4C28A"/>
+                        <rect x="3" y="3" width="8" height="2.5" rx="1" fill="#8B4513"/>
+                        <path d="M3 16 L3 9 Q3 7 5 7 L9 7 Q11 7 11 9 L11 16 Z" fill="#1976D2"/>
+                        <rect x="5" y="14" width="1.5" height="3.5" fill="#3E2716"/>
+                        <rect x="7.5" y="14" width="1.5" height="3.5" fill="#3E2716"/>
+                      </svg>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1079,6 +1233,12 @@ export default function FarmPage() {
             <BankMeter value={farmSave.farmBank} max={MAX_FARM_BANK} />
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(76,175,80,0.2)", color: "#A8D8A8", border: "1px solid rgba(76,175,80,0.3)" }}>⚡ {Math.round(incomePerMin * atm.cropBoost)}/min</div>
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(33,150,243,0.2)", color: "#90CAF9", border: "1px solid rgba(33,150,243,0.3)" }}>🏗️ {totalOwned}/12</div>
+            {totalEmployees > 0 && (
+              <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(25,118,210,0.22)", color: "#90CAF9", border: "1px solid rgba(25,118,210,0.35)" }} data-testid="chip-employees">👷 {totalEmployees}</div>
+            )}
+            {totalWagesPerMin > 0 && (
+              <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(198,40,40,0.18)", color: "#FFAB91", border: "1px solid rgba(198,40,40,0.35)" }} data-testid="chip-wages">💸 −{Math.round(totalWagesPerMin)}/min</div>
+            )}
             {farmSave.farmBank > 0 && (
               <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black" style={{ background: "linear-gradient(135deg, rgba(46,125,50,0.85), rgba(67,160,71,0.85))", color: "white", boxShadow: "0 2px 8px rgba(46,125,50,0.4)", border: "1px solid rgba(255,255,255,0.2)" }}>🌾 {farmSave.farmBank}</motion.div>
             )}
@@ -1127,32 +1287,77 @@ export default function FarmPage() {
       {/* === SAD-themed quest panel (top-left, collapsible) === */}
       <QuestPanel
         owned={farmSave.owned}
+        employees={farmSave.employees || {}}
+        wagesPaid={farmSave.wagesPaidTotal || 0}
         completed={farmSave.completedQuests}
         onClaim={claimQuest}
         isPending={claimQuestMutation.isPending}
       />
+
+      {/* === SAD DIAGRAMS BUTTON (top-right, below HUD) === */}
+      <button
+        data-no-pan="true"
+        onClick={() => setShowDiagrams(true)}
+        className="absolute z-30 flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+        style={{ right: 10, top: 110, background: "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))", color: "#FFD700", border: "1.5px solid rgba(255,215,0,0.4)", backdropFilter: "blur(8px)", boxShadow: "0 4px 12px rgba(0,0,0,0.4)" }}
+        data-testid="btn-sad-diagrams"
+      >
+        <GraduationCap className="w-3.5 h-3.5"/>
+        <span>SAD DIAGRAMS</span>
+      </button>
 
       {/* Building modal */}
       <AnimatePresence>
         {selected && (
           <>
             <motion.div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelected(null)}/>
-            <BuildingModal b={selected} level={farmSave.owned[selected.id] || 0} userCoins={user.eduCoins} onBuy={() => handleBuy(selected)} onUpgrade={() => handleUpgrade(selected)} onClose={() => setSelected(null)} isPending={spendMutation.isPending}/>
+            <BuildingModal
+              b={selected}
+              level={farmSave.owned[selected.id] || 0}
+              hired={farmSave.employees?.[selected.id] || 0}
+              userCoins={user.eduCoins}
+              onBuy={() => handleBuy(selected)}
+              onUpgrade={() => handleUpgrade(selected)}
+              onHire={() => handleHire(selected)}
+              onFire={() => handleFire(selected)}
+              onClose={() => setSelected(null)}
+              isPending={spendMutation.isPending}
+            />
           </>
         )}
       </AnimatePresence>
 
       {/* Harvest burst */}
       <HarvestBurst active={isHarvesting} />
+
+      {/* SAD diagrams modal */}
+      <AnimatePresence>
+        {showDiagrams && (
+          <SADDiagramsModal
+            owned={farmSave.owned}
+            employees={farmSave.employees || {}}
+            wagesPaid={farmSave.wagesPaidTotal || 0}
+            farmBank={farmSave.farmBank}
+            day={farmSave.day}
+            onClose={() => setShowDiagrams(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function BuildingModal({ b, level, userCoins, onBuy, onUpgrade, onClose, isPending }: {
-  b: BuildingDef; level: number; userCoins: number; onBuy: () => void; onUpgrade: () => void; onClose: () => void; isPending: boolean;
+function BuildingModal({ b, level, hired, userCoins, onBuy, onUpgrade, onHire, onFire, onClose, isPending }: {
+  b: BuildingDef; level: number; hired: number; userCoins: number;
+  onBuy: () => void; onUpgrade: () => void; onHire: () => void; onFire: () => void;
+  onClose: () => void; isPending: boolean;
 }) {
   const action = level === 0 ? { type: "buy" as const, label: "Build", cost: b.buyCost } : level < 3 ? { type: "upgrade" as const, label: `Upgrade → Level ${level + 1}`, cost: b.upgradeCost[level - 1] } : null;
   const canAfford = action ? userCoins >= action.cost : true;
+  const cap = level > 0 ? b.staffCap[level - 1] : 0;
+  const econ = buildingTickEcon(b, level, hired);
+  const hireCost = b.wagePerTick * HIRE_BONUS_MULT;
+  const canHire = level > 0 && hired < cap && userCoins >= hireCost && !isPending;
 
   return (
     <motion.div className="fixed inset-x-0 bottom-0 z-50 px-3 pb-6" initial={{ y: 220, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 220, opacity: 0 }} transition={{ type: "spring", damping: 28, stiffness: 320 }}>
@@ -1183,6 +1388,73 @@ function BuildingModal({ b, level, userCoins, onBuy, onUpgrade, onClose, isPendi
               </div>
             ))}
           </div>
+          {/* === STAFF / EMPLOYEES SECTION (SAD: Use Case actors) === */}
+          {level > 0 && (
+            <div className="mb-3 p-3 rounded-xl" style={{ background: "linear-gradient(135deg, rgba(33,150,243,0.06), rgba(21,101,192,0.08))", border: "1.5px solid rgba(33,150,243,0.25)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div className="text-[11px] font-black tracking-wide" style={{ color: "#1565C0" }}>👷 STAFF · {b.role.toUpperCase()}</div>
+                  <div className="text-[10px]" style={{ color: "#5A7A9A" }}>SAD: actors performing the use case</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-base font-black" style={{ color: "#0D47A1" }}>{hired} / {cap}</div>
+                  <div className="text-[9px] font-bold" style={{ color: "#5A7A9A" }}>{cap === 0 ? "AUTOMATED" : "HIRED"}</div>
+                </div>
+              </div>
+              {/* Slot dots */}
+              {cap > 0 && (
+                <div className="flex items-center gap-1 mb-2">
+                  {Array.from({ length: cap }).map((_, i) => (
+                    <div key={i} className="flex-1 h-2 rounded-full" style={{
+                      background: i < hired ? "linear-gradient(90deg, #1976D2, #42A5F5)" : "rgba(0,0,0,0.08)",
+                      border: "1px solid rgba(33,150,243,0.3)",
+                    }}/>
+                  ))}
+                </div>
+              )}
+              {/* Econ readout */}
+              <div className="grid grid-cols-3 gap-1.5 text-center mb-2">
+                <div className="rounded p-1" style={{ background: "rgba(46,125,50,0.08)" }}>
+                  <div className="text-[9px] font-bold" style={{ color: "#5A7A5A" }}>GROSS</div>
+                  <div className="text-xs font-black" style={{ color: "#2E7D32" }}>+{econ.gross}🪙</div>
+                </div>
+                <div className="rounded p-1" style={{ background: "rgba(198,40,40,0.06)" }}>
+                  <div className="text-[9px] font-bold" style={{ color: "#9A5A5A" }}>WAGES</div>
+                  <div className="text-xs font-black" style={{ color: "#C62828" }}>−{econ.wages}🪙</div>
+                </div>
+                <div className="rounded p-1" style={{ background: econ.net >= 0 ? "rgba(33,150,243,0.10)" : "rgba(198,40,40,0.10)" }}>
+                  <div className="text-[9px] font-bold" style={{ color: "#5A7A9A" }}>NET/TICK</div>
+                  <div className="text-xs font-black" style={{ color: econ.net >= 0 ? "#0D47A1" : "#B71C1C" }}>{econ.net >= 0 ? "+" : ""}{econ.net}🪙</div>
+                </div>
+              </div>
+              {cap > 0 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={onFire}
+                    disabled={hired <= 0 || isPending}
+                    className="flex-1 h-8 text-[11px] font-bold"
+                    style={{ background: "rgba(198,40,40,0.85)", color: "white" }}
+                    data-testid={`btn-fire-${b.id}`}
+                  >
+                    📤 Fire
+                  </Button>
+                  <Button
+                    onClick={onHire}
+                    disabled={!canHire}
+                    className="flex-1 h-8 text-[11px] font-bold text-white"
+                    style={{ background: canHire ? "linear-gradient(135deg, #1976D2, #0D47A1)" : "rgba(33,150,243,0.35)" }}
+                    data-testid={`btn-hire-${b.id}`}
+                  >
+                    👷 Hire · {hireCost}🪙
+                  </Button>
+                </div>
+              )}
+              {cap === 0 && (
+                <p className="text-[10px] text-center font-medium" style={{ color: "#5A7A9A" }}>No staff slots at this level. Upgrade to unlock hires.</p>
+              )}
+            </div>
+          )}
+
           {level === 3 ? (
             <div className="flex items-center justify-center gap-2 py-3 rounded-xl" style={{ background: "linear-gradient(135deg, rgba(156,39,176,0.08), rgba(156,39,176,0.15))", border: "2px solid rgba(156,39,176,0.3)" }}>
               <Star className="w-5 h-5" style={{ color: "#9C27B0", fill: "#CE93D8" }}/><span className="font-black" style={{ color: "#7B1FA2" }}>FULLY MAXED OUT</span>
@@ -1203,20 +1475,302 @@ function BuildingModal({ b, level, userCoins, onBuy, onUpgrade, onClose, isPendi
   );
 }
 
+// === SAD Diagrams Modal ===
+// Auto-generates three Systems Analysis & Design diagrams from current farm
+// state so players can SEE the same system three different ways. Each tab
+// has a one-line definition + a one-line mapping to what's on screen — that
+// way the diagram is the lesson, not just decoration.
+function SADDiagramsModal({
+  owned, employees, wagesPaid, farmBank, day, onClose,
+}: {
+  owned: Record<string, number>;
+  employees: Record<string, number>;
+  wagesPaid: number;
+  farmBank: number;
+  day: number;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"dfd" | "er" | "uc">("dfd");
+  const ownedBuildings = BUILDINGS.filter(b => (owned[b.id] || 0) > 0);
+  const totalEmp = Object.values(employees).reduce((a, b) => a + b, 0);
+  const activeEdges = PRODUCTION_EDGES.filter(e => (owned[e.from] || 0) > 0 && (owned[e.to] || 0) > 0);
+
+  const tabBtn = (id: typeof tab, label: string) => (
+    <button
+      onClick={() => setTab(id)}
+      className="flex-1 py-2 text-xs font-black tracking-wide transition-all"
+      style={{
+        background: tab === id ? "linear-gradient(135deg, #FFD700, #F5A623)" : "rgba(255,255,255,0.04)",
+        color: tab === id ? "#3E2716" : "#FFD700",
+        borderBottom: tab === id ? "2px solid #FFD700" : "2px solid transparent",
+      }}
+      data-testid={`tab-diagram-${id}`}
+    >{label}</button>
+  );
+
+  return (
+    <>
+      <motion.div className="fixed inset-0 z-50" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}/>
+      <motion.div
+        className="fixed inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 top-1/2 -translate-y-1/2 z-50 overflow-hidden"
+        style={{ width: "min(640px, calc(100vw - 16px))", maxHeight: "calc(100vh - 40px)", background: "linear-gradient(180deg, #1a2410 0%, #0f1908 100%)", borderRadius: 16, border: "2px solid rgba(255,215,0,0.4)", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+        initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.92 }}
+        data-testid="modal-sad-diagrams"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3" style={{ background: "rgba(0,0,0,0.35)", borderBottom: "1px solid rgba(255,215,0,0.25)" }}>
+          <div>
+            <h2 className="font-black text-base tracking-wide" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700" }}>📐 SAD DIAGRAMS · DAY {day}</h2>
+            <p className="text-[10px] font-semibold" style={{ color: "#A8C8A0" }}>Your farm, drawn three ways · Built from live game state</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,215,0,0.15)" }} data-testid="btn-close-diagrams">
+            <X className="w-4 h-4" style={{ color: "#FFD700" }}/>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex" style={{ background: "rgba(0,0,0,0.2)" }}>
+          {tabBtn("dfd", "DFD · Data Flow")}
+          {tabBtn("er", "ER · Entities")}
+          {tabBtn("uc", "UC · Use Case")}
+        </div>
+
+        {/* Content */}
+        <div className="p-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 180px)" }}>
+          {ownedBuildings.length === 0 ? (
+            <p className="text-center text-sm py-8" style={{ color: "#A8C8A0" }}>Build at least one structure to see diagrams.</p>
+          ) : tab === "dfd" ? (
+            <div>
+              <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: "rgba(33,150,243,0.10)", border: "1px solid rgba(33,150,243,0.30)" }}>
+                <p className="text-[11px] font-bold" style={{ color: "#90CAF9" }}>Data Flow Diagram</p>
+                <p className="text-[10px]" style={{ color: "#C8DCC0" }}>Shows how <b>data (and coins)</b> move between processes (your buildings) and external entities (Sun, Player, Market). Arrows = flows.</p>
+              </div>
+              <DFDSvg ownedBuildings={ownedBuildings} edges={activeEdges} farmBank={farmBank} wagesPaid={wagesPaid} totalEmp={totalEmp}/>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+                <Legend dotColor="#FFC107" label="External entity (Sun, Player, Market)"/>
+                <Legend dotColor="#42A5F5" label="Process (a building)"/>
+                <Legend dotColor="#66BB6A" label="Data store (Farm Bank)"/>
+                <Legend dotColor="#EF5350" label="Cash-flow (wages out)"/>
+              </div>
+            </div>
+          ) : tab === "er" ? (
+            <div>
+              <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: "rgba(156,39,176,0.10)", border: "1px solid rgba(156,39,176,0.30)" }}>
+                <p className="text-[11px] font-bold" style={{ color: "#CE93D8" }}>Entity-Relationship Diagram</p>
+                <p className="text-[10px]" style={{ color: "#C8DCC0" }}>Shows your <b>data model</b>: which entities exist (Player, Building, Employee) and how they relate (1-to-many, many-to-many).</p>
+              </div>
+              <ERSvg ownedCount={ownedBuildings.length} totalEmp={totalEmp} farmBank={farmBank} day={day}/>
+              <div className="mt-3 text-[10px] space-y-1" style={{ color: "#C8DCC0" }}>
+                <div>• <b>Player</b> 1—N <b>Building</b> ({ownedBuildings.length} owned)</div>
+                <div>• <b>Building</b> 1—N <b>Employee</b> ({totalEmp} hired across {ownedBuildings.filter(b => (employees[b.id] || 0) > 0).length} buildings)</div>
+                <div>• <b>Player</b> 1—1 <b>FarmBank</b> ({farmBank}🪙 stored, {wagesPaid}🪙 paid)</div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-3 px-3 py-2 rounded-lg" style={{ background: "rgba(245,166,35,0.10)", border: "1px solid rgba(245,166,35,0.30)" }}>
+                <p className="text-[11px] font-bold" style={{ color: "#FFD700" }}>Use Case Diagram</p>
+                <p className="text-[10px]" style={{ color: "#C8DCC0" }}>Shows <b>actors</b> (you, your hired farmers, the Sun) and the <b>use cases</b> they perform (Plant, Harvest, Mill, Pay Wages).</p>
+              </div>
+              <UCSvg ownedBuildings={ownedBuildings} employees={employees}/>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
+function Legend({ dotColor, label }: { dotColor: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: dotColor }}/>
+      <span style={{ color: "#C8DCC0" }}>{label}</span>
+    </div>
+  );
+}
+
+// DFD: external entities on left/right, processes (buildings) in the middle
+// laid out vertically by category, with arrows for production edges + a
+// store node (Farm Bank) at the bottom.
+function DFDSvg({ ownedBuildings, edges, farmBank, wagesPaid, totalEmp }: {
+  ownedBuildings: BuildingDef[]; edges: Edge[]; farmBank: number; wagesPaid: number; totalEmp: number;
+}) {
+  const W = 580, H = Math.max(280, 60 + ownedBuildings.length * 36);
+  const colX = { ext: 50, proc: 280, store: 510 };
+  const procY = (i: number) => 40 + i * 36;
+  const idxOf = Object.fromEntries(ownedBuildings.map((b, i) => [b.id, i]));
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ background: "rgba(0,0,0,0.25)", borderRadius: 8 }}>
+      <defs>
+        <marker id="dfdArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#90CAF9"/>
+        </marker>
+        <marker id="wageArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#EF5350"/>
+        </marker>
+      </defs>
+      {/* External entities (left column) */}
+      <g>
+        <rect x={colX.ext - 40} y={40} width={90} height={28} rx={4} fill="rgba(255,193,7,0.18)" stroke="#FFC107" strokeWidth={1.5}/>
+        <text x={colX.ext + 5} y={58} fill="#FFC107" fontSize={11} fontWeight={800} textAnchor="middle">☀️ Sun</text>
+        <rect x={colX.ext - 40} y={H/2 - 14} width={90} height={28} rx={4} fill="rgba(255,193,7,0.18)" stroke="#FFC107" strokeWidth={1.5}/>
+        <text x={colX.ext + 5} y={H/2 + 4} fill="#FFC107" fontSize={11} fontWeight={800} textAnchor="middle">🧑 Player</text>
+        <rect x={colX.ext - 40} y={H - 68} width={90} height={28} rx={4} fill="rgba(255,193,7,0.18)" stroke="#FFC107" strokeWidth={1.5}/>
+        <text x={colX.ext + 5} y={H - 50} fill="#FFC107" fontSize={11} fontWeight={800} textAnchor="middle">👷 {totalEmp} Workers</text>
+      </g>
+      {/* Processes (buildings) */}
+      {ownedBuildings.map((b, i) => (
+        <g key={b.id}>
+          <ellipse cx={colX.proc} cy={procY(i) + 12} rx={95} ry={13} fill="rgba(33,150,243,0.18)" stroke="#42A5F5" strokeWidth={1.3}/>
+          <text x={colX.proc} y={procY(i) + 16} fill="#90CAF9" fontSize={10} fontWeight={700} textAnchor="middle">{b.emoji} {b.name}</text>
+        </g>
+      ))}
+      {/* Production edges between processes */}
+      {edges.map((e, i) => {
+        const fy = procY(idxOf[e.from] ?? 0) + 12;
+        const ty = procY(idxOf[e.to] ?? 0) + 12;
+        return (
+          <path key={i} d={`M ${colX.proc + 95} ${fy} Q ${colX.proc + 140} ${(fy+ty)/2} ${colX.proc + 95} ${ty}`}
+            fill="none" stroke="#42A5F5" strokeWidth={1.2} strokeDasharray="3 3" opacity={0.55} markerEnd="url(#dfdArrow)"/>
+        );
+      })}
+      {/* External → first process: Sun input */}
+      {ownedBuildings.length > 0 && (
+        <line x1={colX.ext + 50} y1={54} x2={colX.proc - 95} y2={procY(0) + 12} stroke="#FFC107" strokeWidth={1.3} markerEnd="url(#dfdArrow)" opacity={0.7}/>
+      )}
+      {/* Player → middle process */}
+      {ownedBuildings.length > 0 && (
+        <line x1={colX.ext + 50} y1={H/2} x2={colX.proc - 95} y2={procY(Math.floor(ownedBuildings.length/2)) + 12} stroke="#FFC107" strokeWidth={1.3} markerEnd="url(#dfdArrow)" opacity={0.7}/>
+      )}
+      {/* Wages: bank → workers (red) */}
+      {totalEmp > 0 && (
+        <line x1={colX.store - 5} y1={H - 50} x2={colX.ext + 50} y2={H - 54} stroke="#EF5350" strokeWidth={1.5} markerEnd="url(#wageArrow)" opacity={0.85}/>
+      )}
+      {/* Data store — Farm Bank */}
+      <g>
+        <rect x={colX.store - 50} y={H/2 - 22} width={100} height={44} rx={2} fill="rgba(102,187,106,0.18)" stroke="#66BB6A" strokeWidth={1.5}/>
+        <line x1={colX.store - 50} y1={H/2 - 14} x2={colX.store + 50} y2={H/2 - 14} stroke="#66BB6A" strokeWidth={1}/>
+        <text x={colX.store} y={H/2 - 4} fill="#A5D6A7" fontSize={10} fontWeight={800} textAnchor="middle">🏦 Farm Bank</text>
+        <text x={colX.store} y={H/2 + 10} fill="#A5D6A7" fontSize={10} fontWeight={700} textAnchor="middle">{farmBank}🪙 · {wagesPaid} paid</text>
+      </g>
+      {/* Processes → store (output flows) */}
+      {ownedBuildings.map((b, i) => (
+        <line key={`s-${b.id}`} x1={colX.proc + 95} y1={procY(i) + 12} x2={colX.store - 50} y2={H/2} stroke="#66BB6A" strokeWidth={0.9} opacity={0.4} markerEnd="url(#dfdArrow)"/>
+      ))}
+    </svg>
+  );
+}
+
+// ER: 4 entities (Player, Building, Employee, FarmBank) with crow's-foot
+// style cardinality labels.
+function ERSvg({ ownedCount, totalEmp, farmBank, day }: { ownedCount: number; totalEmp: number; farmBank: number; day: number }) {
+  return (
+    <svg width="100%" viewBox="0 0 580 320" style={{ background: "rgba(0,0,0,0.25)", borderRadius: 8 }}>
+      <defs>
+        <marker id="one" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><line x1="9" y1="0" x2="9" y2="10" stroke="#CE93D8" strokeWidth="1.5"/></marker>
+        <marker id="many" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto"><path d="M0,5 L9,0 M0,5 L9,5 M0,5 L9,10" stroke="#CE93D8" strokeWidth="1.5" fill="none"/></marker>
+      </defs>
+      {/* Entities */}
+      {[
+        { x: 290, y: 40, w: 130, h: 60, t: "👤 Player", attrs: [`day=${day}`, "username"] },
+        { x: 60, y: 180, w: 140, h: 70, t: "🏗️ Building", attrs: [`count=${ownedCount}`, "level, name"] },
+        { x: 380, y: 180, w: 140, h: 70, t: "👷 Employee", attrs: [`count=${totalEmp}`, "wage, role"] },
+        { x: 220, y: 250, w: 130, h: 60, t: "🏦 FarmBank", attrs: [`bal=${farmBank}🪙`] },
+      ].map((e, i) => (
+        <g key={i}>
+          <rect x={e.x} y={e.y} width={e.w} height={e.h} rx={6} fill="rgba(156,39,176,0.16)" stroke="#CE93D8" strokeWidth={1.5}/>
+          <line x1={e.x} y1={e.y + 22} x2={e.x + e.w} y2={e.y + 22} stroke="#CE93D8" strokeWidth={1}/>
+          <text x={e.x + e.w/2} y={e.y + 16} fill="#E1BEE7" fontSize={11} fontWeight={800} textAnchor="middle">{e.t}</text>
+          {e.attrs.map((a, j) => (
+            <text key={j} x={e.x + 8} y={e.y + 36 + j * 13} fill="#C8B0D8" fontSize={9} fontWeight={600}>· {a}</text>
+          ))}
+        </g>
+      ))}
+      {/* Relationships */}
+      <line x1={300} y1={100} x2={130} y2={180} stroke="#CE93D8" strokeWidth={1.4} markerStart="url(#one)" markerEnd="url(#many)"/>
+      <text x={195} y={135} fill="#E1BEE7" fontSize={9} fontWeight={700}>owns (1:N)</text>
+      <line x1={130} y1={250} x2={380} y2={215} stroke="#CE93D8" strokeWidth={1.4} markerStart="url(#one)" markerEnd="url(#many)"/>
+      <text x={235} y={245} fill="#E1BEE7" fontSize={9} fontWeight={700}>employs (1:N)</text>
+      <line x1={355} y1={100} x2={285} y2={250} stroke="#CE93D8" strokeWidth={1.4} markerStart="url(#one)" markerEnd="url(#one)"/>
+      <text x={335} y={185} fill="#E1BEE7" fontSize={9} fontWeight={700}>has (1:1)</text>
+      <line x1={420} y1={100} x2={450} y2={180} stroke="#CE93D8" strokeWidth={1.4} markerStart="url(#one)" markerEnd="url(#many)" strokeDasharray="4 3"/>
+      <text x={440} y={140} fill="#E1BEE7" fontSize={9} fontWeight={700}>hires</text>
+    </svg>
+  );
+}
+
+// Use Case: stick-figure actors on the left/right linked to use-case ovals.
+function UCSvg({ ownedBuildings, employees }: { ownedBuildings: BuildingDef[]; employees: Record<string, number> }) {
+  // Distinct verbs: Plant/Harvest (crops), Tend (livestock), Operate (equipment), Manage (buildings)
+  const useCases = [
+    { label: "Plant & Harvest", visible: ownedBuildings.some(b => b.category === "crops") },
+    { label: "Tend Livestock",  visible: ownedBuildings.some(b => b.category === "livestock") },
+    { label: "Operate Machines", visible: ownedBuildings.some(b => b.category === "equipment") },
+    { label: "Manage Hub",      visible: ownedBuildings.some(b => b.category === "buildings") },
+    { label: "Pay Wages",        visible: Object.values(employees).some(v => v > 0) },
+    { label: "Daily Harvest",    visible: true },
+  ].filter(u => u.visible);
+
+  const W = 580, H = 80 + useCases.length * 50;
+  const ucX = W/2, ucY = (i: number) => 60 + i * 50;
+
+  // Stickfigure svg helper
+  const Stick = (x: number, y: number, label: string, color: string) => (
+    <g>
+      <circle cx={x} cy={y} r={7} fill="none" stroke={color} strokeWidth={1.6}/>
+      <line x1={x} y1={y + 7} x2={x} y2={y + 25} stroke={color} strokeWidth={1.6}/>
+      <line x1={x - 9} y1={y + 14} x2={x + 9} y2={y + 14} stroke={color} strokeWidth={1.6}/>
+      <line x1={x} y1={y + 25} x2={x - 8} y2={y + 36} stroke={color} strokeWidth={1.6}/>
+      <line x1={x} y1={y + 25} x2={x + 8} y2={y + 36} stroke={color} strokeWidth={1.6}/>
+      <text x={x} y={y + 50} fill={color} fontSize={10} fontWeight={800} textAnchor="middle">{label}</text>
+    </g>
+  );
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ background: "rgba(0,0,0,0.25)", borderRadius: 8 }}>
+      {/* System boundary */}
+      <rect x={W/2 - 130} y={20} width={260} height={H - 40} rx={10} fill="none" stroke="rgba(255,215,0,0.35)" strokeWidth={1.2} strokeDasharray="6 4"/>
+      <text x={W/2} y={14} fill="#FFD700" fontSize={9} fontWeight={800} textAnchor="middle">— FARM SYSTEM —</text>
+      {/* Actors */}
+      {Stick(50, 60, "Player", "#FFD700")}
+      {Stick(W - 50, 60, "Farmer", "#42A5F5")}
+      {Stick(50, H - 80, "Sun ☀️", "#FFC107")}
+      {/* Use cases */}
+      {useCases.map((u, i) => (
+        <g key={i}>
+          <ellipse cx={ucX} cy={ucY(i)} rx={100} ry={16} fill="rgba(245,166,35,0.18)" stroke="#FFD700" strokeWidth={1.3}/>
+          <text x={ucX} y={ucY(i) + 4} fill="#FFE082" fontSize={11} fontWeight={800} textAnchor="middle">{u.label}</text>
+          {/* link from player to first 4, farmer to all hired ones */}
+          <line x1={67} y1={70} x2={ucX - 100} y2={ucY(i)} stroke="#FFD700" strokeWidth={0.9} opacity={0.45}/>
+          {(u.label === "Tend Livestock" || u.label === "Operate Machines" || u.label === "Plant & Harvest" || u.label === "Manage Hub") && (
+            <line x1={W - 67} y1={70} x2={ucX + 100} y2={ucY(i)} stroke="#42A5F5" strokeWidth={0.9} opacity={0.55}/>
+          )}
+          {u.label === "Plant & Harvest" && (
+            <line x1={67} y1={H - 70} x2={ucX - 100} y2={ucY(i)} stroke="#FFC107" strokeWidth={0.9} opacity={0.45} strokeDasharray="3 3"/>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 // === SAD-themed quest panel (collapsible, top-left) ===
 // Shows the 6 systems-analysis-themed side quests, their progress, and a
 // claim button when complete. Persists "completedQuests" via the parent.
 function QuestPanel({
-  owned, completed, onClaim, isPending,
+  owned, employees, wagesPaid, completed, onClaim, isPending,
 }: {
   owned: Record<string, number>;
+  employees: Record<string, number>;
+  wagesPaid: number;
   completed: string[];
   onClaim: (q: QuestDef) => void;
   isPending: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const completedCount = completed.length;
-  const pendingCount   = QUESTS.filter(q => !completed.includes(q.id) && questProgress(q, owned).done).length;
+  const pendingCount   = QUESTS.filter(q => !completed.includes(q.id) && questProgress(q, owned, employees, wagesPaid).done).length;
 
   return (
     <div
@@ -1283,7 +1837,7 @@ function QuestPanel({
           <ul className="p-2 space-y-2">
             {QUESTS.map(q => {
               const isDone = completed.includes(q.id);
-              const prog = questProgress(q, owned);
+              const prog = questProgress(q, owned, employees, wagesPaid);
               const ready = !isDone && prog.done;
               return (
                 <li key={q.id} data-testid={`quest-${q.id}`}
