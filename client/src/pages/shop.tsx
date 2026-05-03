@@ -8,7 +8,8 @@ import { getRarityConfig } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ShoppingBag, Coins, CheckCircle2, Lock, Sparkles, User, Frame, Palette, X, ShoppingCart } from "lucide-react";
+import { ShoppingBag, Coins, CheckCircle2, Lock, Sparkles, User, Frame, Palette, X, ShoppingCart, Zap, TrendingUp } from "lucide-react";
+import { AVATAR_PERKS, FRAME_PERKS, THEME_PERKS } from "@shared/cosmetic-perks";
 
 // Visual metadata for cosmetics by icon key
 const AVATAR_META: Record<string, { emoji: string; gradient: string; aura: string }> = {
@@ -17,6 +18,8 @@ const AVATAR_META: Record<string, { emoji: string; gradient: string; aura: strin
   phoenix: { emoji: "🦅", gradient: "from-orange-500 via-red-600 to-rose-900", aura: "shadow-orange-500/40" },
   dragon:  { emoji: "🐲", gradient: "from-emerald-500 via-teal-600 to-green-900", aura: "shadow-emerald-500/40" },
   knight:  { emoji: "⚔️", gradient: "from-slate-400 via-slate-600 to-slate-900", aura: "shadow-slate-500/30" },
+  sage:    { emoji: "📜", gradient: "from-amber-400 via-orange-500 to-red-700", aura: "shadow-amber-400/40" },
+  tycoon:  { emoji: "💼", gradient: "from-yellow-500 via-amber-600 to-yellow-900", aura: "shadow-yellow-400/50" },
 };
 
 const FRAME_META: Record<string, { border: string; glow: string; label: string; preview: string }> = {
@@ -24,6 +27,8 @@ const FRAME_META: Record<string, { border: string; glow: string; label: string; 
   "neon-blue":   { border: "border-2 border-blue-400", glow: "shadow-lg shadow-blue-500/50", label: "Electric Blue", preview: "bg-gradient-to-br from-blue-900/60 to-cyan-950" },
   golden:        { border: "border-2 border-yellow-400", glow: "shadow-lg shadow-yellow-500/60", label: "Golden Legend", preview: "bg-gradient-to-br from-yellow-900/60 to-amber-950" },
   matrix:        { border: "border-2 border-emerald-400", glow: "shadow-lg shadow-emerald-500/50", label: "Matrix", preview: "bg-gradient-to-br from-emerald-900/60 to-green-950" },
+  sunrise:       { border: "border-2 border-orange-400", glow: "shadow-lg shadow-orange-500/50", label: "Sunrise", preview: "bg-gradient-to-br from-orange-900/60 to-amber-950" },
+  aurora:        { border: "border-2 border-cyan-300", glow: "shadow-lg shadow-cyan-300/60", label: "Aurora", preview: "bg-gradient-to-br from-cyan-900/60 to-emerald-950" },
 };
 
 const THEME_META: Record<string, { swatches: string[]; label: string }> = {
@@ -32,7 +37,17 @@ const THEME_META: Record<string, { swatches: string[]; label: string }> = {
   "matrix-theme":  { swatches: ["#0d0d0d", "#00ff41", "#39d353", "#1a1a1a"], label: "Matrix Green" },
   ocean:           { swatches: ["#0077b6", "#00b4d8", "#90e0ef", "#03045e"], label: "Ocean Depths" },
   "fire-ice":      { swatches: ["#ef233c", "#4cc9f0", "#f72585", "#4361ee"], label: "Fire & Ice" },
+  sunset:          { swatches: ["#ff6b35", "#f7c59f", "#efefd0", "#2d0a3a"], label: "Sunset Glow" },
+  forest:          { swatches: ["#1f4d2c", "#6fa472", "#a8c3a0", "#0d2818"], label: "Forest Mist" },
 };
+
+// Lookup the perk record for the icon based on the cosmetic type
+function perksFor(item: any) {
+  if (item.type === "avatar") return AVATAR_PERKS[item.icon];
+  if (item.type === "frame")  return FRAME_PERKS[item.icon];
+  if (item.type === "theme")  return THEME_PERKS[item.icon];
+  return null;
+}
 
 const RARITY_CARD_STYLES: Record<string, { outer: string; shimmer: boolean }> = {
   legendary: { outer: "ring-2 ring-yellow-400/50 shadow-xl shadow-yellow-500/20", shimmer: true },
@@ -118,6 +133,18 @@ function ItemCard({ item, equipped, onSelect }: { item: any; equipped: boolean; 
       {/* Info */}
       <div className="p-2.5">
         <p className="text-xs font-bold leading-tight mb-1 line-clamp-1">{item.name}</p>
+        {(() => {
+          const p = perksFor(item);
+          if (!p || !p.description) return null;
+          const hasStat = (p.xpMult > 1) || (p.farmMult > 1) || (p.coinMult > 1);
+          if (!hasStat) return null;
+          return (
+            <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 mb-1 truncate" data-testid={`perk-${item.id}`}>
+              <Zap className="w-2.5 h-2.5 flex-shrink-0" />
+              <span className="truncate">{p.description}</span>
+            </div>
+          );
+        })()}
         <div className="flex items-center justify-between">
           <span className={`text-xs font-bold ${rarityConfig.colorClass}`}>{rarityConfig.label}</span>
           {item.owned ? (
@@ -318,7 +345,33 @@ export default function ShopPage() {
                   )}
                 </div>
 
-                <p className="text-sm text-muted-foreground mb-4">{previewItem.description}</p>
+                <p className="text-sm text-muted-foreground mb-3">{previewItem.description}</p>
+
+                {(() => {
+                  const p = perksFor(previewItem);
+                  if (!p) return null;
+                  const stats: string[] = [];
+                  if (p.xpMult > 1)   stats.push(`+${Math.round((p.xpMult - 1) * 100)}% XP`);
+                  if (p.farmMult > 1) stats.push(`+${Math.round((p.farmMult - 1) * 100)}% Farm coins`);
+                  if (p.coinMult > 1) stats.push(`+${Math.round((p.coinMult - 1) * 100)}% Game coins`);
+                  if (stats.length === 0) return null;
+                  return (
+                    <div className="mb-4 p-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-xs font-bold tracking-wider text-emerald-400 font-mono">GAMEPLAY PERK</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5" data-testid="preview-perks">
+                        {stats.map(s => (
+                          <Badge key={s} variant="outline" className="text-xs border-emerald-500/40 text-emerald-300 bg-emerald-500/10 font-mono">
+                            {s}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1.5">Stacks with other equipped items.</p>
+                    </div>
+                  );
+                })()}
 
                 {/* Action buttons */}
                 <div className="flex gap-2">

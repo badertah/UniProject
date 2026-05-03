@@ -853,3 +853,29 @@ export async function seedDatabase() {
   console.log("[EduQuest] Seeding complete!");
   await pool.end();
 }
+
+// Idempotent: adds new perk-bearing cosmetics to the live DB without
+// duplicating existing rows. Keyed by `icon` (deterministic). Safe to
+// call on every server boot. Adds: Sage/Tycoon avatars, Sunrise/Aurora
+// frames, Sunset/Forest themes — all with real gameplay perks defined
+// in shared/cosmetic-perks.ts.
+export async function ensureExtraCosmetics() {
+  const newItems: [string, string, number, string, string, string][] = [
+    ["Sage of Insight",  "avatar", 350, "sage",    "Ancient sage that boosts every minigame XP gain by 15%.", "epic"],
+    ["Farm Tycoon",      "avatar", 400, "tycoon",  "Industrial mogul: +20% to every farm harvest payout.",     "epic"],
+    ["Sunrise Frame",    "frame",  250, "sunrise", "Warm dawn aura — +6% XP from every reward.",                "epic"],
+    ["Aurora Frame",     "frame",  500, "aurora",  "Northern lights blessing — +10% farm income.",              "legendary"],
+    ["Sunset Glow Theme","theme",  400, "sunset",  "Repaints the entire app + farm sky in golden sunset hues.", "legendary"],
+    ["Forest Mist Theme","theme",  280, "forest",  "Recolours the app + farm sky with calm forest greens.",     "epic"],
+  ];
+
+  for (const [name, type, price, icon, description, rarity] of newItems) {
+    const existing = await q("SELECT id FROM cosmetics WHERE icon = $1 LIMIT 1", [icon]);
+    if (existing.length > 0) continue;
+    await q(
+      "INSERT INTO cosmetics (name, type, price, icon, description, rarity) VALUES ($1,$2,$3,$4,$5,$6)",
+      [name, type, price, icon, description, rarity]
+    );
+    console.log(`[IKUGAMES] Added perk cosmetic: ${name}`);
+  }
+}

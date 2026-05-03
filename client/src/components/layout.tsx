@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { getTierInfo, getXpToNextLevel } from "@/lib/utils";
+import { UserAvatar } from "@/components/cosmetics";
 
 interface LayoutProps {
   children: ReactNode;
@@ -65,9 +66,7 @@ export function Layout({ children }: LayoutProps) {
       {!collapsed && settings.showUserStatsCard && (
         <div className="p-3 m-3 rounded-lg bg-card/60 border border-border/40">
           <div className="flex items-center gap-2 mb-2">
-            <div className={`w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold ${tierInfo.bgClass}`}>
-              {user.username.charAt(0).toUpperCase()}
-            </div>
+            <UserAvatar user={user} size="sm" fallbackBg={tierInfo.bgClass} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user.username}</p>
               <p className={`text-xs font-bold ${tierInfo.colorClass}`}>{user.tier}</p>

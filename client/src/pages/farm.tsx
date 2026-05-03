@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { THEME_FARM_SKY_TINT } from "@shared/cosmetic-perks";
+import { UserAvatar } from "@/components/cosmetics";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -9,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import {
-  useAtmosphere, skyGradient, CelestialBody, Stars, WeatherLayer, SkyBalloon,
+  useAtmosphere, skyGradient as baseSkyGradient, CelestialBody, Stars, WeatherLayer, SkyBalloon,
   AmbientCreatures, TickProgress, BankMeter, WeatherBadge,
   GoldenCropOverlay, useGoldenCropSpawner, HarvestBurst, LightningFlash,
 } from "@/components/farm-extras";
@@ -370,7 +372,10 @@ export default function FarmPage() {
     onSuccess: (data: any) => {
       if (data.user) updateUser(data.user);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: `🌾 Harvest! +${data.coinsAdded} EduCoins`, description: `Day ${farmSave.day + 1} begins!` });
+      const bonusMsg = data.bonusCoins && data.bonusCoins > 0
+        ? ` (+${data.bonusCoins} cosmetic bonus, ×${(data.farmMult || 1).toFixed(2)})`
+        : "";
+      toast({ title: `🌾 Harvest! +${data.coinsAdded} EduCoins${bonusMsg}`, description: `Day ${farmSave.day + 1} begins!` });
       setFarmSave(prev => { const ns = { ...prev, farmBank: 0, day: prev.day + 1 }; if (user) saveState(ns, user.id); return ns; });
       setIsHarvesting(false);
     },
@@ -386,7 +391,7 @@ export default function FarmPage() {
   // We mark the quest done locally first (optimistic) and only credit coins
   // on server success — if the request fails we roll back the completion.
   const claimQuestMutation = useMutation({
-    mutationFn: (q: QuestDef) => apiRequest("POST", "/api/farm/harvest", { coins: q.reward }).then(r => r),
+    mutationFn: (q: QuestDef) => apiRequest("POST", "/api/farm/harvest", { coins: q.reward, skipMult: true }).then(r => r),
   });
   const claimQuest = useCallback((q: QuestDef) => {
     if (!user) return;
@@ -668,6 +673,17 @@ export default function FarmPage() {
 
   // === Atmosphere ===
   const atm = useAtmosphere();
+  // Cosmetic theme override for the farm sky — when the player has a
+  // theme equipped, use its dramatic gradient instead of the default
+  // time-of-day sky. Looked up by icon via the shared THEME_FARM_SKY_TINT.
+  const { data: cosmeticsList } = useQuery<any[]>({ queryKey: ["/api/cosmetics"] });
+  const equippedThemeIcon = useMemo(() => {
+    if (!user.equippedTheme || !cosmeticsList) return null;
+    return cosmeticsList.find((c: any) => c.id === user.equippedTheme)?.icon as string | undefined;
+  }, [user.equippedTheme, cosmeticsList]);
+  const themedSky = equippedThemeIcon && THEME_FARM_SKY_TINT[equippedThemeIcon]
+    ? THEME_FARM_SKY_TINT[equippedThemeIcon]
+    : baseSkyGradient(atm.phase, atm.weather);
   const ownedIds = BUILDINGS.filter(b => (farmSave.owned[b.id] || 0) > 0).map(b => b.id);
   const golden = useGoldenCropSpawner(ownedIds, totalOwned > 0);
   const collectGolden = () => {
@@ -686,7 +702,7 @@ export default function FarmPage() {
   const goldenPos = golden.spawn ? bldgPos(golden.spawn.bId) : null;
 
   return (
-    <div className="fixed inset-0 overflow-hidden select-none" style={{ background: skyGradient(atm.phase, atm.weather), transition: "background 1.5s linear" }}>
+    <div className="fixed inset-0 overflow-hidden select-none" style={{ background: themedSky, transition: "background 1.5s linear" }}>
       <style>{`
         @keyframes cloudDrift { 0% { transform: translateX(-200px); } 100% { transform: translateX(calc(100vw + 200px)); } }
         @keyframes cloudDrift2 { 0% { transform: translateX(calc(100vw + 200px)); } 100% { transform: translateX(-200px); } }
@@ -1023,12 +1039,10 @@ export default function FarmPage() {
             <ChevronLeft className="w-3.5 h-3.5"/> <span className="hidden xs:inline">Menu</span>
           </button>
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, #FFD700, #F5A623)", boxShadow: "0 2px 8px rgba(245,166,35,0.4)" }}>
-              <svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#F57F17"/><circle cx="12" cy="12" r="6" fill="#FFD54F"/><circle cx="9" cy="9" r="2" fill="#FFF59D" opacity="0.8"/></svg>
-            </div>
+            <UserAvatar user={user} size="sm" fallbackBg="bg-gradient-to-br from-yellow-400 to-amber-600" className="!rounded-lg shadow-md" />
             <div className="min-w-0 flex-1">
               <h1 className="text-sm sm:text-base font-black tracking-widest leading-none truncate" style={{ fontFamily: "Oxanium, sans-serif", color: "#FFD700", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>FARM TYCOON</h1>
-              <p className="text-[10px] font-semibold leading-tight truncate" style={{ color: "#C8A84E" }}>Day {farmSave.day} · {farmRating}</p>
+              <p className="text-[10px] font-semibold leading-tight truncate" style={{ color: "#C8A84E" }}>{user.username} · Day {farmSave.day} · {farmRating}</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">

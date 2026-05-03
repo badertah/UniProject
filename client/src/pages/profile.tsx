@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import { getTierInfo, getXpToNextLevel, formatXp, getRarityConfig } from "@/lib/utils";
+import { UserAvatar } from "@/components/cosmetics";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,19 +77,7 @@ export default function ProfilePage() {
             <CardContent className="p-6 text-center">
               {/* Avatar */}
               <div className="relative inline-block mb-4">
-                <div
-                  className={`w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold text-white mx-auto ${tierInfo.bgClass} shadow-lg`}
-                  style={{ boxShadow: `0 0 30px rgba(139,92,246,0.3)` }}
-                >
-                  {equippedAvatar ? (
-                    <span className="font-mono text-xl">{equippedAvatar.icon?.charAt(0)?.toUpperCase()}</span>
-                  ) : (
-                    user.username.charAt(0).toUpperCase()
-                  )}
-                </div>
-                {equippedFrame && (
-                  <div className="absolute -inset-1 rounded-2xl border-2 border-primary/60 pointer-events-none" />
-                )}
+                <UserAvatar user={user} size="xl" fallbackBg={`${tierInfo.bgClass} shadow-lg`} className="!rounded-2xl mx-auto" />
               </div>
 
               <h2 className="text-xl font-bold mb-1" style={{ fontFamily: "Oxanium, sans-serif" }}>{user.username}</h2>

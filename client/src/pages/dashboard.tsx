@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useSettings } from "@/hooks/use-settings";
+import { UserAvatar } from "@/components/cosmetics";
 import { getTierInfo, getXpToNextLevel, formatXp, getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -144,9 +145,7 @@ export default function Dashboard() {
                 animate={{ rotate: [0, 5, -5, 0] }}
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
               >
-                <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-2xl font-bold text-white ${tierInfo.bgClass} neon-purple`}>
-                  {user.username.charAt(0).toUpperCase()}
-                </div>
+                <UserAvatar user={user} size="lg" fallbackBg={`${tierInfo.bgClass} neon-purple`} className="!rounded-xl" />
                 <div className={`absolute -bottom-1 -right-1 text-xs px-1.5 py-0.5 rounded-md font-bold ${tierInfo.colorClass} bg-card border border-border/60`}>
                   Lv.{user.level}
                 </div>
@@ -351,9 +350,8 @@ export default function Dashboard() {
                           <span className={`text-xs font-bold w-5 text-center font-mono ${medal}`}>
                             {i < 3 ? ["1st", "2nd", "3rd"][i] : `#${i + 1}`}
                           </span>
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white ${playerTier.bgClass} flex-shrink-0`}>
-                            {player.username.charAt(0).toUpperCase()}
-                          </div>
+                          <UserAvatar user={player} size="sm" fallbackBg={playerTier.bgClass} />
+
                           <div className="flex-1 min-w-0">
                             <p className={`text-xs font-medium truncate ${isMe ? "text-primary" : ""}`}>
                               {player.username} {isMe && "(You)"}

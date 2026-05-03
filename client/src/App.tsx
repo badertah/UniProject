@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { SettingsProvider } from "@/hooks/use-settings";
 import { Layout } from "@/components/layout";
+import { ThemeApplier } from "@/components/cosmetics";
 
 import AuthPage from "@/pages/auth";
 import Dashboard from "@/pages/dashboard";
@@ -117,6 +118,7 @@ function App() {
       <TooltipProvider>
         <SettingsProvider>
           <AuthProvider>
+            <ThemeApplier />
             <Router />
             <Toaster />
           </AuthProvider>

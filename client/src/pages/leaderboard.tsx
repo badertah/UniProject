@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import { getTierInfo, formatXp } from "@/lib/utils";
+import { UserAvatar } from "@/components/cosmetics";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Flame, Zap, Medal, Crown } from "lucide-react";
@@ -61,9 +62,12 @@ export default function LeaderboardPage() {
                 transition={{ delay: 0.1 + idx * 0.1 }}
               >
                 {actualRank === 1 && <Crown className="w-6 h-6 text-yellow-400 animate-pulse-glow" />}
-                <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${tierInfo.gradient || colors[idx]} flex items-center justify-center text-white text-xl font-bold ${glows[idx]} shadow-lg ${isMe ? "ring-2 ring-primary" : ""}`}>
-                  {player.username.charAt(0).toUpperCase()}
-                </div>
+                <UserAvatar
+                  user={player}
+                  size="lg"
+                  fallbackBg={`bg-gradient-to-br ${tierInfo.gradient || colors[idx]}`}
+                  className={`${glows[idx]} ${isMe ? "ring-2 ring-primary" : ""}`}
+                />
                 <div className="text-center">
                   <p className="text-xs font-bold truncate max-w-[80px]">{isMe ? "You" : player.username}</p>
                   <p className={`text-xs ${tierInfo.colorClass}`}>{player.tier}</p>
@@ -134,9 +138,7 @@ export default function LeaderboardPage() {
                     </div>
 
                     {/* Avatar */}
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${tierInfo.bgClass}`}>
-                      {player.username.charAt(0).toUpperCase()}
-                    </div>
+                    <UserAvatar user={player} size="md" fallbackBg={tierInfo.bgClass} />
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">

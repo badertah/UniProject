@@ -702,19 +702,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============ FARM HARVEST ============
+  // Applies equipped-cosmetic farm multiplier (e.g. Dragon avatar +10%,
+  // Tycoon avatar +20%, Aurora frame +10%, Golden frame +5%) on top of
+  // the bank amount. Server validates ownership of the equipped items
+  // implicitly: we read the equipped ids and look up their `icon`,
+  // which maps to perks via shared/cosmetic-perks.ts.
   app.post("/api/farm/harvest", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { coins } = req.body;
+      const { coins, skipMult } = req.body;
       if (!coins || coins <= 0) return res.status(400).json({ error: "Invalid coin amount" });
-      const coinsToAdd = Math.min(Math.floor(Number(coins)), 500);
+      const baseCoins = Math.min(Math.floor(Number(coins)), 500);
       const user = await storage.getUser(req.userId!);
       if (!user) return res.status(404).json({ error: "User not found" });
+
+      // Look up equipped cosmetic icons → compute perk multiplier.
+      // Quest reward claims pass skipMult=true so quest payouts aren't
+      // perk-boosted (only the actual farm bank is boosted).
+      let perks = { xpMult: 1, farmMult: 1, coinMult: 1 } as { xpMult: number; farmMult: number; coinMult: number };
+      if (!skipMult) {
+        const { combinePerks } = await import("@shared/cosmetic-perks");
+        const all = await storage.getAllCosmetics();
+        const byId = new Map(all.map(c => [c.id, c]));
+        const aIcon = user.equippedAvatar ? byId.get(user.equippedAvatar)?.icon : null;
+        const fIcon = user.equippedFrame  ? byId.get(user.equippedFrame)?.icon  : null;
+        const tIcon = user.equippedTheme  ? byId.get(user.equippedTheme)?.icon  : null;
+        perks = combinePerks(aIcon, fIcon, tIcon);
+      }
+      const coinsToAdd = Math.floor(baseCoins * perks.farmMult);
+      const bonusCoins = coinsToAdd - baseCoins;
+
       const updated = await storage.updateUser(req.userId!, {
         eduCoins: user.eduCoins + coinsToAdd,
       });
       const { password: _, ...safeUser } = updated;
-      res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) }, coinsAdded: coinsToAdd });
-    } catch {
+      res.json({
+        user: { ...safeUser, tier: getTier(safeUser.xp) },
+        coinsAdded: coinsToAdd,
+        bonusCoins,
+        farmMult: perks.farmMult,
+      });
+    } catch (err) {
+      console.error("Farm harvest error:", err);
       res.status(500).json({ error: "Harvest failed" });
     }
   });

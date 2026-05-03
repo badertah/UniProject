@@ -188,7 +188,7 @@ app.use((req, res, next) => {
     await pool.end();
     log("Database schema ready", "db");
 
-    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedConceptMasterBadge, seedSADPlayToLearn, removeSystemArchitectLevel, migrateRemovedGameTypes } = await import("./seed");
+    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedConceptMasterBadge, seedSADPlayToLearn, removeSystemArchitectLevel, migrateRemovedGameTypes, ensureExtraCosmetics } = await import("./seed");
     await seedDatabase();
     await migrateRemovedGameTypes();
     await seedNewGameTypes();
@@ -197,6 +197,7 @@ app.use((req, res, next) => {
     await removeFakeSeedUsers();
     await seedBadges();
     await seedConceptMasterBadge();
+    await ensureExtraCosmetics();
   } catch (e) {
     console.error("DB setup error:", e);
   }
