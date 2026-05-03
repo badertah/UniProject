@@ -11,7 +11,16 @@ import {
   type SadGameType,
 } from "@shared/teach-back";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "eduquest-secret-2024";
+const JWT_SECRET = process.env.SESSION_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("FATAL: SESSION_SECRET environment variable is not set. Refusing to start in production without a secure JWT secret.");
+    process.exit(1);
+  } else {
+    console.warn("WARNING: SESSION_SECRET is not set. Using an insecure default secret for development only.");
+  }
+}
+const EFFECTIVE_JWT_SECRET = JWT_SECRET || "eduquest-secret-2024-dev-only";
 
 interface TeachBackEntry {
   prompt: string;
@@ -37,7 +46,7 @@ interface AuthRequest extends Request {
 }
 
 function generateToken(userId: string) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ userId }, EFFECTIVE_JWT_SECRET, { expiresIn: "7d" });
 }
 
 function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
@@ -47,7 +56,7 @@ function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
   }
   try {
     const token = authHeader.slice(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET) as { userId: string };
     req.userId = decoded.userId;
     next();
   } catch {

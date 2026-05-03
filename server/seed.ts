@@ -628,30 +628,38 @@ export async function seedDatabase() {
 
   console.log("[EduQuest] Seeding database...");
 
-  // Admin user
-  const adminHash = await bcrypt.hash("admin123", 10);
-  const [admin] = await q(
-    "INSERT INTO users (username, password, xp, level, streak, edu_coins, is_admin) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
-    ["admin", adminHash, 5000, 15, 30, 9999, true]
-  );
-
-  // Sample leaderboard users
-  const sampleUsers = [
-    ["CyberSage", 8500, 45, 20, 850],
-    ["NeonCoder", 6200, 22, 17, 620],
-    ["QuantumLearner", 4800, 18, 14, 480],
-    ["DataWizard", 3200, 12, 11, 320],
-    ["AlgoMaster", 2100, 8, 8, 210],
-    ["ByteHunter", 1400, 5, 6, 140],
-    ["NetRunner", 900, 3, 4, 90],
-    ["CodePhantom", 450, 1, 2, 45],
-  ];
-  for (const [username, xp, streak, level, coins] of sampleUsers) {
-    const hash = await bcrypt.hash("password123", 10);
-    await q(
-      "INSERT INTO users (username, password, xp, streak, level, edu_coins) VALUES ($1,$2,$3,$4,$5,$6)",
-      [username, hash, xp, streak, level, coins]
+  // Admin user — only created in non-production environments.
+  // In production, create an admin account manually with a strong password.
+  let admin: { id: string } | undefined;
+  if (process.env.NODE_ENV !== "production") {
+    const adminHash = await bcrypt.hash("admin123", 10);
+    const [adminRow] = await q(
+      "INSERT INTO users (username, password, xp, level, streak, edu_coins, is_admin) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+      ["admin", adminHash, 5000, 15, 30, 9999, true]
     );
+    admin = adminRow;
+  }
+
+  // Sample leaderboard users are only seeded in non-production environments.
+  // They use a known password and exist purely for demo purposes.
+  if (process.env.NODE_ENV !== "production") {
+    const sampleUsers = [
+      ["CyberSage", 8500, 45, 20, 850],
+      ["NeonCoder", 6200, 22, 17, 620],
+      ["QuantumLearner", 4800, 18, 14, 480],
+      ["DataWizard", 3200, 12, 11, 320],
+      ["AlgoMaster", 2100, 8, 8, 210],
+      ["ByteHunter", 1400, 5, 6, 140],
+      ["NetRunner", 900, 3, 4, 90],
+      ["CodePhantom", 450, 1, 2, 45],
+    ];
+    for (const [username, xp, streak, level, coins] of sampleUsers) {
+      const hash = await bcrypt.hash("password123", 10);
+      await q(
+        "INSERT INTO users (username, password, xp, streak, level, edu_coins) VALUES ($1,$2,$3,$4,$5,$6)",
+        [username, hash, xp, streak, level, coins]
+      );
+    }
   }
 
   // Topics

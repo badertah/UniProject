@@ -49,7 +49,13 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const SENSITIVE_KEYS = new Set(["token", "password", "accessToken", "refreshToken", "secret"]);
+        const safeResponse = Object.fromEntries(
+          Object.entries(capturedJsonResponse).map(([k, v]) =>
+            SENSITIVE_KEYS.has(k) ? [k, "[REDACTED]"] : [k, v]
+          )
+        );
+        logLine += ` :: ${JSON.stringify(safeResponse)}`;
       }
 
       log(logLine);
