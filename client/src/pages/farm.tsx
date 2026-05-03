@@ -10,6 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap, Truck, BookOpen, Brain } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
+import farmSkyUrl       from "@assets/generated_images/farm_sky.png";
+import farmMountainsUrl from "@assets/generated_images/farm_mountains.png";
+import farmGroundUrl    from "@assets/generated_images/farm_ground.png";
 import imgBarn       from "@/assets/farm/barn.png";
 import imgFarmhouse  from "@/assets/farm/farmhouse.png";
 import imgWindmill   from "@/assets/farm/windmill.png";
@@ -1093,6 +1096,39 @@ export default function FarmPage() {
         .farm-pan-stage.is-dragging { cursor: grabbing; }
       `}</style>
 
+      {/* AI-generated painted sky + distant mountain range, fixed in the
+          viewport so they sit behind everything regardless of camera pan. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          zIndex: 0,
+          backgroundImage: `url(${farmSkyUrl})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
+          opacity: atm.isDay ? 0.85 : 0.25,
+          transition: "opacity 1.5s linear",
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute pointer-events-none"
+        style={{
+          zIndex: 1,
+          left: 0,
+          right: 0,
+          bottom: "38%",
+          height: "32vh",
+          backgroundImage: `url(${farmMountainsUrl})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center bottom",
+          backgroundRepeat: "no-repeat",
+          opacity: atm.isDay ? 0.92 : 0.55,
+          filter: atm.isDay ? "none" : "brightness(0.55) saturate(0.7)",
+          transition: "opacity 1.5s linear, filter 1.5s linear",
+        }}
+      />
+
       {/* === SKY ATMOSPHERE — fixed in viewport, behind the world === */}
       <Stars phase={atm.phase} />
       <CelestialBody phase={atm.phase} />
@@ -1133,6 +1169,25 @@ export default function FarmPage() {
             willChange: "transform",
           }}
         >
+          {/* AI-generated grass ground tile, repeated across the world.
+              Sits beneath the SVG props (trees, water, paths) drawn by
+              WorldGround so the painted terrain shows through the gaps. */}
+          <div
+            aria-hidden
+            className="absolute pointer-events-none"
+            style={{
+              top: 0,
+              left: 0,
+              width: WORLD_W,
+              height: WORLD_H,
+              backgroundImage: `url(${farmGroundUrl})`,
+              backgroundSize: "420px 420px",
+              backgroundRepeat: "repeat",
+              filter: atm.isDay ? "none" : "brightness(0.45) saturate(0.7)",
+              transition: "filter 1.5s linear",
+            }}
+          />
+
           {/* World ground: terrain, mountains, water, paths, props */}
           <WorldGround phase={atm.phase} isDay={atm.isDay} />
 

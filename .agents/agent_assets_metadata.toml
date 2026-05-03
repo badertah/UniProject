@@ -144,3 +144,21 @@ id = "MyLqlzRd3xA0K55Im4WiB"
 uri = "file://attached_assets/generated_images/theme_forest.png"
 type = "image"
 title = "generated_image"
+
+[[generated]]
+id = "Ur2A_eCvJcxAgKL8W4yua"
+uri = "file://attached_assets/generated_images/farm_mountains.png"
+type = "image"
+title = "farm mountains backdrop"
+
+[[generated]]
+id = "IsH1tJlQw_jyPWlGMnPFS"
+uri = "file://attached_assets/generated_images/farm_sky.png"
+type = "image"
+title = "farm sky backdrop"
+
+[[generated]]
+id = "YzpczQk8f86wguQ9_YRh5"
+uri = "file://attached_assets/generated_images/farm_ground.png"
+type = "image"
+title = "farm grass tile"

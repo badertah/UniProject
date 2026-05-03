@@ -338,27 +338,7 @@ const FIREFLY_POSITIONS = Array.from({ length: 20 }).map((_, i) => ({
 
 export function AmbientCreatures({ isDay }: { isDay: boolean }) {
   if (isDay) {
-    return (
-      <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 14 }}>
-        {BUTTERFLY_PATHS.map((p, i) => (
-          <div key={i} className="absolute" style={{
-            left: p.startX, top: p.startY,
-            animation: `butterflyDrift${i} ${p.dur}s ease-in-out infinite alternate`,
-          }}>
-            <svg width="22" height="18" viewBox="0 0 22 18" style={{ animation: `butterflyFlap 0.4s ease-in-out infinite` }}>
-              <ellipse cx="6"  cy="9" rx="6" ry="7" fill={i === 0 ? "#FF7043" : i === 1 ? "#E040FB" : "#FFD54F"}/>
-              <ellipse cx="16" cy="9" rx="6" ry="7" fill={i === 0 ? "#F4511E" : i === 1 ? "#AB47BC" : "#FFC107"}/>
-              <ellipse cx="6"  cy="9" rx="3" ry="4" fill="white" opacity="0.5"/>
-              <ellipse cx="16" cy="9" rx="3" ry="4" fill="white" opacity="0.5"/>
-              <line x1="11" y1="3" x2="11" y2="15" stroke="#3E2723" strokeWidth="1.5"/>
-              <circle cx="11" cy="3" r="1.5" fill="#3E2723"/>
-            </svg>
-            <style>{`@keyframes butterflyDrift${i} { from { transform: translate(0,0); } to { transform: translate(${p.dx}px, -25px); } }`}</style>
-          </div>
-        ))}
-        <style>{`@keyframes butterflyFlap { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(0.3); } }`}</style>
-      </div>
-    );
+    return null;
   }
   // Night → fireflies twinkling above the ground band.
   return (

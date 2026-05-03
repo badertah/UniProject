@@ -104,31 +104,9 @@ export function WorldGround({ phase, isDay }: { phase: number; isDay: boolean })
 
       <rect x="0" y="0" width={WORLD_W} height={WORLD_H} fill="url(#worldGround)" />
 
-      {/* Distant mountain range — back */}
-      <polygon
-        points="0,520 140,290 280,440 430,250 600,460 760,290 940,460 1110,260 1290,460 1460,290 1640,460 1810,260 1990,460 2160,290 2310,440 2400,330 2400,540 0,540"
-        fill="url(#mountainBack)"
-      />
-      {/* Snow caps on far mountains */}
-      <polygon
-        points="430,250 410,275 450,275 600,460"
-        fill="rgba(255,255,255,0.55)"
-      />
-      <polygon
-        points="1110,260 1090,288 1130,288"
-        fill="rgba(255,255,255,0.55)"
-      />
-      <polygon
-        points="1810,260 1790,288 1830,288"
-        fill="rgba(255,255,255,0.55)"
-      />
-
-      {/* Closer rolling hills — front */}
-      <polygon
-        points="0,620 200,420 380,560 550,400 720,580 900,440 1100,580 1280,420 1460,580 1620,420 1800,580 2000,440 2200,580 2400,440 2400,640 0,640"
-        fill="url(#mountainFront)"
-        opacity="0.7"
-      />
+      {/* Mountains/horizon are now provided by the AI-generated background
+          layer in farm.tsx (fixed-in-viewport image), so the in-world SVG
+          mountain polygons have been removed to avoid double horizons. */}
 
       {/* === Pond (left) === */}
       <g>
