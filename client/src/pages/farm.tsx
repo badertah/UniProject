@@ -163,11 +163,15 @@ const EDGE_COLOR: Record<Edge["kind"], string> = {
 // Level 3: paved with yellow center-lane markings (widest, dark grey).
 // Higher tiers also get faster trucks — players see infrastructure pay off.
 type RoadDash = { color: string; w: number; array: string; opacity: number };
-type RoadStyle = { width: number; base: string; top: string; dash: RoadDash | null; truckDur: number };
+// Road visual style. `bank` is the sandy/grass shoulder (matches the
+// river's bank colour) so roads embed into the terrain instead of
+// floating like sticks. `top` is the lighter wear strip down the
+// middle. Optional `dash` paints lane markings on paved level-3 roads.
+type RoadStyle = { width: number; bank: string; base: string; top: string; dash: RoadDash | null; truckDur: number };
 function roadStyleFor(lv: number): RoadStyle {
-  if (lv >= 3) return { width: 26, base: "#3A3A3A", top: "#5A5A5A", dash: { color: "#FFEB3B", w: 1.6, array: "12 8", opacity: 0.8 }, truckDur: 5 };
-  if (lv === 2) return { width: 20, base: "#5E4B2A", top: "#9A7B45", dash: null, truckDur: 7.5 };
-  return { width: 14, base: "#6B5028", top: "#8E6A36", dash: null, truckDur: 10 };
+  if (lv >= 3) return { width: 30, bank: "#C9B27A", base: "#3A3A3A", top: "#5A5A5A", dash: { color: "#FFEB3B", w: 1.8, array: "14 10", opacity: 0.85 }, truckDur: 5 };
+  if (lv === 2) return { width: 24, bank: "#C9B27A", base: "#5E4B2A", top: "#9A7B45", dash: null, truckDur: 7.5 };
+  return { width: 18, bank: "#C9B27A", base: "#6B5028", top: "#8E6A36", dash: null, truckDur: 10 };
 }
 
 // Truck body color by edge kind so players can read the network at a glance.
@@ -1106,78 +1110,109 @@ export default function FarmPage() {
               })()}
             </g>
 
-            {/* === ROAD NETWORK — physical paths between every production-chain
-                 pair. Owned-pair roads render at full opacity in their tier
-                 style (dirt→gravel→paved); pairs with at least one unowned
-                 endpoint render as faint "planned" dirt trails so the world
-                 always reads as populated (per reference art). The FLOW
+            {/* === ROAD NETWORK — physical paths between owned production-
+                 chain pairs. A road only appears once BOTH endpoints are
+                 unlocked/built — so unlocking a building visibly grows the
+                 network. Each road is layered like the river (shadow →
+                 sandy bank → dirt base → wear strip → optional centerline)
+                 and bends in an organic S-curve so it never reads as a
+                 stick. Tier upgrades widen + repave the road. The FLOW
                  toggle still hides the whole network for a clean view. */}
             {showRoads && (() => {
-              // Quadratic Bezier sample helper.
-              const bez = (t: number, p0: number, p1: number, p2: number) =>
-                (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+              // Cubic Bezier sample helper — gives roads a real S-curve so
+              // they meander like the river instead of reading as straight
+              // sticks. Two control points let parallel roads diverge.
+              const cubic = (t: number, p0: number, p1: number, p2: number, p3: number) => {
+                const u = 1 - t;
+                return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
+              };
               // Distance to keep clear from each endpoint so the road stops
               // at the patch edge instead of intruding under the building.
-              const PATCH_CLEAR = 90;
+              const PATCH_CLEAR = 95;
               const roads = PRODUCTION_EDGES.map((e, i) => {
                 const fromLv = farmSave.owned[e.from] || 0;
                 const toLv = farmSave.owned[e.to] || 0;
-                const bothOwned = fromLv > 0 && toLv > 0;
+                // Roads only exist when BOTH endpoints are owned/built —
+                // matches the user's mental model: unlock a building, the
+                // road that serves it appears. Avoids the "ugly sticks"
+                // that planned-trail overlays produced on a fresh farm.
+                if (fromLv <= 0 || toLv <= 0) return null;
                 const a = bldgPos(e.from);
                 const b = bldgPos(e.to);
-                // Planned roads (one or both endpoints unowned) always
-                // render at level-1 dirt style so the layout reads as a
-                // real farm even from day one.
-                const lv = bothOwned ? Math.min(fromLv, toLv) : 1;
+                const lv = Math.min(fromLv, toLv);
                 const style = roadStyleFor(lv);
-                // Slight pseudo-random midpoint offset so parallel roads don't
-                // overlap perfectly — gives the network an organic feel.
-                const offset = ((i * 31) % 28) - 14;
-                const mx = (a.x + b.x) / 2;
-                const my = (a.y + b.y) / 2 + offset + 6;
+                // Two pseudo-random perpendicular offsets along the path
+                // create an S-curve. Sign alternates by edge index so the
+                // network gets organic variety instead of all bowing the
+                // same way.
+                const dx = b.x - a.x;
+                const dy = (b.y + 14) - (a.y + 14);
+                const len = Math.max(Math.hypot(dx, dy), 1);
+                // Perpendicular unit vector
+                const px = -dy / len;
+                const py =  dx / len;
+                const sign = (i % 2 === 0) ? 1 : -1;
+                // Curve magnitude scales with edge length (long roads
+                // bend more, short ones stay tight).
+                const mag1 = (16 + ((i * 17) % 22)) * sign;
+                const mag2 = (14 + ((i * 23) % 20)) * -sign;
                 const ay = a.y + 14;
                 const by = b.y + 14;
-                const dist = Math.hypot(b.x - a.x, by - ay);
-                // Clamp tightly — even very close pairs still get a short
-                // visible stub instead of vanishing.
-                const tCut = Math.min(0.42, PATCH_CLEAR / Math.max(dist, 1));
+                // Two control points at 1/3 and 2/3 along the chord, each
+                // pushed perpendicular by mag1/mag2 -> S-shape.
+                const c1x = a.x + dx * 0.33 + px * mag1;
+                const c1y = ay  + dy * 0.33 + py * mag1;
+                const c2x = a.x + dx * 0.66 + px * mag2;
+                const c2y = ay  + dy * 0.66 + py * mag2;
+                // Trim ends so the road stops at the patch edge.
+                const tCut = Math.min(0.40, PATCH_CLEAR / len);
                 const t1 = tCut, t2 = 1 - tCut;
-                const sx = bez(t1, a.x, mx, b.x);
-                const sy = bez(t1, ay, my, by);
-                const ex = bez(t2, a.x, mx, b.x);
-                const ey = bez(t2, ay, my, by);
-                const d = `M ${sx} ${sy} Q ${mx} ${my} ${ex} ${ey}`;
-                return { i, edge: e, d, style, lv, bothOwned };
-              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number; bothOwned: boolean } => r !== null);
+                const sx = cubic(t1, a.x, c1x, c2x, b.x);
+                const sy = cubic(t1, ay,  c1y, c2y, by);
+                const ex = cubic(t2, a.x, c1x, c2x, b.x);
+                const ey = cubic(t2, ay,  c1y, c2y, by);
+                // Re-fit a fresh cubic between the trimmed endpoints by
+                // pulling the control points along the same offsets — keeps
+                // the curve shape consistent after trimming.
+                const ndx = ex - sx;
+                const ndy = ey - sy;
+                const nlen = Math.max(Math.hypot(ndx, ndy), 1);
+                const npx = -ndy / nlen;
+                const npy =  ndx / nlen;
+                const nc1x = sx + ndx * 0.33 + npx * mag1 * 0.7;
+                const nc1y = sy + ndy * 0.33 + npy * mag1 * 0.7;
+                const nc2x = sx + ndx * 0.66 + npx * mag2 * 0.7;
+                const nc2y = sy + ndy * 0.66 + npy * mag2 * 0.7;
+                const d = `M ${sx} ${sy} C ${nc1x} ${nc1y}, ${nc2x} ${nc2y}, ${ex} ${ey}`;
+                return { i, edge: e, d, style, lv };
+              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number } => r !== null);
 
               return (
                 <>
-                  {/* Pass 1 — road surfaces (ground level, beneath buildings).
-                       Planned (unowned) roads render thinner and translucent
-                       so they read as future trails rather than active routes. */}
-                  {roads.map(r => {
-                    const opacity = r.bothOwned ? 1 : 0.35;
-                    return (
-                      <g key={`road-${r.i}`} opacity={opacity}>
-                        {/* Soft soil shadow embeds the road into the ground */}
-                        <path d={r.d} stroke="rgba(0,0,0,0.32)" strokeWidth={r.style.width + 6} fill="none" strokeLinecap="round" opacity={0.55}/>
-                        {/* Road base (darker outer edge) */}
-                        <path d={r.d} stroke={r.style.base} strokeWidth={r.style.width} fill="none" strokeLinecap="round"/>
-                        {/* Road top wear (lighter inner) */}
-                        <path d={r.d} stroke={r.style.top} strokeWidth={Math.max(r.style.width - 6, 8)} fill="none" strokeLinecap="round" opacity={0.95}/>
-                        {/* Lane markings — paved roads only (level 3) */}
-                        {r.style.dash && (
-                          <path d={r.d} stroke={r.style.dash.color} strokeWidth={r.style.dash.w} fill="none" strokeDasharray={r.style.dash.array} opacity={r.style.dash.opacity}/>
-                        )}
-                      </g>
-                    );
-                  })}
+                  {/* Pass 1 — road surfaces, layered like the river:
+                       (1) soft soil shadow under everything
+                       (2) sandy/cream bank shoulder so the road embeds
+                           into the terrain instead of floating
+                       (3) dark dirt base (full width)
+                       (4) lighter wear strip down the middle
+                       (5) optional yellow dashed centerline on paved roads */}
+                  {roads.map(r => (
+                    <g key={`road-${r.i}`}>
+                      <path d={r.d} stroke="rgba(0,0,0,0.32)" strokeWidth={r.style.width + 10} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.5}/>
+                      <path d={r.d} stroke={r.style.bank}    strokeWidth={r.style.width + 6}  fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.85}/>
+                      <path d={r.d} stroke={r.style.base}    strokeWidth={r.style.width}      fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d={r.d} stroke={r.style.top}     strokeWidth={Math.max(r.style.width - 7, 8)} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.95}/>
+                      {r.style.dash && (
+                        <path d={r.d} stroke={r.style.dash.color} strokeWidth={r.style.dash.w} fill="none" strokeDasharray={r.style.dash.array} opacity={r.style.dash.opacity}/>
+                      )}
+                    </g>
+                  ))}
 
-                  {/* Pass 2 — trucks. Only active on roads where BOTH endpoints
-                       are owned; planned roads are quiet trails until built.
-                       During the harvest pulse trucks get a gold body + cargo
-                       crates and run twice as fast for visible effect. */}
-                  {roads.filter(r => r.bothOwned).map(r => {
+                  {/* Pass 2 — trucks. Every rendered road has both endpoints
+                       owned, so every road carries traffic. During the
+                       harvest pulse trucks get a gold body + cargo crates
+                       and run twice as fast for visible effect. */}
+                  {roads.map(r => {
                     const baseColor = TRUCK_COLOR[r.edge.kind];
                     const color = harvestPulse ? "#FFD700" : baseColor;
                     const dur = (harvestPulse ? r.style.truckDur * 0.5 : r.style.truckDur).toFixed(2) + "s";
