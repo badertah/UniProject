@@ -445,10 +445,62 @@ type FarmSave = {
   completedQuests: string[];
   acknowledgedChapters: string[];
   roads: Record<string, number>;
+  // === Challenge state (added later, all optional for backwards compat) ===
+  // buffers — current units sitting in each storage building. Producers
+  // fill them; passive truck-shipping drains them; harvest empties them.
+  buffers?: Partial<Record<StorageKind, number>>;
+  // bankruptcyTicks — consecutive crisis ticks (debt + unpaid wages).
+  // When this reaches BANKRUPTCY_TICKS the Game Over modal triggers.
+  bankruptcyTicks?: number;
+  // Surfaced as a HUD chip — total income that overflowed the bank cap
+  // because the player didn't harvest in time. Pure information.
+  lostToOverflow?: number;
+  // Best-day record (longest survival run) — bumped on game-over reset.
+  bestDay?: number;
 };
 
 const ROAD_COST = 60;
 const ROAD_INCOME_PCT = 0.05;
+
+// === CHALLENGE / LOSE-CONDITION / SAD MECHANICS =========================
+// These constants turn the idle-clicker into a real management game where
+// you have to BALANCE income, wages, and storage capacity — fail any one
+// of them and you go bankrupt. The ideas map directly to SAD topics:
+//   • Backpressure / queueing  → produce piles up in storage; a full
+//     buffer slows producers down (full system bottleneck).
+//   • Bottleneck analysis      → the slowest stage of the chain throttles
+//     the whole pipeline; visualised as a red pulse on the choke point.
+//   • Capacity planning        → upgrade silo/barn or harvest more often.
+//   • Cascading failure        → unpaid wages tip you into debt; debt
+//     long enough = game over.
+const MIN_BANK            = -300;   // bank floor — debt allowed before crash
+const BANKRUPTCY_TICKS    = 8;      // consecutive crisis ticks → game over
+const BACKPRESSURE_PCT    = 0.30;   // producer earns only 30% when storage is full
+const BUFFER_DRAIN        = 3;      // passive units shipped out per tick (truck flow)
+const BUFFER_WARN_RATIO   = 0.85;   // ≥ this → tile shows red pulse + ⚠ badge
+
+// Each crop/livestock building feeds into one storage building.
+// If the player owns the storage building, that buffer applies; if not,
+// the producer runs unconstrained (early-game grace period).
+type StorageKind = "silo" | "barn";
+const STORAGE_OF: Record<string, StorageKind> = {
+  wheat_field:     "silo",
+  vegetable_patch: "silo",
+  apple_orchard:   "silo",
+  greenhouse:      "silo",
+  chicken_coop:    "barn",
+  dairy_cows:      "barn",
+};
+// Per-level storage capacity. Upgrading the silo/barn meaningfully
+// raises throughput, so capacity planning becomes a real choice.
+const STORAGE_CAP: Record<StorageKind, [number, number, number]> = {
+  silo: [50, 120, 240],
+  barn: [40, 100, 200],
+};
+function storageCapOf(owned: Record<string, number>, kind: StorageKind): number {
+  const lv = owned[kind] || 0;
+  return lv > 0 ? STORAGE_CAP[kind][lv - 1] : 0;
+}
 const roadKey = (from: string, to: string) => `${from}__${to}`;
 const builtRoadCount = (roads: Record<string, number> | undefined) =>
   Object.values(roads || {}).filter(v => v > 0).length;
@@ -458,7 +510,7 @@ const roadBonusMultiplier = (roads: Record<string, number> | undefined) =>
 function loadState(uid: string): FarmSave {
   try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
-function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [], acknowledgedChapters: [], roads: {} }; }
+function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [], acknowledgedChapters: [], roads: {}, buffers: {}, bankruptcyTicks: 0, lostToOverflow: 0, bestDay: 0 }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 // === Admin layout editor — per-user position overrides ===
@@ -514,9 +566,14 @@ function buildingTickEcon(b: BuildingDef, level: number, hired: number, incomeMu
 function processTicks(state: FarmSave, n: number, silent = false, incomeMultiplier = 1) {
   let farmBank = state.farmBank;
   let wagesPaidTotal = state.wagesPaidTotal || 0;
+  let bankruptcyTicks = state.bankruptcyTicks || 0;
+  let lostToOverflow = state.lostToOverflow || 0;
+  const buffers: Partial<Record<StorageKind, number>> = { ...(state.buffers || {}) };
   const tickCounters = { ...state.tickCounters };
   const pops: CoinPop[] = [];
   for (let t = 0; t < n; t++) {
+    let tickGross = 0;
+    let tickWages = 0;
     for (const b of BUILDINGS) {
       const lv = state.owned[b.id] || 0;
       if (!lv) continue;
@@ -525,26 +582,75 @@ function processTicks(state: FarmSave, n: number, silent = false, incomeMultipli
         tickCounters[b.id] = 0;
         const hired = state.employees?.[b.id] || 0;
         const econ = buildingTickEcon(b, lv, hired, incomeMultiplier);
-        // Wages always attempt to come out, but we only count what was
-        // actually deducted from the bank — bank is clamped at 0, so if
-        // net would push it negative we cap the wages-paid credit to
-        // whatever could really be paid (gross + remaining bank balance).
-        const proposedBank = farmBank + econ.net;
-        const newBank = Math.max(0, Math.min(proposedBank, MAX_FARM_BANK));
-        // Actual deduction = wages we could afford from (farmBank + gross).
-        const wagesActual = Math.max(0, Math.min(econ.wages, farmBank + econ.gross));
+
+        // === SAD: BACKPRESSURE / QUEUEING ===
+        // Producers (crops, livestock) must dump their output into a
+        // storage building (silo / barn). If the player owns the storage
+        // building and that buffer is full, the producer chokes — only
+        // BACKPRESSURE_PCT of the gross is sold direct-to-market. If the
+        // buffer is partially full, only what fits goes in; the spillover
+        // is sold at the reduced rate. If the player hasn't built the
+        // storage building yet there's no constraint (early-game grace).
+        let actualGross = econ.gross;
+        const sk = STORAGE_OF[b.id];
+        if (sk && econ.gross > 0) {
+          const cap = storageCapOf(state.owned, sk);
+          if (cap > 0) {
+            const cur = buffers[sk] || 0;
+            const free = Math.max(0, cap - cur);
+            if (free <= 0) {
+              actualGross = Math.floor(econ.gross * BACKPRESSURE_PCT);
+            } else if (free < econ.gross) {
+              buffers[sk] = cap;
+              actualGross = free + Math.floor((econ.gross - free) * BACKPRESSURE_PCT);
+            } else {
+              buffers[sk] = cur + econ.gross;
+              actualGross = econ.gross;
+            }
+          }
+        }
+
+        const actualNet = actualGross - econ.wages;
+        // Bank update — DEBT IS NOW ALLOWED down to MIN_BANK so unpaid
+        // wages can drag the player into the red. Above MAX_FARM_BANK any
+        // overflow is LOST (you didn't harvest in time → wasted produce).
+        const proposedBank = farmBank + actualNet;
+        if (proposedBank > MAX_FARM_BANK) {
+          lostToOverflow += proposedBank - MAX_FARM_BANK;
+        }
+        const newBank = Math.max(MIN_BANK, Math.min(proposedBank, MAX_FARM_BANK));
+        // Wages-paid credit = how much actually came out of the wallet
+        // (capped by what was available between current bank and the
+        // debt floor + that tick's gross).
+        const wagesActual = Math.max(0, Math.min(econ.wages, Math.max(0, farmBank - MIN_BANK) + actualGross));
         wagesPaidTotal += wagesActual;
-        // Only show a positive coin-pop for net-positive ticks. Negative
-        // or zero net ticks are silently absorbed so the map doesn't
-        // render misleading "+-2" pops above unprofitable buildings.
-        if (!silent && econ.net > 0) {
-          pops.push({ id: `${b.id}-${Date.now()}-${Math.random()}`, bId: b.id, amount: econ.net });
+        tickGross += Math.max(0, actualGross);
+        tickWages += econ.wages;
+
+        if (!silent && actualNet > 0) {
+          pops.push({ id: `${b.id}-${Date.now()}-${Math.random()}`, bId: b.id, amount: actualNet });
         }
         farmBank = newBank;
       }
     }
+
+    // Passive buffer drain — represents the trucks shipping product out
+    // along the production roads. Always small so storage is genuinely
+    // a problem if you over-produce.
+    for (const sk of ["silo", "barn"] as const) {
+      const cur = buffers[sk];
+      if (cur && cur > 0) buffers[sk] = Math.max(0, cur - BUFFER_DRAIN);
+    }
+
+    // === Crisis tracker ===
+    // A "crisis tick" = bank already at the debt floor, OR bank ≤ 0 and
+    // wages outpacing gross income. Crisis ticks accumulate; recovering
+    // ticks (any positive net while bank is healthy) burn them off.
+    // Hit BANKRUPTCY_TICKS in a row → Game Over modal triggers.
+    const inCrisis = farmBank <= MIN_BANK || (farmBank <= 0 && tickWages > tickGross);
+    bankruptcyTicks = inCrisis ? bankruptcyTicks + 1 : Math.max(0, bankruptcyTicks - 1);
   }
-  return { state: { ...state, farmBank, tickCounters, wagesPaidTotal }, pops };
+  return { state: { ...state, farmBank, tickCounters, wagesPaidTotal, buffers, bankruptcyTicks, lostToOverflow }, pops };
 }
 
 const LVL_LABEL = ["", "LV1", "LV2", "LV3★"];
@@ -709,10 +815,16 @@ export default function FarmPage() {
     }
   }, [user?.id]);
 
+  // Live ref to game-over state so the tick interval can pause cleanly
+  // without restarting the interval on every state change.
+  const gameOverRef = useRef(false);
   useEffect(() => {
     tickRef.current = setInterval(() => {
       const uid = userIdRef.current;
       if (!uid) return;
+      // Stop the economy entirely when the player has gone bankrupt.
+      // The Game Over modal stays up until they reset.
+      if (gameOverRef.current) return;
       setFarmSave(prev => {
         const { state: ns, pops } = processTicks(prev, 1, false, sadBonusRef.current * roadBonusMultiplier(prev.roads));
         ns.lastTickTime = Date.now();
@@ -740,6 +852,11 @@ export default function FarmPage() {
           farmBank: 0,
           day: prev.day + 1,
           farmTotalEarned: (prev.farmTotalEarned || 0) + earnedThisRun,
+          // Harvest also EMPTIES the storage buffers — that's why
+          // "harvest" is the SAD-correct way to relieve backpressure.
+          // It also resets the bankruptcy timer (you survived this run).
+          buffers: {},
+          bankruptcyTicks: 0,
         };
         if (user) saveState(ns, user.id);
         return ns;
