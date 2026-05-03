@@ -61,10 +61,8 @@ const GAME_TYPE_CONFIG = {
   sequence_stacker: { label: "Sequence Rhythm",      icon: "Timer",      color: "text-indigo-300",  description: "Hit falling message arrows in time — build the sequence diagram" },
   // Legacy quiz games (kept for back-compat with any old levels)
   wordle: { label: "Word Guesser", icon: "Hash", color: "text-violet-400", description: "Guess the 5-letter keyword" },
-  matcher: { label: "Definition Matcher", icon: "Link2", color: "text-cyan-400", description: "Match terms to definitions" },
-  emoji_cipher: { label: "Emoji Cipher", icon: "Smile", color: "text-amber-400", description: "Decode concept from clues" },
-  speed_blitz: { label: "Speed Blitz", icon: "Zap", color: "text-rose-400", description: "Answer fast — beat the clock!" },
-  bubble_pop: { label: "Bubble Pop", icon: "Gamepad2", color: "text-cyan-400", description: "Pop the right bubble before it escapes!" },
+  concept_connector: { label: "Concept Connector", icon: "Link2", color: "text-cyan-400", description: "Drag lines to wire each term to its meaning" },
+  matcher: { label: "Concept Connector", icon: "Link2", color: "text-cyan-400", description: "Drag lines to wire each term to its meaning" },
   memory_flip: { label: "Memory Flip", icon: "Star", color: "text-purple-400", description: "Flip cards and match every pair!" },
 };
 

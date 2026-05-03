@@ -3275,7 +3275,7 @@ function ConceptCard({
             Got it — let me try it <ArrowRight className="w-4 h-4 ml-1" />
           </Button>
           <p className="text-[10px] text-muted-foreground text-center">
-            (You'll see this concept card once per game. The quick check at the end runs every play.)
+            (Tap "Got it" to dismiss — it won't show again on this stage.)
           </p>
         </div>
       </div>
@@ -3426,26 +3426,24 @@ export function SADGameRunner({
   stageIndex?: number;
   totalStages?: number;
 }) {
-  // 3-phase wrapper: concept (until mastered) → play → teach-back quiz.
-  // Mastery is set only when the teach-back is passed; "Got it" alone never
-  // grants the skip. Wrong teach-back answers never reduce the base score.
+  // 2-phase wrapper: concept (shown until "Got it" once) → play.
+  // Tapping "Got it — let me try it" marks this game/stage as mastered, so
+  // the concept card auto-skips on subsequent replays. The quick-check quiz
+  // was removed — players just play the game.
   const [mastered, markMastered] = useConceptMastered(gameType, stageIndex);
-  const [phase, setPhase] = useState<"concept" | "play" | "quiz">(
+  const [phase, setPhase] = useState<"concept" | "play">(
     mastered ? "play" : "concept"
   );
-  const [gameScore, setGameScore] = useState(0);
 
   // Per-question overrides from the JSONB options column. Take the first
   // question's overrides as the level-level concept content (concept is per
   // level, not per round).
   const conceptOverride = (questions?.[0]?.options?.conceptCard ?? null) as Partial<ConceptContent> | null;
-  const teachBackOverride = (questions?.[0]?.options?.teachBack ?? null) as TeachBackQ[] | null;
 
   // Reset whenever the user switches game/stage; depend on `mastered` so the
   // LS lookup catching up correctly transitions the phase.
   useEffect(() => {
     setPhase(mastered ? "play" : "concept");
-    setGameScore(0);
   }, [gameType, stageIndex, mastered]);
 
   // If the question pool is empty, just show the friendly empty-state.
@@ -3466,36 +3464,20 @@ export function SADGameRunner({
       <ConceptCard
         gameType={gameType}
         override={conceptOverride}
-        onContinue={() => setPhase("play")}
-      />
-    );
-  }
-
-  if (phase === "quiz") {
-    return (
-      <TeachBackQuiz
-        gameType={gameType}
-        alreadyMastered={mastered}
-        override={teachBackOverride}
-        onDone={(passed) => {
-          if (passed) markMastered();
-          onComplete(gameScore);
+        onContinue={() => {
+          markMastered();
+          setPhase("play");
         }}
       />
     );
   }
 
   // Re-mount the game whenever the active stage changes so its internal
-  // round/score/refs are reset cleanly. The wrapped onComplete diverts to
-  // the teach-back quiz before propagating the final score.
+  // round/score/refs are reset cleanly.
   const k = `${gameType}-s${stageIndex}`;
-  const handleGameComplete = (s: number) => {
-    setGameScore(s);
-    setPhase("quiz");
-  };
   const props = {
     questions,
-    onComplete: handleGameComplete,
+    onComplete,
     difficulty,
     stageIndex,
     totalStages,

@@ -82,23 +82,14 @@ async function checkAndAwardBadges(userId: string): Promise<any[]> {
         case "levels_complete":
           earned = completedCount >= badge.requirementValue;
           break;
-        case "game_type_speed_blitz":
-          earned = gameTypesCompleted.has("speed_blitz");
-          break;
-        case "game_type_bubble_pop":
-          earned = gameTypesCompleted.has("bubble_pop");
-          break;
         case "game_type_memory_flip":
           earned = gameTypesCompleted.has("memory_flip");
           break;
         case "game_type_wordle":
           earned = gameTypesCompleted.has("wordle");
           break;
-        case "game_type_matcher":
-          earned = gameTypesCompleted.has("matcher") || gameTypesCompleted.has("term_matcher");
-          break;
-        case "game_type_emoji_cipher":
-          earned = gameTypesCompleted.has("emoji_cipher");
+        case "game_type_concept_connector":
+          earned = gameTypesCompleted.has("concept_connector") || gameTypesCompleted.has("matcher") || gameTypesCompleted.has("term_matcher");
           break;
       }
 

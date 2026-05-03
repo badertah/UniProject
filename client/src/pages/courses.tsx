@@ -157,9 +157,8 @@ export default function CoursesPage() {
                         <span className="text-xs text-muted-foreground">Games:</span>
                         {Array.from(new Set((topic.levels || []).map((l: any) => {
                           const labels: Record<string, string> = {
-                            word_scramble: "Word", term_matcher: "Match", emoji_cipher: "Cipher",
-                            speed_blitz: "Blitz", bubble_pop: "Bubble", memory_flip: "Memory",
-                            wordle: "Wordle", matcher: "Match",
+                            word_scramble: "Word", memory_flip: "Memory",
+                            wordle: "Wordle", matcher: "Connect", concept_connector: "Connect",
                             sdlc_sorter: "Runner", req_sorter: "Hunter", usecase_builder: "Defense",
                             erd_doctor: "Builder", dfd_detective: "Plumber", sequence_stacker: "Rhythm",
                           };

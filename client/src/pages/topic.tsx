@@ -34,9 +34,7 @@ const GAME_ICONS: Record<string, any> = {
   // Legacy
   wordle: Hash,
   matcher: Link2,
-  emoji_cipher: Smile,
-  speed_blitz: Zap,
-  bubble_pop: Gamepad2,
+  concept_connector: Link2,
   memory_flip: Sparkles,
 };
 

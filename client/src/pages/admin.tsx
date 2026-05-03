@@ -20,32 +20,23 @@ import {
 
 const GAME_TYPE_LABELS: Record<string, string> = {
   wordle: "Word Guesser",
-  matcher: "Definition Matcher",
-  term_matcher: "Term Matcher",
-  emoji_cipher: "Emoji Cipher",
-  speed_blitz: "Speed Blitz",
-  bubble_pop: "Bubble Pop",
+  concept_connector: "Concept Connector",
+  matcher: "Concept Connector (legacy)",
   memory_flip: "Memory Flip",
 };
 
 const GAME_TYPE_COLORS: Record<string, string> = {
   wordle: "bg-violet-500/20 text-violet-400 border-violet-500/30",
-  matcher: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  term_matcher: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  emoji_cipher: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  speed_blitz: "bg-red-500/20 text-red-400 border-red-500/30",
-  bubble_pop: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  concept_connector: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  matcher: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
   memory_flip: "bg-purple-500/20 text-purple-400 border-purple-500/30",
 };
 
 function GameTypeHint({ gameType }: { gameType: string }) {
   const hints: Record<string, string> = {
     wordle: "Content = clue/hint text | Answer = 5-letter word | Hint = optional hint",
-    matcher: "Content = definition | Answer = term/word to match",
-    term_matcher: "Content = definition | Answer = term/word to match",
-    emoji_cipher: "Content = emoji sequence (e.g. 🐍🐍🐍) | Answer = the word it represents",
-    speed_blitz: "Content = question text | Answer = correct answer | Options = {choices:['wrong1','wrong2','wrong3']}",
-    bubble_pop: "Content = definition | Answer = correct term | Options = {choices:['wrong1','wrong2','wrong3']}",
+    concept_connector: "Content = first term | Answer = first definition | Options = {pairs:[{term, definition}, ...]}",
+    matcher: "Content = first term | Answer = first definition | Options = {pairs:[{term, definition}, ...]}",
     memory_flip: "Content = front card (term) | Answer = back card (definition)",
   };
   return hints[gameType] ? (
@@ -65,7 +56,7 @@ function QuestionEditor({ question, gameType, onSave, onCancel }: {
   );
   const [optErr, setOptErr] = useState("");
 
-  const needsOptions = ["speed_blitz", "bubble_pop", "emoji_cipher"].includes(gameType);
+  const needsOptions = ["concept_connector", "matcher"].includes(gameType);
 
   function handleSave() {
     let options = null;
@@ -127,7 +118,7 @@ function AddQuestionForm({ levelId, gameType, onAdded }: { levelId: string; game
   const [optionsStr, setOptionsStr] = useState("");
   const [optErr, setOptErr] = useState("");
 
-  const needsOptions = ["speed_blitz", "bubble_pop", "emoji_cipher"].includes(gameType);
+  const needsOptions = ["concept_connector", "matcher"].includes(gameType);
 
   const addMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/questions", data),
@@ -646,10 +637,7 @@ export default function AdminPage() {
                   <SelectTrigger data-testid="select-game-type"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="wordle">Word Guesser</SelectItem>
-                    <SelectItem value="matcher">Definition Matcher</SelectItem>
-                    <SelectItem value="emoji_cipher">Emoji Cipher</SelectItem>
-                    <SelectItem value="speed_blitz">Speed Blitz</SelectItem>
-                    <SelectItem value="bubble_pop">Bubble Pop</SelectItem>
+                    <SelectItem value="concept_connector">Concept Connector</SelectItem>
                     <SelectItem value="memory_flip">Memory Flip</SelectItem>
                   </SelectContent>
                 </Select>

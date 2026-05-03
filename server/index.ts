@@ -168,8 +168,9 @@ app.use((req, res, next) => {
     await pool.end();
     log("Database schema ready", "db");
 
-    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedSADPlayToLearn, removeSystemArchitectLevel } = await import("./seed");
+    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedSADPlayToLearn, removeSystemArchitectLevel, migrateRemovedGameTypes } = await import("./seed");
     await seedDatabase();
+    await migrateRemovedGameTypes();
     await seedNewGameTypes();
     await seedSADPlayToLearn();
     await removeSystemArchitectLevel();
