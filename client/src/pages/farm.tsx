@@ -447,10 +447,10 @@ export default function FarmPage() {
   // next render falls through to the legacy hand-drawn BuildingSVG.
   const [failedSprites, setFailedSprites] = useState<Record<string, true>>({});
   const [showDiagrams, setShowDiagrams] = useState(false);
-  // Roads + trucks are hidden by default — players asked for a clean farm
-  // map. Toggle on to reveal the SAD-style production-flow network as an
-  // overlay (input/store/output/power roads with animated trucks).
-  const [showRoads, setShowRoads] = useState(false);
+  // Roads + trucks are ON by default so the farm reads as a populated
+  // working world (per reference art). Players can toggle the FLOW
+  // overlay off if they want to study terrain alone.
+  const [showRoads, setShowRoads] = useState(true);
 
   // Debounced sync of farm-leaderboard stats to the server. We only
   // surface the rankable summary (bank / day / total earned) — the
@@ -1082,29 +1082,53 @@ export default function FarmPage() {
               );
             })}
 
-            {/* === ROAD NETWORK — physical paths between owned production-chain
-                 endpoints. Hidden by default to keep the map clean; the
-                 player toggles it on via the "FLOW" button to study the
-                 SAD data-flow chain as a concrete infrastructure overlay.
-                 Roads visually upgrade with their lower-level endpoint
-                 (dirt → gravel → paved) and are trimmed so the curve stops
-                 at the patch edge instead of running under the building. */}
+            {/* === ALWAYS-ON DECORATIVE RIVER ===
+                 Wide blue river meandering across the south of the farm,
+                 matching the reference art. Pure cosmetic — sits beneath
+                 buildings but above the grass field. */}
+            <g>
+              {(() => {
+                const riverD = `M -40 1480 Q 350 1430, 700 1490 T 1400 1500 T 2100 1485 T 2440 1495`;
+                return (
+                  <>
+                    {/* Soft bank shadow */}
+                    <path d={riverD} stroke="rgba(0,0,0,0.28)" strokeWidth={70} fill="none" strokeLinecap="round" opacity={0.55}/>
+                    {/* Sandy bank */}
+                    <path d={riverD} stroke="#C9B27A" strokeWidth={62} fill="none" strokeLinecap="round" opacity={0.85}/>
+                    {/* Deep water */}
+                    <path d={riverD} stroke="#1E66B8" strokeWidth={48} fill="none" strokeLinecap="round"/>
+                    {/* Surface water */}
+                    <path d={riverD} stroke="#3FA0E8" strokeWidth={38} fill="none" strokeLinecap="round" opacity={0.95}/>
+                    {/* Light highlight */}
+                    <path d={riverD} stroke="#9CD6F5" strokeWidth={6} fill="none" strokeLinecap="round" opacity={0.7} strokeDasharray="60 80"/>
+                  </>
+                );
+              })()}
+            </g>
+
+            {/* === ROAD NETWORK — physical paths between every production-chain
+                 pair. Owned-pair roads render at full opacity in their tier
+                 style (dirt→gravel→paved); pairs with at least one unowned
+                 endpoint render as faint "planned" dirt trails so the world
+                 always reads as populated (per reference art). The FLOW
+                 toggle still hides the whole network for a clean view. */}
             {showRoads && (() => {
               // Quadratic Bezier sample helper.
               const bez = (t: number, p0: number, p1: number, p2: number) =>
                 (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
-              // Distance to keep clear from each endpoint. Matches the
-              // widest patch radius (~120 grassy mound) so the road and
-              // truck visibly stop at the patch edge instead of intruding
-              // under the building tile.
-              const PATCH_CLEAR = 120;
+              // Distance to keep clear from each endpoint so the road stops
+              // at the patch edge instead of intruding under the building.
+              const PATCH_CLEAR = 90;
               const roads = PRODUCTION_EDGES.map((e, i) => {
                 const fromLv = farmSave.owned[e.from] || 0;
                 const toLv = farmSave.owned[e.to] || 0;
-                if (!fromLv || !toLv) return null;
+                const bothOwned = fromLv > 0 && toLv > 0;
                 const a = bldgPos(e.from);
                 const b = bldgPos(e.to);
-                const lv = Math.min(fromLv, toLv);
+                // Planned roads (one or both endpoints unowned) always
+                // render at level-1 dirt style so the layout reads as a
+                // real farm even from day one.
+                const lv = bothOwned ? Math.min(fromLv, toLv) : 1;
                 const style = roadStyleFor(lv);
                 // Slight pseudo-random midpoint offset so parallel roads don't
                 // overlap perfectly — gives the network an organic feel.
@@ -1113,49 +1137,47 @@ export default function FarmPage() {
                 const my = (a.y + b.y) / 2 + offset + 6;
                 const ay = a.y + 14;
                 const by = b.y + 14;
-                // Trim t-range so road begins/ends PATCH_CLEAR px from the
-                // building foot. If the two patches would overlap (very
-                // close neighbours), drop the road entirely — drawing a
-                // tiny stub between two adjacent patches reads as visual
-                // noise rather than infrastructure.
                 const dist = Math.hypot(b.x - a.x, by - ay);
-                if (dist <= 2 * PATCH_CLEAR + 10) return null;
-                // Clamp <0.5 so we never invert. Real-world distances in
-                // the layout are >= ~250px so this rarely binds.
-                const tCut = Math.min(0.49, PATCH_CLEAR / dist);
+                // Clamp tightly — even very close pairs still get a short
+                // visible stub instead of vanishing.
+                const tCut = Math.min(0.42, PATCH_CLEAR / Math.max(dist, 1));
                 const t1 = tCut, t2 = 1 - tCut;
                 const sx = bez(t1, a.x, mx, b.x);
                 const sy = bez(t1, ay, my, by);
                 const ex = bez(t2, a.x, mx, b.x);
                 const ey = bez(t2, ay, my, by);
-                // New control point keeps the original midpoint flavour for
-                // the trimmed segment.
                 const d = `M ${sx} ${sy} Q ${mx} ${my} ${ex} ${ey}`;
-                return { i, edge: e, d, style, lv };
-              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number } => r !== null);
+                return { i, edge: e, d, style, lv, bothOwned };
+              }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number; bothOwned: boolean } => r !== null);
 
               return (
                 <>
-                  {/* Pass 1 — road surfaces (ground level, beneath buildings). */}
-                  {roads.map(r => (
-                    <g key={`road-${r.i}`}>
-                      {/* Soft soil shadow embeds the road into the ground */}
-                      <path d={r.d} stroke="rgba(0,0,0,0.32)" strokeWidth={r.style.width + 6} fill="none" strokeLinecap="round" opacity={0.55}/>
-                      {/* Road base (darker outer edge) */}
-                      <path d={r.d} stroke={r.style.base} strokeWidth={r.style.width} fill="none" strokeLinecap="round"/>
-                      {/* Road top wear (lighter inner) */}
-                      <path d={r.d} stroke={r.style.top} strokeWidth={Math.max(r.style.width - 6, 8)} fill="none" strokeLinecap="round" opacity={0.95}/>
-                      {/* Lane markings — paved roads only (level 3) */}
-                      {r.style.dash && (
-                        <path d={r.d} stroke={r.style.dash.color} strokeWidth={r.style.dash.w} fill="none" strokeDasharray={r.style.dash.array} opacity={r.style.dash.opacity}/>
-                      )}
-                    </g>
-                  ))}
-
-                  {/* Pass 2 — trucks driving along each road. Always-on ambient
-                       loop. During the harvest pulse they get a gold body +
-                       cargo crates and run twice as fast for visible effect. */}
+                  {/* Pass 1 — road surfaces (ground level, beneath buildings).
+                       Planned (unowned) roads render thinner and translucent
+                       so they read as future trails rather than active routes. */}
                   {roads.map(r => {
+                    const opacity = r.bothOwned ? 1 : 0.35;
+                    return (
+                      <g key={`road-${r.i}`} opacity={opacity}>
+                        {/* Soft soil shadow embeds the road into the ground */}
+                        <path d={r.d} stroke="rgba(0,0,0,0.32)" strokeWidth={r.style.width + 6} fill="none" strokeLinecap="round" opacity={0.55}/>
+                        {/* Road base (darker outer edge) */}
+                        <path d={r.d} stroke={r.style.base} strokeWidth={r.style.width} fill="none" strokeLinecap="round"/>
+                        {/* Road top wear (lighter inner) */}
+                        <path d={r.d} stroke={r.style.top} strokeWidth={Math.max(r.style.width - 6, 8)} fill="none" strokeLinecap="round" opacity={0.95}/>
+                        {/* Lane markings — paved roads only (level 3) */}
+                        {r.style.dash && (
+                          <path d={r.d} stroke={r.style.dash.color} strokeWidth={r.style.dash.w} fill="none" strokeDasharray={r.style.dash.array} opacity={r.style.dash.opacity}/>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Pass 2 — trucks. Only active on roads where BOTH endpoints
+                       are owned; planned roads are quiet trails until built.
+                       During the harvest pulse trucks get a gold body + cargo
+                       crates and run twice as fast for visible effect. */}
+                  {roads.filter(r => r.bothOwned).map(r => {
                     const baseColor = TRUCK_COLOR[r.edge.kind];
                     const color = harvestPulse ? "#FFD700" : baseColor;
                     const dur = (harvestPulse ? r.style.truckDur * 0.5 : r.style.truckDur).toFixed(2) + "s";
@@ -1521,10 +1543,10 @@ export default function FarmPage() {
       </button>
 
       {/* === FLOW (roads + trucks) overlay toggle ===
-           Lives just below the SAD DIAGRAMS button. When OFF (default)
-           the map shows only buildings on terrain — clean farm look.
-           When ON, the production-chain road network and trucks render
-           so the player can study the data-flow infrastructure. */}
+           Lives just below the SAD DIAGRAMS button. ON by default so the
+           farm always reads as a populated world (per reference art).
+           Toggle OFF to hide the production-chain road network and trucks
+           for a clean terrain-only view. */}
       <button
         data-no-pan="true"
         onClick={() => setShowRoads(v => !v)}
