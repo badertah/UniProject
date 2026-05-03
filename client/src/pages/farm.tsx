@@ -2012,11 +2012,14 @@ export default function FarmPage() {
           <span>ROADS · +{Math.round((roadBonus - 1) * 100)}%</span>
         </button>
 
-        {/* === Admin-only layout editor toggle ===
+        {/* === Layout editor toggle (available to ALL players) ===
             When ON, every building tile becomes draggable. Roads, trucks
             and the Build Roads modal automatically follow because they
-            all read from the same BUILDING_POS the drag updates. */}
-        {user?.isAdmin && (
+            all read from the same BUILDING_POS the drag updates.
+            Edits are stored in localStorage under `farm_layout_v1_<uid>`
+            so each user only ever sees and changes THEIR OWN layout —
+            the server is never touched and other players are unaffected. */}
+        {user && (
           <>
             <button
               data-no-pan="true"
