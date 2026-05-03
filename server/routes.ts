@@ -4,8 +4,32 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { insertUserSchema } from "@shared/schema";
+import {
+  TEACH_BACK_BANK,
+  SAD_GAME_TYPES,
+  isSadGameType,
+  type SadGameType,
+} from "@shared/teach-back";
 
 const JWT_SECRET = process.env.SESSION_SECRET || "eduquest-secret-2024";
+
+interface TeachBackEntry {
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  why?: string;
+}
+
+function isTeachBackQ(value: unknown): value is TeachBackEntry {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.prompt === "string" &&
+    Array.isArray(v.options) &&
+    v.options.every((o) => typeof o === "string") &&
+    typeof v.correctIndex === "number"
+  );
+}
 
 interface AuthRequest extends Request {
   userId?: string;
@@ -68,6 +92,9 @@ async function checkAndAwardBadges(userId: string): Promise<any[]> {
       userProgress.filter(p => p.completed).map(p => p.level.gameType)
     );
 
+    const sadMastery = (user.sadConceptMastery ?? {}) as Record<string, boolean>;
+    const sadConceptCount = SAD_GAME_TYPES.filter((gt) => sadMastery[gt] === true).length;
+
     for (const badge of allBadges) {
       if (userBadgeIds.has(badge.id)) continue;
 
@@ -91,10 +118,21 @@ async function checkAndAwardBadges(userId: string): Promise<any[]> {
         case "game_type_concept_connector":
           earned = gameTypesCompleted.has("concept_connector") || gameTypesCompleted.has("matcher") || gameTypesCompleted.has("term_matcher");
           break;
+        case "concept_master_sad":
+          earned = sadConceptCount >= SAD_GAME_TYPES.length;
+          break;
       }
 
       if (earned) {
-        await storage.awardBadge(userId, badge.id);
+        // awardBadge returns undefined if a concurrent caller already
+        // inserted the row (unique index on (user_id, badge_id)). Only
+        // grant XP/coin rewards when WE actually inserted the row, so a
+        // race can never double-pay.
+        const inserted = await storage.awardBadge(userId, badge.id);
+        if (!inserted) {
+          userBadgeIds.add(badge.id);
+          continue;
+        }
         if (badge.xpReward > 0 || badge.coinReward > 0) {
           const currentUser = await storage.getUser(userId);
           if (currentUser) {
@@ -476,6 +514,55 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(userBadgesList.map(ub => ub.badge));
     } catch {
       res.status(500).json({ error: "Failed to fetch user badges" });
+    }
+  });
+
+  // Records that the user passed the teach-back quick check for a SAD game.
+  // The client sends { gameType, prompt, pickedIndex }; the server resolves
+  // the question from its OWN bank (shared/teach-back.ts plus per-level
+  // overrides from questions.options.teachBack) and ONLY records mastery
+  // when the picked index matches the bank's correctIndex. Without this
+  // check, a malicious client could grant itself the badge by POSTing six
+  // times — never trust a "passed" flag from the client.
+  app.post("/api/sad/teachback", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const body = (req.body ?? {}) as {
+        gameType?: unknown;
+        prompt?: unknown;
+        pickedIndex?: unknown;
+      };
+      const gameType = typeof body.gameType === "string" ? body.gameType : "";
+      const prompt = typeof body.prompt === "string" ? body.prompt : "";
+      const pickedIndex = typeof body.pickedIndex === "number" ? body.pickedIndex : -1;
+
+      if (!isSadGameType(gameType)) {
+        return res.status(400).json({ error: "Invalid SAD gameType" });
+      }
+      if (!prompt) {
+        return res.status(400).json({ error: "Missing teach-back prompt" });
+      }
+
+      const overrides = await storage.getSadTeachBackOverrides(gameType);
+      const pool = [
+        ...TEACH_BACK_BANK[gameType as SadGameType],
+        ...overrides.filter(isTeachBackQ),
+      ];
+      const match = pool.find((q) => q.prompt === prompt);
+      if (!match) {
+        return res.status(400).json({ error: "Unknown teach-back question" });
+      }
+      const passed = pickedIndex === match.correctIndex;
+
+      const userBefore = await storage.getUser(req.userId!);
+      const mastery = passed
+        ? await storage.recordSadConceptMastery(req.userId!, gameType)
+        : ((userBefore?.sadConceptMastery ?? {}) as Record<string, boolean>);
+      const newBadges = passed ? await checkAndAwardBadges(req.userId!) : [];
+      const masteredCount = SAD_GAME_TYPES.filter((gt) => mastery[gt] === true).length;
+      res.json({ passed, mastery, masteredCount, total: SAD_GAME_TYPES.length, newBadges });
+    } catch (e) {
+      console.error("Teach-back record error:", e);
+      res.status(500).json({ error: "Failed to record teach-back result" });
     }
   });
 

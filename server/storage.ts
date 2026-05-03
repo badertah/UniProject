@@ -54,10 +54,15 @@ export interface IStorage {
   purchaseCosmetic(userId: string, cosmeticId: string): Promise<UserCosmetic>;
   hasCosmetic(userId: string, cosmeticId: string): Promise<boolean>;
 
+  // SAD concept mastery
+  recordSadConceptMastery(userId: string, gameType: string): Promise<Record<string, boolean>>;
+  getSadTeachBackOverrides(gameType: string): Promise<unknown[]>;
+
   // Badges
   getAllBadges(): Promise<Badge[]>;
   getUserBadges(userId: string): Promise<(UserBadge & { badge: Badge })[]>;
-  awardBadge(userId: string, badgeId: string): Promise<UserBadge>;
+  // Returns undefined if the badge was already awarded (no row inserted).
+  awardBadge(userId: string, badgeId: string): Promise<UserBadge | undefined>;
   hasBadge(userId: string, badgeId: string): Promise<boolean>;
   badgesCount(): Promise<number>;
 
@@ -253,6 +258,38 @@ export class DatabaseStorage implements IStorage {
     return !!uc;
   }
 
+  async getSadTeachBackOverrides(gameType: string): Promise<unknown[]> {
+    // Returns the union of every per-question `options.teachBack` array
+    // attached to questions belonging to a level with the given game_type.
+    // Used by the server to verify a submitted teach-back answer against
+    // the same pool the client sampled from.
+    const rows = await db
+      .select({ options: questions.options })
+      .from(questions)
+      .innerJoin(levels, eq(questions.levelId, levels.id))
+      .where(eq(levels.gameType, gameType));
+    const out: unknown[] = [];
+    for (const r of rows) {
+      const opts = r.options as { teachBack?: unknown } | null;
+      const tb = opts?.teachBack;
+      if (Array.isArray(tb)) out.push(...tb);
+    }
+    return out;
+  }
+
+  async recordSadConceptMastery(userId: string, gameType: string): Promise<Record<string, boolean>> {
+    // Atomic JSONB merge — set { [gameType]: true } without a read-modify-write race.
+    const [updated] = await db
+      .update(users)
+      .set({
+        sadConceptMastery: drizzleSql`COALESCE(${users.sadConceptMastery}, '{}'::jsonb)
+          || jsonb_build_object(${gameType}::text, true)`,
+      })
+      .where(eq(users.id, userId))
+      .returning({ mastery: users.sadConceptMastery });
+    return (updated?.mastery ?? {}) as Record<string, boolean>;
+  }
+
   async getAllBadges(): Promise<Badge[]> {
     return db.select().from(badges);
   }
@@ -266,8 +303,15 @@ export class DatabaseStorage implements IStorage {
     return results.map(r => ({ ...r.ub, badge: r.badge }));
   }
 
-  async awardBadge(userId: string, badgeId: string): Promise<UserBadge> {
-    const [ub] = await db.insert(userBadges).values({ userId, badgeId }).returning();
+  async awardBadge(userId: string, badgeId: string): Promise<UserBadge | undefined> {
+    // ON CONFLICT DO NOTHING relies on the (user_id, badge_id) unique index
+    // created in server/index.ts. If the badge was already awarded, no row
+    // is returned — callers use that signal to skip duplicate reward grants.
+    const [ub] = await db
+      .insert(userBadges)
+      .values({ userId, badgeId })
+      .onConflictDoNothing({ target: [userBadges.userId, userBadges.badgeId] })
+      .returning();
     return ub;
   }
 

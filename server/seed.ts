@@ -202,6 +202,36 @@ export async function seedBadges() {
   console.log("[IKUGAMES] Badges seeded:", badgeData.length);
 }
 
+// Idempotently inserts the "Concept Master — SAD" badge. Runs every boot so
+// already-seeded databases also pick it up. Keyed on requirement_type which
+// is unique to this badge.
+export async function seedConceptMasterBadge() {
+  try {
+    const existing = await q(
+      "SELECT COUNT(*)::int as count FROM badges WHERE requirement_type = 'concept_master_sad'"
+    );
+    if (Number(existing[0].count) > 0) return;
+    await q(
+      `INSERT INTO badges (name, description, icon, color, requirement_type, requirement_value, xp_reward, coin_reward, rarity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        "Concept Master — SAD",
+        "Pass the quick check for all six SAD play-to-learn games",
+        "🧪",
+        "from-fuchsia-500 to-violet-700",
+        "concept_master_sad",
+        6,
+        150,
+        60,
+        "epic",
+      ]
+    );
+    console.log("[IKUGAMES] Concept Master — SAD badge seeded.");
+  } catch (e) {
+    console.warn("[IKUGAMES] seedConceptMasterBadge failed:", e);
+  }
+}
+
 // ===========================================================
 // SAD Play-to-Learn — interactive games (no quiz questions)
 // Each "question" row stores one puzzle round; structured data

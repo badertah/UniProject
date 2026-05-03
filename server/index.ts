@@ -78,8 +78,13 @@ app.use((req, res, next) => {
         equipped_frame VARCHAR,
         equipped_theme VARCHAR,
         is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+        sad_concept_mastery JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMP DEFAULT NOW()
       )
+    `);
+    await pool.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS sad_concept_mastery JSONB NOT NULL DEFAULT '{}'::jsonb
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS topics (
@@ -165,10 +170,25 @@ app.use((req, res, next) => {
         earned_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // Idempotency guard for badge awards: ensures (user_id, badge_id) is
+    // unique so concurrent checkAndAwardBadges calls cannot duplicate a
+    // grant. We also de-duplicate any pre-existing rows before adding the
+    // index so the migration is safe on already-seeded databases.
+    await pool.query(`
+      DELETE FROM user_badges a
+       USING user_badges b
+       WHERE a.ctid < b.ctid
+         AND a.user_id  = b.user_id
+         AND a.badge_id = b.badge_id
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS user_badges_user_badge_uniq
+        ON user_badges (user_id, badge_id)
+    `);
     await pool.end();
     log("Database schema ready", "db");
 
-    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedSADPlayToLearn, removeSystemArchitectLevel, migrateRemovedGameTypes } = await import("./seed");
+    const { seedDatabase, seedNewGameTypes, removeFakeSeedUsers, seedBadges, seedConceptMasterBadge, seedSADPlayToLearn, removeSystemArchitectLevel, migrateRemovedGameTypes } = await import("./seed");
     await seedDatabase();
     await migrateRemovedGameTypes();
     await seedNewGameTypes();
@@ -176,6 +196,7 @@ app.use((req, res, next) => {
     await removeSystemArchitectLevel();
     await removeFakeSeedUsers();
     await seedBadges();
+    await seedConceptMasterBadge();
   } catch (e) {
     console.error("DB setup error:", e);
   }

@@ -16,6 +16,7 @@ export const users = pgTable("users", {
   equippedFrame: varchar("equipped_frame"),
   equippedTheme: varchar("equipped_theme"),
   isAdmin: boolean("is_admin").notNull().default(false),
+  sadConceptMastery: jsonb("sad_concept_mastery").notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

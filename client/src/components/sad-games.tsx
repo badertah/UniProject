@@ -8,6 +8,26 @@ import {
   Heart, Database, Activity, Shield, Target, Timer, Zap, X,
   Trophy, Info,
 } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import {
+  TEACH_BACK_BANK,
+  isSadGameType,
+  type TeachBackQ as SharedTeachBackQ,
+  type SadGameType,
+} from "@shared/teach-back";
+
+interface TeachBackPostResponse {
+  mastery: Record<string, boolean>;
+  masteredCount: number;
+  total: number;
+  newBadges: Array<{
+    id: string;
+    name: string;
+    description: string;
+    requirementType: string;
+  }>;
+}
 
 // ============================================================
 // META — describes each play-to-learn game (used by intro card)
@@ -3149,11 +3169,11 @@ const CONCEPT_CONTENT: Record<string, ConceptContent> = {
 };
 
 // Pool teach-back questions for a game: per-question overrides from
-// q.options.teachBack take precedence; falls back to the hardcoded set.
+// q.options.teachBack take precedence; falls back to the SHARED bank
+// (which the server uses to authoritatively verify a submitted answer).
 function pickTeachBack(gameType: string, override?: TeachBackQ[] | null): TeachBackQ | null {
-  const pool = override && override.length > 0
-    ? override
-    : (CONCEPT_CONTENT[gameType]?.teachBack ?? []);
+  const sharedDefault = isSadGameType(gameType) ? TEACH_BACK_BANK[gameType] : [];
+  const pool: TeachBackQ[] = override && override.length > 0 ? override : sharedDefault;
   if (pool.length === 0) return null;
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -3296,12 +3316,46 @@ function TeachBackQuiz({
   const meta = SAD_GAMES[gameType];
   const [picked, setPicked] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const { toast } = useToast();
+  const reportedRef = useRef(false);
 
   // Hooks must run unconditionally — gate the side-effect on missing content
   // INSIDE the effect rather than around an early return.
   useEffect(() => {
     if (!question || !meta) onDone(true);
   }, [question, meta, onDone]);
+
+  // Report the submitted answer to the server exactly once. The server
+  // re-verifies (gameType, prompt, pickedIndex) against its own teach-back
+  // pool — the client is NEVER trusted to declare a pass. We invalidate
+  // badges/auth so the profile UI reflects new awards.
+  useEffect(() => {
+    if (!submitted || reportedRef.current) return;
+    if (!question || picked === null) return;
+    reportedRef.current = true;
+    apiRequest("POST", "/api/sad/teachback", {
+      gameType,
+      prompt: question.prompt,
+      pickedIndex: picked,
+    })
+      .then((data: TeachBackPostResponse) => {
+        if (!data?.newBadges) return;
+        const earned = data.newBadges.find(
+          (b) => b.requirementType === "concept_master_sad"
+        );
+        queryClient.invalidateQueries({ queryKey: ["/api/badges"] });
+        if (earned) {
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          toast({
+            title: `Badge unlocked: ${earned.name}`,
+            description: earned.description,
+          });
+        }
+      })
+      .catch(() => {
+        // Non-blocking — the player keeps their game score regardless.
+      });
+  }, [submitted, picked, question, gameType, toast]);
 
   if (!question || !meta) return null;
 
