@@ -527,14 +527,24 @@ function loadLayout(uid: string): Record<string, { x: number; y: number }> {
 function saveLayout(uid: string, ov: Record<string, { x: number; y: number }>) {
   try { localStorage.setItem(layoutKey(uid), JSON.stringify(ov)); } catch {}
 }
-// Per-user road curviness (0=straight .. 100=very wavy). Stored separately
-// from layout so resetting positions doesn't flip the road style.
-const curveKey = (uid: string) => `farm_road_curve_v1_${uid}`;
-function loadCurve(uid: string): number {
-  try { const raw = localStorage.getItem(curveKey(uid)); if (raw != null) return Math.max(0, Math.min(100, parseInt(raw, 10) || 0)); } catch {} return 0;
+// Per-user, PER-ROAD curve offsets. Each road is a quadratic Bezier whose
+// control point is the road's midpoint + (dx, dy). The user grabs a small
+// handle on the road in editor mode and drags it to bend that road on its
+// own — no global slider, every road is shaped independently. dx/dy are
+// world-px and clamped to ±ROAD_HANDLE_MAX so a road can't be dragged
+// across the map. Stored separately from layout so a layout-reset doesn't
+// flatten the curves the player carefully shaped.
+const ROAD_HANDLE_MAX = 220;
+const offsetsKey = (uid: string) => `farm_road_offsets_v1_${uid}`;
+type RoadOffsets = Record<string, { x: number; y: number }>;
+function loadOffsets(uid: string): RoadOffsets {
+  try { const raw = localStorage.getItem(offsetsKey(uid)); if (raw) return JSON.parse(raw); } catch {} return {};
 }
-function saveCurve(uid: string, v: number) {
-  try { localStorage.setItem(curveKey(uid), String(Math.max(0, Math.min(100, Math.round(v))))); } catch {}
+function saveOffsets(uid: string, off: RoadOffsets) {
+  try { localStorage.setItem(offsetsKey(uid), JSON.stringify(off)); } catch {}
+}
+function clampHandle(v: number): number {
+  return Math.max(-ROAD_HANDLE_MAX, Math.min(ROAD_HANDLE_MAX, v));
 }
 
 type CoinPop = { id: string; bId: string; amount: number };
@@ -644,11 +654,20 @@ function processTicks(state: FarmSave, n: number, silent = false, incomeMultipli
 
     // === Crisis tracker ===
     // A "crisis tick" = bank already at the debt floor, OR bank ≤ 0 and
-    // wages outpacing gross income. Crisis ticks accumulate; recovering
-    // ticks (any positive net while bank is healthy) burn them off.
-    // Hit BANKRUPTCY_TICKS in a row → Game Over modal triggers.
-    const inCrisis = farmBank <= MIN_BANK || (farmBank <= 0 && tickWages > tickGross);
-    bankruptcyTicks = inCrisis ? bankruptcyTicks + 1 : Math.max(0, bankruptcyTicks - 1);
+    // wages outpacing gross income on this tick. We ONLY adjust the
+    // counter when at least one building actually fired this interval
+    // (tickMultiplier may delay slow buildings); otherwise we hold the
+    // counter steady so a player isn't "rescued" from bankruptcy by a
+    // string of empty intervals where nothing ticked. Recovery still
+    // requires a healthy productive tick.
+    const anyFired = tickGross > 0 || tickWages > 0;
+    if (anyFired) {
+      const inCrisis = farmBank <= MIN_BANK || (farmBank <= 0 && tickWages > tickGross);
+      bankruptcyTicks = inCrisis ? bankruptcyTicks + 1 : Math.max(0, bankruptcyTicks - 1);
+    } else if (farmBank <= MIN_BANK) {
+      // No production at all AND we're underwater — still in crisis.
+      bankruptcyTicks += 1;
+    }
   }
   return { state: { ...state, farmBank, tickCounters, wagesPaidTotal, buffers, bankruptcyTicks, lostToOverflow }, pops };
 }
@@ -723,7 +742,7 @@ export default function FarmPage() {
   const [posOverrides, setPosOverrides] = useState<Record<string, { x: number; y: number }>>({});
   // Road curviness (0 = straight, 100 = max wave). User-tunable in editor.
   // Persisted alongside the layout so each player keeps their own road feel.
-  const [roadCurve, setRoadCurve] = useState<number>(0);
+  const [roadOffsets, setRoadOffsets] = useState<RoadOffsets>({});
   // Apply overrides to BUILDING_POS synchronously during render so that
   // sortedBuildings, edges and trucks all see the same coords this paint.
   useMemo(() => {
@@ -738,7 +757,7 @@ export default function FarmPage() {
     if (!user) return;
     const ov = loadLayout(user.id);
     if (Object.keys(ov).length) setPosOverrides(ov);
-    setRoadCurve(loadCurve(user.id));
+    setRoadOffsets(loadOffsets(user.id));
   }, [user?.id]);
   // Persist whenever overrides change.
   useEffect(() => {
@@ -747,8 +766,8 @@ export default function FarmPage() {
   }, [posOverrides, user?.id]);
   useEffect(() => {
     if (!user) return;
-    saveCurve(user.id, roadCurve);
-  }, [roadCurve, user?.id]);
+    saveOffsets(user.id, roadOffsets);
+  }, [roadOffsets, user?.id]);
 
   // Debounced sync of farm-leaderboard stats to the server. We only
   // surface the rankable summary (bank / day / total earned) — the
@@ -1209,6 +1228,34 @@ export default function FarmPage() {
   const econBonus = sadBonus * roadBonus;
   useEffect(() => { econBonusRef.current = econBonus; }, [econBonus]);
 
+  // === Game-over derived state ===
+  // Player loses when they've spent BANKRUPTCY_TICKS consecutive ticks
+  // either at MIN_BANK or unable to cover wages from gross income. The
+  // tick interval reads gameOverRef to halt the economy completely.
+  const isGameOver = (farmSave.bankruptcyTicks || 0) >= BANKRUPTCY_TICKS;
+  useEffect(() => { gameOverRef.current = isGameOver; }, [isGameOver]);
+
+  // Soft restart from a Game Over: wipe runtime econ state but PRESERVE
+  // bestDay (their personal record) and farmTotalEarned (lifetime stat).
+  // The user's eduCoins and SAD mastery are owned by the server and
+  // untouched. Buildings + roads are also wiped — this is a true reset.
+  const resetAfterGameOver = () => {
+    if (!user) return;
+    setFarmSave(prev => {
+      const fresh = defaultState();
+      fresh.bestDay = Math.max(prev.bestDay || 0, prev.day || 0);
+      fresh.farmTotalEarned = prev.farmTotalEarned || 0;
+      saveState(fresh, user.id);
+      return fresh;
+    });
+    // Wipe stale per-road curve offsets too — otherwise the next farm
+    // will inherit bends for roads that no longer exist (and that the
+    // player never set up).
+    setRoadOffsets({});
+    saveOffsets(user.id, {});
+    toast({ title: "🌱 New farm started", description: "Spend smart — wages eat profit fast." });
+  };
+
   if (!user) return null;
 
   const totalOwned = Object.values(farmSave.owned).filter(v => v > 0).length;
@@ -1579,20 +1626,19 @@ export default function FarmPage() {
                 const sy = ay  + dy * tCutA;
                 const ex = a.x + dx * (1 - tCutB);
                 const ey = ay  + dy * (1 - tCutB);
-                // Optional curve: roadCurve 0..100 from the Editor slider.
-                // Alternate the bow direction by edge index so parallel
-                // routes diverge into a pleasing fan instead of overlapping.
-                let d: string;
-                if (roadCurve > 0) {
-                  const px = -dy / len, py = dx / len;
-                  const sign = (i % 2 === 0) ? 1 : -1;
-                  const mag = (roadCurve / 100) * Math.min(90, len * 0.28) * sign;
-                  const cx = (sx + ex) / 2 + px * mag;
-                  const cy = (sy + ey) / 2 + py * mag;
-                  d = `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`;
-                } else {
-                  d = `M ${sx} ${sy} L ${ex} ${ey}`;
-                }
+                // Per-road curve from the user's drag handle (editor mode).
+                // If no offset set, we draw a straight line; otherwise the
+                // road bends through (mid + offset) as a quadratic Bezier.
+                const ek = roadKey(e.from, e.to);
+                const off = roadOffsets[ek];
+                const midX = (sx + ex) / 2;
+                const midY = (sy + ey) / 2;
+                const hasCurve = !!(off && (off.x || off.y));
+                const cx = midX + (off?.x || 0);
+                const cy = midY + (off?.y || 0);
+                const d: string = hasCurve
+                  ? `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`
+                  : `M ${sx} ${sy} L ${ex} ${ey}`;
                 return { i, edge: e, d, style, lv, built };
               }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number; built: boolean } => r !== null);
               const roads = allRoads.filter(r => r.built);
@@ -1625,7 +1671,10 @@ export default function FarmPage() {
                   {planned.map(r => (
                     <g
                       key={`planned-${r.i}`}
-                      style={{ cursor: "pointer" }}
+                      // Parent SVG is pointer-events:none so layout panning
+                      // works through it — interactive children must opt
+                      // back IN explicitly, otherwise clicks are dead.
+                      style={{ cursor: "pointer", pointerEvents: "auto" }}
                       onClick={(e) => { e.stopPropagation(); setShowRoadShop(true); }}
                       data-testid={`planned-road-${r.edge.from}-${r.edge.to}`}
                     >
@@ -1634,6 +1683,70 @@ export default function FarmPage() {
                       <path d={r.d} stroke="rgba(255,235,180,0.55)" strokeWidth={4} fill="none" strokeLinecap="round" strokeDasharray="10 8"/>
                     </g>
                   ))}
+
+                  {/* === ROAD DRAG HANDLES (editor mode only) ===
+                       One gold dot per road, sitting at the road's current
+                       control point (mid + offset). Drag it to bend that
+                       road independently. Double-click straightens the
+                       road. Pointer math converts client px to world px
+                       via the camera scale, so dragging feels 1:1 even
+                       when the player is zoomed in or out. */}
+                  {editorMode && allRoads.map(r => {
+                    const a = bldgPos(r.edge.from);
+                    const b = bldgPos(r.edge.to);
+                    const ay = a.y + 14;
+                    const by = b.y + 14;
+                    const ek = roadKey(r.edge.from, r.edge.to);
+                    const off = roadOffsets[ek] || { x: 0, y: 0 };
+                    const hx = (a.x + b.x) / 2 + off.x;
+                    const hy = (ay  + by ) / 2 + off.y;
+                    return (
+                      <g
+                        key={`handle-${r.i}`}
+                        data-no-pan="true"
+                        data-testid={`road-handle-${r.edge.from}-${r.edge.to}`}
+                        // Parent SVG sets pointer-events:none for pan
+                        // pass-through; opt back in here so the handle
+                        // actually receives drag events.
+                        style={{ cursor: "grab", pointerEvents: "auto" }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const startCX = e.clientX;
+                          const startCY = e.clientY;
+                          const startOff = roadOffsets[ek] || { x: 0, y: 0 };
+                          const move = (mv: PointerEvent) => {
+                            const sc = cameraRef.current.scale || 1;
+                            const nx = clampHandle(startOff.x + (mv.clientX - startCX) / sc);
+                            const ny = clampHandle(startOff.y + (mv.clientY - startCY) / sc);
+                            setRoadOffsets(prev => ({ ...prev, [ek]: { x: nx, y: ny } }));
+                          };
+                          const up = () => {
+                            window.removeEventListener("pointermove", move);
+                            window.removeEventListener("pointerup", up);
+                          };
+                          window.addEventListener("pointermove", move);
+                          window.addEventListener("pointerup", up);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setRoadOffsets(prev => {
+                            const { [ek]: _gone, ...rest } = prev;
+                            return rest;
+                          });
+                        }}
+                      >
+                        {/* Wide invisible grab area for easy touch */}
+                        <circle cx={hx} cy={hy} r={26} fill="rgba(0,0,0,0)"/>
+                        {/* Glow ring */}
+                        <circle cx={hx} cy={hy} r={16} fill="rgba(255,215,0,0.18)" stroke="rgba(255,215,0,0.55)" strokeWidth={2}/>
+                        {/* Gold dot */}
+                        <circle cx={hx} cy={hy} r={9} fill="#FFD700" stroke="#5d4037" strokeWidth={2}/>
+                        {/* 4-way arrow icon */}
+                        <text x={hx} y={hy + 3.5} textAnchor="middle" fontSize={11} fontWeight={900} fill="#5d4037" style={{ pointerEvents: "none", userSelect: "none" }}>✥</text>
+                      </g>
+                    );
+                  })}
 
                   {/* === Farmhouse ROUNDABOUT === Drawn ON TOP of road ends
                        (so road tips meet the ring cleanly) but UNDER the
@@ -1838,6 +1951,29 @@ export default function FarmPage() {
                   opacity: isOwned ? 1 : 0.5,
                 }}/>
 
+                {/* === STORAGE BUFFER OVERLAY (silo / barn only) ===
+                     A small fill bar across the top of the tile showing
+                     how full this storage is. Pulses red when ≥ warn
+                     ratio so the player visually sees backpressure. */}
+                {isOwned && (b.id === "silo" || b.id === "barn") && (() => {
+                  const kind = b.id as "silo" | "barn";
+                  const cap = storageCapOf(farmSave.owned, kind);
+                  if (cap <= 0) return null;
+                  const cur = Math.max(0, Math.floor((farmSave.buffers || {})[kind] || 0));
+                  const ratio = Math.max(0, Math.min(1, cur / cap));
+                  const warn = ratio >= BUFFER_WARN_RATIO;
+                  return (
+                    <div
+                      className="absolute pointer-events-none"
+                      style={{ top: 4, left: "10%", width: "80%", height: 8, borderRadius: 4, background: "rgba(0,0,0,0.55)", border: `1px solid ${warn ? "#ff6060" : "rgba(255,215,0,0.55)"}`, zIndex: 5, animation: warn ? "pulse 1s ease-in-out infinite" : undefined }}
+                      data-testid={`bar-storage-${kind}`}
+                      title={`${kind.toUpperCase()} ${cur}/${cap}`}
+                    >
+                      <div style={{ width: `${ratio * 100}%`, height: "100%", borderRadius: 3, background: warn ? "linear-gradient(90deg,#ff5252,#ff8a65)" : "linear-gradient(90deg,#7c4dff,#b39ddb)", transition: "width 250ms ease" }}/>
+                    </div>
+                  );
+                })()}
+
                 {isOwned ? (
                   BUILDING_IMAGES[b.id] && !failedSprites[b.id] ? (
                     <img
@@ -2027,13 +2163,14 @@ export default function FarmPage() {
                 border: farmSave.farmBank > 0 ? "2px solid #4CAF50" : "2px solid transparent",
                 boxShadow: farmSave.farmBank > 0 ? "0 2px 12px rgba(46,125,50,0.4)" : "none",
               }}
-              disabled={farmSave.farmBank === 0 || harvestMutation.isPending}
+              disabled={farmSave.farmBank <= 0 || harvestMutation.isPending}
               onClick={() => { setIsHarvesting(true); triggerHarvestPulse(); harvestMutation.mutate(farmSave.farmBank); }}
               data-testid="button-harvest"
+              title={farmSave.farmBank < 0 ? "Bank in debt — pay it down by selling buildings or wait for income to recover" : farmSave.farmBank === 0 ? "Nothing to harvest yet" : "Cash out the farm bank into EduCoins"}
             >
               {harvestMutation.isPending
                 ? <motion.span animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.7 }}>🔄</motion.span>
-                : <span className="whitespace-nowrap">🌾 <span className="hidden xs:inline">HARVEST</span>{farmSave.farmBank > 0 ? ` +${farmSave.farmBank}` : ""}</span>}
+                : <span className="whitespace-nowrap">🌾 <span className="hidden xs:inline">HARVEST</span>{farmSave.farmBank > 0 ? ` +${farmSave.farmBank}` : farmSave.farmBank < 0 ? ` ${farmSave.farmBank}` : ""}</span>}
             </Button>
           </div>
         </div>
@@ -2052,6 +2189,72 @@ export default function FarmPage() {
             )}
             {totalWagesPerMin > 0 && (
               <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: "rgba(198,40,40,0.18)", color: "#FFAB91", border: "1px solid rgba(198,40,40,0.35)" }} data-testid="chip-wages">💸 −{Math.round(totalWagesPerMin)}/min</div>
+            )}
+            {/* === STORAGE chips: live silo/barn fill, the SAD "buffer" idea
+                  made visible. Pulse red when ≥ BUFFER_WARN_RATIO so the
+                  player knows backpressure is throttling production. === */}
+            {(["silo","barn"] as const).map(kind => {
+              const cap = storageCapOf(farmSave.owned, kind);
+              if (cap <= 0) return null;
+              const cur = Math.max(0, Math.floor((farmSave.buffers || {})[kind] || 0));
+              const ratio = cap > 0 ? cur / cap : 0;
+              const warn = ratio >= BUFFER_WARN_RATIO;
+              return (
+                <div
+                  key={`chip-${kind}`}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
+                  style={{
+                    background: warn ? "rgba(255,80,80,0.28)" : "rgba(124,77,255,0.20)",
+                    color: warn ? "#FFD0D0" : "#D0BCFF",
+                    border: `1px solid ${warn ? "rgba(255,80,80,0.55)" : "rgba(124,77,255,0.4)"}`,
+                    animation: warn ? "pulse 1s ease-in-out infinite" : undefined,
+                  }}
+                  data-testid={`chip-storage-${kind}`}
+                  title={warn ? `${kind.toUpperCase()} almost full — production throttled to 30%! Harvest to clear it.` : `${kind.toUpperCase()} buffer ${cur}/${cap}`}
+                >
+                  {kind === "silo" ? "🌾" : "🏚️"} {cur}/{cap}{warn ? " ⚠" : ""}
+                </div>
+              );
+            })}
+            {/* === CRISIS countdown chip — only appears once we've started
+                  accumulating bankruptcy ticks. Players see how many ticks
+                  they have left before Game Over. === */}
+            {(farmSave.bankruptcyTicks || 0) > 0 && !isGameOver && (
+              <div
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black"
+                style={{
+                  background: "rgba(255,40,40,0.32)",
+                  color: "#FFE0E0",
+                  border: "1.5px solid #ff5555",
+                  animation: "pulse 0.8s ease-in-out infinite",
+                }}
+                data-testid="chip-crisis"
+                title="Wages are eating your farm. Hire fewer workers or upgrade producers."
+              >
+                💀 BANKRUPTCY in {Math.max(0, BANKRUPTCY_TICKS - (farmSave.bankruptcyTicks || 0))}
+              </div>
+            )}
+            {/* === DEBT chip — bank below zero. === */}
+            {farmSave.farmBank < 0 && (
+              <div
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
+                style={{ background: "rgba(180,30,30,0.24)", color: "#FFB0B0", border: "1px solid rgba(255,80,80,0.5)" }}
+                data-testid="chip-debt"
+                title={`In debt. Floor is ${MIN_BANK}.`}
+              >
+                📉 DEBT {farmSave.farmBank}
+              </div>
+            )}
+            {/* === OVERFLOW lifetime stat — coins lost to a full bank. === */}
+            {(farmSave.lostToOverflow || 0) > 0 && (
+              <div
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
+                style={{ background: "rgba(120,80,40,0.22)", color: "#FFD8A8", border: "1px solid rgba(255,170,80,0.4)" }}
+                data-testid="chip-overflow"
+                title="EduCoins wasted because the bank was at its cap. Harvest more often!"
+              >
+                🕳️ −{farmSave.lostToOverflow}
+              </div>
             )}
             {/* SAD MASTERY income bonus — earned by passing teach-back in
                  the academy. Each concept = +5% on every gross production
@@ -2244,20 +2447,31 @@ export default function FarmPage() {
                   fontWeight: 900,
                   fontSize: 11,
                 }}
-                title="Adjust how curvy the roads are. 0 = straight, 100 = very wavy."
+                title="Drag the gold dot on any road to bend it. Double-click a dot to straighten that road."
               >
-                <span>WAVE</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={roadCurve}
-                  onChange={(e) => setRoadCurve(parseInt(e.target.value, 10) || 0)}
-                  data-testid="slider-road-curve"
-                  style={{ width: 90, accentColor: "#FFD700", cursor: "pointer" }}
-                />
-                <span style={{ width: 24, textAlign: "right" }}>{roadCurve}</span>
+                <span>🛤️ DRAG ROADS</span>
+                <button
+                  data-no-pan="true"
+                  onClick={() => {
+                    if (!Object.keys(roadOffsets).length) return;
+                    if (!window.confirm("Straighten ALL roads?")) return;
+                    setRoadOffsets({});
+                  }}
+                  data-testid="btn-clear-road-curves"
+                  title="Straighten every road back to a line"
+                  style={{
+                    background: "rgba(255,80,80,0.18)",
+                    border: "1px solid rgba(255,80,80,0.5)",
+                    color: "#FFD700",
+                    fontWeight: 900,
+                    fontSize: 10,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                  }}
+                >
+                  STRAIGHTEN
+                </button>
               </div>
             )}
 
@@ -2266,11 +2480,13 @@ export default function FarmPage() {
                 data-no-pan="true"
                 onClick={() => {
                   if (!user) return;
-                  if (!window.confirm("Reset all building positions to defaults?")) return;
-                  // Wipe overrides and reload page so BUILDING_POS module
-                  // values (the original defaults) take over cleanly.
+                  if (!window.confirm("Reset all building positions AND road curves to defaults?")) return;
+                  // Wipe layout + road curve overrides and reload so the
+                  // module-level defaults take over cleanly.
                   setPosOverrides({});
                   saveLayout(user.id, {});
+                  setRoadOffsets({});
+                  saveOffsets(user.id, {});
                   toast({ title: "Layout reset · reloading" });
                   setTimeout(() => window.location.reload(), 400);
                 }}
@@ -2333,6 +2549,80 @@ export default function FarmPage() {
       <HarvestBurst active={isHarvesting} />
 
       {/* SAD diagrams modal */}
+      {/* === GAME OVER MODAL ===
+           Triggered when bankruptcyTicks crosses the threshold. Blocks
+           the whole UI and offers a single Restart action that preserves
+           bestDay + lifetime earnings. */}
+      <AnimatePresence>
+        {isGameOver && (
+          <>
+            <motion.div
+              className="fixed inset-0 z-[100]"
+              style={{ background: "rgba(0,0,0,0.78)", backdropFilter: "blur(6px)" }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              data-testid="overlay-game-over"
+            />
+            <motion.div
+              className="fixed inset-0 z-[101] flex items-center justify-center p-4"
+              initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }}
+            >
+              <div
+                className="rounded-2xl p-6 max-w-md w-full text-center"
+                style={{
+                  background: "linear-gradient(135deg, #2a0a0a, #4a1010)",
+                  border: "2px solid #ff5555",
+                  boxShadow: "0 20px 60px rgba(0,0,0,0.6), 0 0 80px rgba(255,80,80,0.3)",
+                  color: "#FFD700",
+                }}
+                data-testid="modal-game-over"
+              >
+                <div style={{ fontSize: 56 }}>💸</div>
+                <h2 className="text-2xl font-black mb-2" style={{ color: "#FF6B6B" }}>FARM BANKRUPT</h2>
+                <p className="text-sm mb-4" style={{ color: "#FFE9A8", opacity: 0.92 }}>
+                  Wages drained the bank past the limit. The farm closed for business.
+                </p>
+                <div className="grid grid-cols-2 gap-2 mb-5 text-left">
+                  <div className="rounded-lg p-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <div className="text-[10px] opacity-70">DAYS SURVIVED</div>
+                    <div className="text-xl font-black" data-testid="text-game-over-day">{farmSave.day}</div>
+                  </div>
+                  <div className="rounded-lg p-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <div className="text-[10px] opacity-70">PERSONAL BEST</div>
+                    <div className="text-xl font-black">{Math.max(farmSave.bestDay || 0, farmSave.day)}</div>
+                  </div>
+                  <div className="rounded-lg p-2 col-span-2" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <div className="text-[10px] opacity-70">LIFETIME EARNED</div>
+                    <div className="text-lg font-black">🪙 {farmSave.farmTotalEarned || 0}</div>
+                  </div>
+                  {(farmSave.lostToOverflow || 0) > 0 && (
+                    <div className="rounded-lg p-2 col-span-2" style={{ background: "rgba(255,80,80,0.15)" }}>
+                      <div className="text-[10px] opacity-80">LOST TO OVERFLOW</div>
+                      <div className="text-sm font-black">🪙 {farmSave.lostToOverflow}</div>
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] mb-4" style={{ color: "#FFE9A8", opacity: 0.75 }}>
+                  💡 Tip: harvest more often to empty silo/barn buffers and pay off debt.
+                </p>
+                <button
+                  onClick={resetAfterGameOver}
+                  className="w-full px-4 py-3 rounded-xl font-black text-sm transition-all hover:scale-105 active:scale-95"
+                  style={{
+                    background: "linear-gradient(135deg, #FFD700, #FFA500)",
+                    color: "#2a0a0a",
+                    border: "2px solid #fff",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                  }}
+                  data-testid="btn-game-over-restart"
+                >
+                  🌱 START A NEW FARM
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showDiagrams && (
           <SADDiagramsModal
