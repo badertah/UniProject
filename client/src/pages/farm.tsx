@@ -1825,67 +1825,65 @@ export default function FarmPage() {
         onAck={() => acknowledgeChapter(storyCh.id)}
       />
 
-      {/* === SAD DIAGRAMS BUTTON (top-right, below HUD) === */}
-      <button
+      {/* === Toolbar cluster (SAD / FLOW / ROADS) ===
+           A single horizontal row pinned to the TOP-CENTER, just below the
+           HUD. Centering avoids the QuestPanel (top-left) and the
+           StoryPanel (top-right) which both float at right:10 / left:10
+           and used to render on top of these buttons. */}
+      <div
         data-no-pan="true"
-        onClick={() => setShowDiagrams(true)}
-        className="absolute z-30 flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
-        style={{ right: 10, top: 110, background: "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))", color: "#FFD700", border: "1.5px solid rgba(255,215,0,0.4)", backdropFilter: "blur(8px)", boxShadow: "0 4px 12px rgba(0,0,0,0.4)" }}
-        data-testid="btn-sad-diagrams"
+        className="absolute z-30 flex flex-row gap-2 flex-wrap justify-center"
+        style={{ top: 110, left: "50%", transform: "translateX(-50%)" }}
       >
-        <GraduationCap className="w-3.5 h-3.5"/>
-        <span>SAD DIAGRAMS</span>
-      </button>
+        <button
+          data-no-pan="true"
+          onClick={() => setShowDiagrams(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+          style={{ background: "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))", color: "#FFD700", border: "1.5px solid rgba(255,215,0,0.4)", backdropFilter: "blur(8px)", boxShadow: "0 4px 12px rgba(0,0,0,0.4)" }}
+          data-testid="btn-sad-diagrams"
+        >
+          <GraduationCap className="w-3.5 h-3.5"/>
+          <span>SAD DIAGRAMS</span>
+        </button>
 
-      {/* === FLOW (roads + trucks) overlay toggle ===
-           Lives just below the SAD DIAGRAMS button. ON by default so the
-           farm always reads as a populated world (per reference art).
-           Toggle OFF to hide the production-chain road network and trucks
-           for a clean terrain-only view. */}
-      <button
-        data-no-pan="true"
-        onClick={() => setShowRoads(v => !v)}
-        className="absolute z-30 flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
-        style={{
-          right: 10,
-          top: 158,
-          background: showRoads
-            ? "linear-gradient(135deg, rgba(60,40,15,0.95), rgba(80,55,20,0.92))"
-            : "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))",
-          color: "#FFD700",
-          border: showRoads ? "1.5px solid rgba(255,215,0,0.7)" : "1.5px solid rgba(255,215,0,0.4)",
-          backdropFilter: "blur(8px)",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-        }}
-        data-testid="btn-toggle-roads"
-        title={showRoads ? "Hide production roads" : "Show production roads"}
-      >
-        <Truck className="w-3.5 h-3.5"/>
-        <span>{showRoads ? "FLOW: ON" : "FLOW"}</span>
-      </button>
+        <button
+          data-no-pan="true"
+          onClick={() => setShowRoads(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+          style={{
+            background: showRoads
+              ? "linear-gradient(135deg, rgba(60,40,15,0.95), rgba(80,55,20,0.92))"
+              : "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))",
+            color: "#FFD700",
+            border: showRoads ? "1.5px solid rgba(255,215,0,0.7)" : "1.5px solid rgba(255,215,0,0.4)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+          data-testid="btn-toggle-roads"
+          title={showRoads ? "Hide production roads" : "Show production roads"}
+        >
+          <Truck className="w-3.5 h-3.5"/>
+          <span>{showRoads ? "FLOW: ON" : "FLOW"}</span>
+        </button>
 
-      {/* === ROADS button — opens the Build Roads modal where players buy
-           paved segments between owned buildings. Each road adds +5%
-           farm income and shows trucks moving along the production
-           chain. === */}
-      <button
-        data-no-pan="true"
-        onClick={() => setShowRoadShop(true)}
-        className="absolute z-30 flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
-        style={{
-          right: 10, top: 206,
-          background: "linear-gradient(135deg, rgba(60,40,15,0.95), rgba(80,55,20,0.92))",
-          color: "#FFD700",
-          border: "1.5px solid rgba(255,215,0,0.55)",
-          backdropFilter: "blur(8px)",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-        }}
-        data-testid="btn-open-roads"
-        title="Build roads to boost farm income"
-      >
-        <span>🛣️</span>
-        <span>ROADS · +{Math.round((roadBonus - 1) * 100)}%</span>
-      </button>
+        <button
+          data-no-pan="true"
+          onClick={() => setShowRoadShop(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+          style={{
+            background: "linear-gradient(135deg, rgba(60,40,15,0.95), rgba(80,55,20,0.92))",
+            color: "#FFD700",
+            border: "1.5px solid rgba(255,215,0,0.55)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+          data-testid="btn-open-roads"
+          title="Build roads to boost farm income"
+        >
+          <span>🛣️</span>
+          <span>ROADS · +{Math.round((roadBonus - 1) * 100)}%</span>
+        </button>
+      </div>
 
       {/* Roads modal */}
       <AnimatePresence>
