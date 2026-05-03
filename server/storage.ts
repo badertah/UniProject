@@ -20,7 +20,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User>;
   getLeaderboard(limit?: number): Promise<User[]>;
-  getFarmLeaderboard(limit?: number): Promise<User[]>;
+  getFarmLeaderboard(limit?: number, sort?: "earned" | "days" | "efficiency" | "recent"): Promise<User[]>;
   getAllUsers(): Promise<User[]>;
 
   // Topics
@@ -107,13 +107,30 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(users).orderBy(desc(users.xp)).limit(limit);
   }
 
-  async getFarmLeaderboard(limit = 50): Promise<User[]> {
-    // Rank by lifetime farm earnings (best management proxy), with
-    // current-day as tiebreaker so consistent farmers stay ahead of
-    // one-off lucky harvests.
-    return db.select().from(users)
-      .orderBy(desc(users.farmTotalEarned), desc(users.farmDay))
-      .limit(limit);
+  async getFarmLeaderboard(limit = 50, sort: "earned" | "days" | "efficiency" | "recent" = "earned"): Promise<User[]> {
+    // Different sort modes give players different angles to compete on:
+    //   earned     — lifetime coins banked from harvests (default)
+    //   days       — how many in-game days survived without bankrupting
+    //   efficiency — coins earned per day (rewards skill over grind)
+    //   recent     — most-recent harvester (active farmers)
+    // Players who have never harvested (farmTotalEarned = 0) are
+    // filtered out so the board shows real farmers, not signups.
+    const base = db.select().from(users).where(drizzleSql`${users.farmTotalEarned} > 0`);
+    switch (sort) {
+      case "days":
+        return base.orderBy(desc(users.farmDay), desc(users.farmTotalEarned)).limit(limit);
+      case "efficiency":
+        return base
+          .orderBy(drizzleSql`(${users.farmTotalEarned}::float / GREATEST(${users.farmDay}, 1)) DESC`, desc(users.farmTotalEarned))
+          .limit(limit);
+      case "recent":
+        return base
+          .orderBy(drizzleSql`${users.lastHarvestAt} DESC NULLS LAST`, desc(users.farmTotalEarned))
+          .limit(limit);
+      case "earned":
+      default:
+        return base.orderBy(desc(users.farmTotalEarned), desc(users.farmDay)).limit(limit);
+    }
   }
 
   async getAllUsers(): Promise<User[]> {

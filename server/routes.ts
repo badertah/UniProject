@@ -530,7 +530,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // leaderboard tracks course completions, this one tracks management.
   app.get("/api/leaderboard/farm", async (req, res) => {
     try {
-      const leaders = await storage.getFarmLeaderboard(50);
+      // Validate sort param against the union the storage layer accepts.
+      // Anything unknown silently falls back to "earned" so the client
+      // can't 500 us by sending a typo.
+      const allowed = new Set(["earned", "days", "efficiency", "recent"]);
+      const raw = String(req.query.sort || "earned");
+      const sort = (allowed.has(raw) ? raw : "earned") as "earned" | "days" | "efficiency" | "recent";
+      const leaders = await storage.getFarmLeaderboard(50, sort);
       const safe = leaders
         .filter(u => !u.isAdmin)
         .slice(0, 20)
