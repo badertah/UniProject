@@ -1,12 +1,12 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { eq, desc, sql as drizzleSql, and } from "drizzle-orm";
+import { eq, desc, sql as drizzleSql, and, gte, isNull, lt } from "drizzle-orm";
 import {
   users, topics, levels, questions, userProgress, cosmetics, userCosmetics,
-  badges, userBadges,
+  badges, userBadges, minigameSessions, gameSessions,
   type User, type InsertUser, type Topic, type Level, type Question,
   type UserProgress, type Cosmetic, type UserCosmetic,
-  type Badge, type UserBadge,
+  type Badge, type UserBadge, type MinigameSession, type GameSession,
   type InsertTopic, type InsertLevel, type InsertQuestion, type InsertBadge
 } from "@shared/schema";
 
@@ -52,7 +52,7 @@ export interface IStorage {
   // Cosmetics
   getAllCosmetics(): Promise<Cosmetic[]>;
   getUserCosmetics(userId: string): Promise<(UserCosmetic & { cosmetic: Cosmetic })[]>;
-  purchaseCosmetic(userId: string, cosmeticId: string): Promise<UserCosmetic>;
+  purchaseCosmetic(userId: string, cosmeticId: string): Promise<{ userCosmetic: UserCosmetic; newBalance: number }>;
   hasCosmetic(userId: string, cosmeticId: string): Promise<boolean>;
 
   // SAD concept mastery
@@ -66,6 +66,16 @@ export interface IStorage {
   awardBadge(userId: string, badgeId: string): Promise<UserBadge | undefined>;
   hasBadge(userId: string, badgeId: string): Promise<boolean>;
   badgesCount(): Promise<number>;
+
+  // Minigame sessions
+  createMinigameSession(userId: string): Promise<MinigameSession | null>;
+  claimMinigameSession(id: string, userId: string): Promise<boolean>;
+  countDailyMinigameClaims(userId: string): Promise<number>;
+
+  // Game sessions
+  createGameSession(userId: string, levelId: string, stageIndex: number): Promise<GameSession>;
+  claimGameSession(id: string, userId: string, levelId: string, stageIndex: number, requireTeachback: boolean): Promise<boolean>;
+  markSessionTeachbackPassed(id: string, userId: string, levelId: string, stageIndex: number): Promise<boolean>;
 
   // Seeding
   topicsCount(): Promise<number>;
@@ -256,9 +266,32 @@ export class DatabaseStorage implements IStorage {
     return results.map(r => ({ ...r.uc, cosmetic: r.cosmetic }));
   }
 
-  async purchaseCosmetic(userId: string, cosmeticId: string): Promise<UserCosmetic> {
-    const [uc] = await db.insert(userCosmetics).values({ userId, cosmeticId }).returning();
-    return uc;
+  async purchaseCosmetic(userId: string, cosmeticId: string): Promise<{ userCosmetic: UserCosmetic; newBalance: number }> {
+    return db.transaction(async (tx) => {
+      // Lock the user row to serialize concurrent purchase attempts.
+      const [user] = await tx.execute(
+        drizzleSql`SELECT id, edu_coins FROM users WHERE id = ${userId} FOR UPDATE`
+      ).then((r) => (r.rows ?? r) as { id: string; edu_coins: number }[]);
+      if (!user) throw new Error("User not found");
+
+      const [cosmetic] = await tx.select().from(cosmetics).where(eq(cosmetics.id, cosmeticId));
+      if (!cosmetic) throw new Error("Cosmetic not found");
+
+      const [existing] = await tx.select().from(userCosmetics)
+        .where(and(eq(userCosmetics.userId, userId), eq(userCosmetics.cosmeticId, cosmeticId)));
+      if (existing) throw new Error("Already owned");
+
+      if (user.edu_coins < cosmetic.price) throw new Error("Insufficient EduCoins");
+
+      const [uc] = await tx.insert(userCosmetics).values({ userId, cosmeticId }).returning();
+
+      const newBalance = user.edu_coins - cosmetic.price;
+      await tx.update(users)
+        .set({ eduCoins: newBalance })
+        .where(and(eq(users.id, userId), gte(users.eduCoins, cosmetic.price)));
+
+      return { userCosmetic: uc, newBalance };
+    });
   }
 
   async hasCosmetic(userId: string, cosmeticId: string): Promise<boolean> {
@@ -345,6 +378,123 @@ export class DatabaseStorage implements IStorage {
   async cosmeticsCount(): Promise<number> {
     const [{ count }] = await db.select({ count: drizzleSql<number>`count(*)` }).from(cosmetics);
     return Number(count);
+  }
+
+  // Enforce a per-user rate-limit: no more than one minigame session created per
+  // MINIGAME_CREATION_COOLDOWN_MS window. This prevents rapid start→reward cycling
+  // even though each session is single-use.
+  async createMinigameSession(userId: string): Promise<MinigameSession | null> {
+    const cooldownAgo = new Date(Date.now() - 30_000);
+    const [recent] = await db
+      .select({ id: minigameSessions.id })
+      .from(minigameSessions)
+      .where(and(eq(minigameSessions.userId, userId), gte(minigameSessions.createdAt, cooldownAgo)))
+      .limit(1);
+    if (recent) return null;
+    const [session] = await db.insert(minigameSessions).values({ userId }).returning();
+    return session;
+  }
+
+  async claimMinigameSession(id: string, userId: string): Promise<boolean> {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const result = await db
+      .update(minigameSessions)
+      .set({ claimedAt: new Date() })
+      .where(
+        and(
+          eq(minigameSessions.id, id),
+          eq(minigameSessions.userId, userId),
+          isNull(minigameSessions.claimedAt),
+          gte(minigameSessions.createdAt, tenMinutesAgo),
+        ),
+      )
+      .returning({ id: minigameSessions.id });
+    return result.length > 0;
+  }
+
+  async countDailyMinigameClaims(userId: string): Promise<number> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const [{ count }] = await db
+      .select({ count: drizzleSql<number>`count(*)` })
+      .from(minigameSessions)
+      .where(
+        and(
+          eq(minigameSessions.userId, userId),
+          gte(minigameSessions.claimedAt, startOfDay),
+        ),
+      );
+    return Number(count);
+  }
+
+  // Returns an existing unclaimed session for the same (user, level, stage) if
+  // one was created recently, or creates a new one. This prevents flooding the
+  // table with thousands of unclaimed tokens for the same stage (which an attacker
+  // could use to keep cycling claims after the daily cap resets).
+  async createGameSession(userId: string, levelId: string, stageIndex: number): Promise<GameSession> {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const [existing] = await db
+      .select()
+      .from(gameSessions)
+      .where(
+        and(
+          eq(gameSessions.userId, userId),
+          eq(gameSessions.levelId, levelId),
+          eq(gameSessions.stageIndex, stageIndex),
+          isNull(gameSessions.claimedAt),
+          gte(gameSessions.createdAt, tenMinutesAgo),
+        ),
+      )
+      .limit(1);
+    if (existing) return existing;
+    const [session] = await db.insert(gameSessions).values({ userId, levelId, stageIndex }).returning();
+    return session;
+  }
+
+  // Marks a session as having passed the server-graded teach-back quiz.
+  // Only updates when the session belongs to this user, matches levelId+stageIndex,
+  // is still unclaimed, and is within the 30-minute window.
+  async markSessionTeachbackPassed(id: string, userId: string, levelId: string, stageIndex: number): Promise<boolean> {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const result = await db
+      .update(gameSessions)
+      .set({ teachbackPassed: true })
+      .where(
+        and(
+          eq(gameSessions.id, id),
+          eq(gameSessions.userId, userId),
+          eq(gameSessions.levelId, levelId),
+          eq(gameSessions.stageIndex, stageIndex),
+          isNull(gameSessions.claimedAt),
+          gte(gameSessions.createdAt, thirtyMinutesAgo),
+        ),
+      )
+      .returning({ id: gameSessions.id });
+    return result.length > 0;
+  }
+
+  // Returns true when the session was successfully claimed.
+  // For SAD game types (requireTeachback=true) the session must also have
+  // teachback_passed=true, which is set only by the server-graded quiz route.
+  async claimGameSession(id: string, userId: string, levelId: string, stageIndex: number, requireTeachback: boolean): Promise<boolean> {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const conditions = [
+      eq(gameSessions.id, id),
+      eq(gameSessions.userId, userId),
+      eq(gameSessions.levelId, levelId),
+      eq(gameSessions.stageIndex, stageIndex),
+      isNull(gameSessions.claimedAt),
+      gte(gameSessions.createdAt, thirtyMinutesAgo),
+    ] as const;
+    const whereClause = requireTeachback
+      ? and(...conditions, eq(gameSessions.teachbackPassed, true))
+      : and(...conditions);
+    const result = await db
+      .update(gameSessions)
+      .set({ claimedAt: new Date() })
+      .where(whereClause)
+      .returning({ id: gameSessions.id });
+    return result.length > 0;
   }
 }
 

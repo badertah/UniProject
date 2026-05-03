@@ -214,9 +214,15 @@ export default function IkuflyGame({ onClose }: { onClose: () => void }) {
   const [displayScore, setDisplayScore]   = useState(0);
   const [bestScore, setBestScore]         = useState(() => Number(localStorage.getItem("ikufly_best") || 0));
   const [reward, setReward]               = useState<{ xp: number; coins: number } | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  const startSessionMutation = useMutation({
+    mutationFn: (_: void) => apiRequest("POST", "/api/minigame/start", {}),
+  });
 
   const rewardMutation = useMutation({
-    mutationFn: (score: number) => apiRequest("POST", "/api/minigame/reward", { score }),
+    mutationFn: ({ score, sessionId }: { score: number; sessionId: string }) =>
+      apiRequest("POST", "/api/minigame/reward", { score, sessionId }),
     onSuccess: (data: any) => {
       if (data.user) updateUser(data.user);
       setReward({ xp: data.xpReward, coins: data.coinsReward });
@@ -239,12 +245,19 @@ export default function IkuflyGame({ onClose }: { onClose: () => void }) {
     if (s.phase === "idle") {
       s.phase = "playing";
       s.birdVel = JUMP_VEL;
-      s.lastTime = 0; // reset dt tracking on start
+      s.lastTime = 0;
       setDisplayPhase("playing");
+      // Obtain a one-time server session when the game begins. The token is
+      // sent with the reward claim so the server can verify a real play occurred.
+      startSessionMutation.mutateAsync().then((data: any) => {
+        sessionIdRef.current = data?.sessionId ?? null;
+      }).catch(() => {
+        sessionIdRef.current = null;
+      });
     } else if (s.phase === "playing") {
       s.birdVel = JUMP_VEL;
     }
-  }, []);
+  }, [startSessionMutation]);
 
   const reset = useCallback(() => {
     const s = stateRef.current;
@@ -255,9 +268,9 @@ export default function IkuflyGame({ onClose }: { onClose: () => void }) {
     s.score = 0;
     s.frame = 0;
     s.lastTime = 0;
-    // Reset cached gradients so they're recreated on the current context
     cachedSkyGrad = null;
     cachedPipeGrad = null;
+    sessionIdRef.current = null;
     setDisplayPhase("idle");
     setDisplayScore(0);
     setReward(null);
@@ -328,7 +341,10 @@ export default function IkuflyGame({ onClose }: { onClose: () => void }) {
             localStorage.setItem("ikufly_best", String(s.score));
             setBestScore(s.score);
           }
-          rewardMutation.mutate(s.score);
+          const sessionId = sessionIdRef.current;
+          if (sessionId) {
+            rewardMutation.mutate({ score: s.score, sessionId });
+          }
         }
       } else if (phase === "idle") {
         s.birdY = H / 2 + Math.sin(timestamp / 400) * 10;

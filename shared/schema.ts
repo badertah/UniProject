@@ -26,6 +26,7 @@ export const users = pgTable("users", {
   farmDay: integer("farm_day").notNull().default(1),
   farmTotalEarned: integer("farm_total_earned").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
+  lastHarvestAt: timestamp("last_harvest_at"),
 });
 
 export const topics = pgTable("topics", {
@@ -86,7 +87,10 @@ export const userCosmetics = pgTable("user_cosmetics", {
   userId: varchar("user_id").notNull().references(() => users.id),
   cosmeticId: varchar("cosmetic_id").notNull().references(() => cosmetics.id),
   unlockedAt: timestamp("unlocked_at").defaultNow(),
-});
+}, (table) => ({
+  userCosmeticUniq: uniqueIndex("user_cosmetics_user_cosmetic_uniq")
+    .on(table.userId, table.cosmeticId),
+}));
 
 export const badges = pgTable("badges", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -106,6 +110,27 @@ export const userBadges = pgTable("user_badges", {
   userId: varchar("user_id").notNull().references(() => users.id),
   badgeId: varchar("badge_id").notNull().references(() => badges.id),
   earnedAt: timestamp("earned_at").defaultNow(),
+});
+
+// One-time session tokens issued by the server before each minigame play.
+// claimedAt is set when the reward is collected, preventing replay.
+export const minigameSessions = pgTable("minigame_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  claimedAt: timestamp("claimed_at"),
+});
+
+// One-time session tokens issued before each game stage attempt.
+// Prevents replaying a progress claim without actually starting the stage.
+export const gameSessions = pgTable("game_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  levelId: varchar("level_id").notNull().references(() => levels.id),
+  stageIndex: integer("stage_index").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  claimedAt: timestamp("claimed_at"),
+  teachbackPassed: boolean("teachback_passed").notNull().default(false),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -130,6 +155,8 @@ export type Cosmetic = typeof cosmetics.$inferSelect;
 export type UserCosmetic = typeof userCosmetics.$inferSelect;
 export type Badge = typeof badges.$inferSelect;
 export type UserBadge = typeof userBadges.$inferSelect;
+export type MinigameSession = typeof minigameSessions.$inferSelect;
+export type GameSession = typeof gameSessions.$inferSelect;
 export type InsertTopic = z.infer<typeof insertTopicSchema>;
 export type InsertLevel = z.infer<typeof insertLevelSchema>;
 export type InsertQuestion = z.infer<typeof insertQuestionSchema>;

@@ -3305,17 +3305,22 @@ function ConceptCard({
 
 function TeachBackQuiz({
   gameType, alreadyMastered, onDone, override,
+  gameSessionId, levelId, stageIndex,
 }: {
   gameType: string;
   alreadyMastered: boolean;
   onDone: (passed: boolean) => void;
   override?: TeachBackQ[] | null;
+  gameSessionId?: string | null;
+  levelId?: string | null;
+  stageIndex?: number;
 }) {
   // Pick once per mount so re-renders don't shuffle.
   const question = useMemo(() => pickTeachBack(gameType, override), [gameType, override]);
   const meta = SAD_GAMES[gameType];
   const [picked, setPicked] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [postPending, setPostPending] = useState(false);
   const { toast } = useToast();
   const reportedRef = useRef(false);
 
@@ -3327,18 +3332,24 @@ function TeachBackQuiz({
 
   // Report the submitted answer to the server exactly once. The server
   // re-verifies (gameType, prompt, pickedIndex) against its own teach-back
-  // pool — the client is NEVER trusted to declare a pass. We invalidate
-  // badges/auth so the profile UI reflects new awards.
+  // pool — the client is NEVER trusted to declare a pass. When passed, the
+  // server also marks the game session's teachback_passed flag so the progress
+  // endpoint can grant completion without trusting any client flag.
   useEffect(() => {
     if (!submitted || reportedRef.current) return;
     if (!question || picked === null) return;
     reportedRef.current = true;
+    setPostPending(true);
     apiRequest("POST", "/api/sad/teachback", {
       gameType,
       prompt: question.prompt,
       pickedIndex: picked,
+      ...(gameSessionId ? { gameSessionId } : {}),
+      ...(levelId ? { levelId } : {}),
+      ...(stageIndex !== undefined ? { stageIndex } : {}),
     })
       .then((data: TeachBackPostResponse) => {
+        setPostPending(false);
         if (!data?.newBadges) return;
         const earned = data.newBadges.find(
           (b) => b.requirementType === "concept_master_sad"
@@ -3353,9 +3364,9 @@ function TeachBackQuiz({
         }
       })
       .catch(() => {
-        // Non-blocking — the player keeps their game score regardless.
+        setPostPending(false);
       });
-  }, [submitted, picked, question, gameType, toast]);
+  }, [submitted, picked, question, gameType, gameSessionId, levelId, stageIndex, toast]);
 
   if (!question || !meta) return null;
 
@@ -3454,9 +3465,10 @@ function TeachBackQuiz({
             <Button
               className="w-full min-h-11"
               onClick={() => onDone(passed)}
+              disabled={postPending}
               data-testid="button-teachback-finish"
             >
-              Continue <ArrowRight className="w-4 h-4 ml-1" />
+              {postPending ? "Saving…" : <><span>Continue</span> <ArrowRight className="w-4 h-4 ml-1" /></>}
             </Button>
           )}
         </div>
@@ -3472,6 +3484,7 @@ function TeachBackQuiz({
 export function SADGameRunner({
   gameType, questions, onComplete,
   difficulty = 0, stageIndex = 0, totalStages = 1,
+  gameSessionId = null, levelId = null,
 }: {
   gameType: string;
   questions: any[];
@@ -3479,25 +3492,30 @@ export function SADGameRunner({
   difficulty?: number;
   stageIndex?: number;
   totalStages?: number;
+  gameSessionId?: string | null;
+  levelId?: string | null;
 }) {
-  // 2-phase wrapper: concept (shown until "Got it" once) → play.
-  // Tapping "Got it — let me try it" marks this game/stage as mastered, so
-  // the concept card auto-skips on subsequent replays. The quick-check quiz
-  // was removed — players just play the game.
+  // 3-phase wrapper: concept (shown until "Got it" once) → play → teachback.
+  // After the arcade game ends, a server-graded teach-back quiz is shown.
+  // The quiz POST marks the game session's teachback_passed flag on the server,
+  // so the progress endpoint can grant completion without trusting any client flag.
   const [mastered, markMastered] = useConceptMastered(gameType, stageIndex);
-  const [phase, setPhase] = useState<"concept" | "play">(
+  const [phase, setPhase] = useState<"concept" | "play" | "teachback">(
     mastered ? "play" : "concept"
   );
+  const [pendingScore, setPendingScore] = useState(0);
 
   // Per-question overrides from the JSONB options column. Take the first
   // question's overrides as the level-level concept content (concept is per
   // level, not per round).
   const conceptOverride = (questions?.[0]?.options?.conceptCard ?? null) as Partial<ConceptContent> | null;
+  const teachBackOverride = (questions?.[0]?.options?.teachBack ?? null) as TeachBackQ[] | null;
 
   // Reset whenever the user switches game/stage; depend on `mastered` so the
   // LS lookup catching up correctly transitions the phase.
   useEffect(() => {
     setPhase(mastered ? "play" : "concept");
+    setPendingScore(0);
   }, [gameType, stageIndex, mastered]);
 
   // If the question pool is empty, just show the friendly empty-state.
@@ -3526,12 +3544,34 @@ export function SADGameRunner({
     );
   }
 
+  if (phase === "teachback") {
+    return (
+      <TeachBackQuiz
+        gameType={gameType}
+        alreadyMastered={mastered}
+        override={teachBackOverride}
+        gameSessionId={gameSessionId}
+        levelId={levelId}
+        stageIndex={stageIndex}
+        onDone={() => {
+          // The server-graded POST has already run and marked the session.
+          // Now trigger the progress submission — the server decides completion.
+          onComplete(pendingScore);
+        }}
+      />
+    );
+  }
+
   // Re-mount the game whenever the active stage changes so its internal
   // round/score/refs are reset cleanly.
   const k = `${gameType}-s${stageIndex}`;
+  const handleGameDone = (score: number) => {
+    setPendingScore(score);
+    setPhase("teachback");
+  };
   const props = {
     questions,
-    onComplete,
+    onComplete: handleGameDone,
     difficulty,
     stageIndex,
     totalStages,

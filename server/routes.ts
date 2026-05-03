@@ -1,4 +1,4 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -10,6 +10,9 @@ import {
   isSadGameType,
   type SadGameType,
 } from "@shared/teach-back";
+
+// Minimum milliseconds between farm harvests (2 minutes — enforced in DB).
+const HARVEST_COOLDOWN_MS = 120_000;
 
 const JWT_SECRET = process.env.SESSION_SECRET;
 if (!JWT_SECRET) {
@@ -42,7 +45,6 @@ function isTeachBackQ(value: unknown): value is TeachBackEntry {
 
 interface AuthRequest extends Request {
   userId?: string;
-  user?: any;
 }
 
 function generateToken(userId: string) {
@@ -94,7 +96,7 @@ async function checkAndAwardBadges(userId: string): Promise<any[]> {
     if (!user) return [];
 
     const userBadgeIds = new Set(userBadgesList.map(ub => ub.badgeId));
-    const newlyAwarded: any[] = [];
+    const newlyAwarded: { id: string; name: string; description: string; requirementType: string; }[] = [];
 
     const userProgress = await storage.getUserProgress(userId);
     const gameTypesCompleted = new Set(
@@ -296,7 +298,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/topics", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.post("/api/topics", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const topic = await storage.createTopic(req.body);
       res.json(topic);
@@ -317,7 +319,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/levels/:id/questions", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.get("/api/levels/:id/questions", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const qs = await storage.getQuestionsByLevel(String(req.params.id));
       res.json(qs);
@@ -326,7 +328,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/levels", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.post("/api/levels", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const level = await storage.createLevel(req.body);
       res.json(level);
@@ -335,7 +337,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.put("/api/levels/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.put("/api/levels/:id", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const level = await storage.updateLevel(String(req.params.id), req.body);
       res.json(level);
@@ -344,7 +346,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/levels/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.delete("/api/levels/:id", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       await storage.deleteLevel(String(req.params.id));
       res.json({ success: true });
@@ -354,7 +356,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============ QUESTIONS ============
-  app.post("/api/questions", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.post("/api/questions", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const question = await storage.createQuestion(req.body);
       res.json(question);
@@ -363,7 +365,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.put("/api/questions/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.put("/api/questions/:id", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const question = await storage.updateQuestion(String(req.params.id), req.body);
       res.json(question);
@@ -372,7 +374,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete("/api/questions/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.delete("/api/questions/:id", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       await storage.deleteQuestion(String(req.params.id));
       res.json({ success: true });
@@ -384,24 +386,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============ PROGRESS ============
   app.post("/api/progress", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { levelId, stageIndex: rawStageIndex, score, completed } = req.body;
+      const { levelId, stageIndex: rawStageIndex } = req.body;
       if (!levelId) return res.status(400).json({ error: "levelId required" });
 
-      const level = await storage.getLevel(levelId);
+      const rawScore = Number(req.body?.score);
+      if (!Number.isFinite(rawScore) || rawScore < 0 || !Number.isInteger(rawScore)) {
+        return res.status(400).json({ error: "score must be a non-negative integer" });
+      }
+      const score = Math.min(rawScore, 100);
+
+      const clientCompleted = req.body?.completed === true || req.body?.completed === "true";
+      const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : null;
+
+      const rawStageForClaim = Number.isFinite(Number(rawStageIndex)) ? Math.floor(Number(rawStageIndex)) : 0;
+
+      const [level, allQuestions] = await Promise.all([
+        storage.getLevel(levelId),
+        storage.getQuestionsByLevel(levelId),
+      ]);
       if (!level) return res.status(404).json({ error: "Level not found" });
 
-      // Determine totalStages from the seeded question count (min 1).
-      const allQuestions = await storage.getQuestionsByLevel(levelId);
       const totalStages = Math.max(allQuestions.length, 1);
 
-      // Clamp stageIndex to the level's real range so callers can't fabricate
-      // out-of-range progress rows (e.g. ?stage=999) to game the level-clear bonus.
+      // Completion requires a valid session AND a real question at that stage index.
+      // For SAD games the session must also have teachback_passed=true — set only by
+      // the server-graded /api/sad/teachback route — so no client flag controls reward.
+      let completed = false;
+      if (clientCompleted && score > 0 && sessionId) {
+        const stageQuestion = allQuestions
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          [rawStageForClaim] ?? null;
+        if (stageQuestion) {
+          const requireTeachback = isSadGameType(level.gameType);
+          const claimed = await storage.claimGameSession(sessionId, req.userId!, levelId, rawStageForClaim, requireTeachback);
+          completed = claimed;
+        }
+      }
+
       const requested = Number.isFinite(Number(rawStageIndex)) ? Math.floor(Number(rawStageIndex)) : 0;
       const stageIndex = Math.min(Math.max(requested, 0), totalStages - 1);
 
-      // Critical section — serialize per (user, level) so two concurrent submits for
-      // the same stage can't both classify themselves as the first completion (and
-      // double-award XP/coins), and so the "level clear" bonus fires at most once.
       const rewardOutcome = await storage.runWithProgressLock(req.userId!, levelId, async () => {
         const prevStage = await storage.getStageProgress(req.userId!, levelId, stageIndex);
         const prevStages = await storage.getLevelStages(req.userId!, levelId);
@@ -412,14 +436,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         const saved = await storage.saveProgress(req.userId!, levelId, stageIndex, score, completed);
 
-        // Recompute level-completion state after the save.
         if (completed) prevCompletedStages.add(stageIndex);
         const isLevelFullyCompleted = prevCompletedStages.size >= totalStages;
         const justFinishedLevel = isLevelFullyCompleted && !wasLevelFullyCompleted;
 
-        // Reward math: split level reward across stages; full bonus on first-completion of
-        // the stage (rounded up so 4 stages of a 50 XP level = 13 + 13 + 13 + 13 = 52);
-        // small replay bonus otherwise; extra "level clear" bonus when the last stage seals it.
         const stageXp = Math.max(1, Math.ceil(level.xpReward / totalStages));
         const stageCoins = Math.max(1, Math.ceil(level.coinReward / totalStages));
 
@@ -435,7 +455,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
 
         if (justFinishedLevel) {
-          // Bonus for completing every stage of a level (~25% of total reward).
           xpGained += Math.max(5, Math.floor(level.xpReward * 0.25));
           coinsGained += Math.max(1, Math.floor(level.coinReward * 0.25));
         }
@@ -580,10 +599,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         gameType?: unknown;
         prompt?: unknown;
         pickedIndex?: unknown;
+        gameSessionId?: unknown;
+        levelId?: unknown;
+        stageIndex?: unknown;
       };
       const gameType = typeof body.gameType === "string" ? body.gameType : "";
       const prompt = typeof body.prompt === "string" ? body.prompt : "";
       const pickedIndex = typeof body.pickedIndex === "number" ? body.pickedIndex : -1;
+      const gameSessionId = typeof body.gameSessionId === "string" ? body.gameSessionId : null;
+      const levelId = typeof body.levelId === "string" ? body.levelId : null;
+      const rawStageIndex = typeof body.stageIndex === "number" ? Math.floor(body.stageIndex) : null;
 
       if (!isSadGameType(gameType)) {
         return res.status(400).json({ error: "Invalid SAD gameType" });
@@ -602,6 +627,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ error: "Unknown teach-back question" });
       }
       const passed = pickedIndex === match.correctIndex;
+
+      // When the player passes, mark their game session so the progress endpoint
+      // can grant completion without trusting any client-controlled flag.
+      if (passed && gameSessionId && levelId && rawStageIndex !== null) {
+        await storage.markSessionTeachbackPassed(gameSessionId, req.userId!, levelId, rawStageIndex);
+      }
 
       const userBefore = await storage.getUser(req.userId!);
       const mastery = passed
@@ -626,7 +657,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============ USERS (Admin) ============
-  app.get("/api/admin/users", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.get("/api/admin/users", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const allUsers = await storage.getAllUsers();
       const safe = allUsers.map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
@@ -636,10 +667,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.put("/api/admin/users/:id", authMiddleware, adminMiddleware as any, async (req: AuthRequest, res) => {
+  app.put("/api/admin/users/:id", authMiddleware, adminMiddleware as RequestHandler, async (req: AuthRequest, res) => {
     try {
       const { xp, eduCoins, isAdmin } = req.body;
-      const updateData: any = {};
+      const updateData: Record<string, unknown> = {};
       if (xp !== undefined) { updateData.xp = xp; updateData.level = calculateLevel(xp); }
       if (eduCoins !== undefined) updateData.eduCoins = eduCoins;
       if (isAdmin !== undefined) updateData.isAdmin = isAdmin;
@@ -666,25 +697,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/cosmetics/purchase/:cosmeticId", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const cosmeticId = String(req.params.cosmeticId);
-      const user = await storage.getUser(req.userId!);
-      if (!user) return res.status(404).json({ error: "User not found" });
-
-      const cosmetic = (await storage.getAllCosmetics()).find(c => c.id === cosmeticId);
-      if (!cosmetic) return res.status(404).json({ error: "Cosmetic not found" });
-
-      const alreadyOwned = await storage.hasCosmetic(req.userId!, cosmeticId);
-      if (alreadyOwned) return res.status(409).json({ error: "Already owned" });
-
-      if (user.eduCoins < cosmetic.price) {
-        return res.status(400).json({ error: "Insufficient EduCoins" });
-      }
-
       await storage.purchaseCosmetic(req.userId!, cosmeticId);
-      const updated = await storage.updateUser(req.userId!, { eduCoins: user.eduCoins - cosmetic.price });
+      const updated = await storage.getUser(req.userId!);
+      if (!updated) return res.status(404).json({ error: "User not found" });
       const { password: _, ...safeUser } = updated;
-
       res.json({ success: true, user: { ...safeUser, tier: getTier(safeUser.xp) } });
-    } catch {
+    } catch (err: unknown) {
+      const msg = (err instanceof Error ? err.message : "");
+      if (msg === "Already owned") return res.status(409).json({ error: "Already owned" });
+      if (msg === "Insufficient EduCoins") return res.status(400).json({ error: "Insufficient EduCoins" });
+      if (msg === "Cosmetic not found") return res.status(404).json({ error: "Cosmetic not found" });
+      if (msg === "User not found") return res.status(404).json({ error: "User not found" });
       res.status(500).json({ error: "Purchase failed" });
     }
   });
@@ -701,7 +724,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const owned = await storage.hasCosmetic(req.userId!, cosmeticId);
       if (!owned) return res.status(403).json({ error: "You don't own this cosmetic" });
 
-      const updateData: any = {};
+      const updateData: Record<string, string | null> = {};
       if (cosmetic.type === "avatar") updateData.equippedAvatar = cosmeticId;
       if (cosmetic.type === "frame") updateData.equippedFrame = cosmeticId;
       if (cosmetic.type === "theme") updateData.equippedTheme = cosmeticId;
@@ -717,7 +740,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/cosmetics/unequip", authMiddleware, async (req: AuthRequest, res) => {
     try {
       const { type } = req.body;
-      const updateData: any = {};
+      const updateData: Record<string, string | null> = {};
       if (type === "avatar") updateData.equippedAvatar = null;
       if (type === "frame") updateData.equippedFrame = null;
       if (type === "theme") updateData.equippedTheme = null;
@@ -729,21 +752,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ============ MINIGAME REWARD ============
+  // ============ MINIGAME SESSION + REWARD ============
+  app.post("/api/minigame/start", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const session = await storage.createMinigameSession(req.userId!);
+      if (!session) {
+        return res.status(429).json({ error: "Please wait before starting another game", retryAfter: 30 });
+      }
+      res.json({ sessionId: session.id });
+    } catch {
+      res.status(500).json({ error: "Failed to start minigame session" });
+    }
+  });
+
   app.post("/api/minigame/reward", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { score } = req.body;
-      const xpReward = Math.min(Math.floor(score * 2), 20);
-      const coinsReward = Math.min(Math.floor(score / 5), 5);
-      const user = await storage.getUser(req.userId!);
+      const userId = req.userId!;
+      const sessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : null;
+      if (!sessionId) {
+        return res.status(400).json({ error: "sessionId required" });
+      }
+
+      const DAILY_MINIGAME_CAP = 5;
+      const dailyClaims = await storage.countDailyMinigameClaims(userId);
+      if (dailyClaims >= DAILY_MINIGAME_CAP) {
+        return res.status(429).json({ error: "Daily minigame reward limit reached. Come back tomorrow!" });
+      }
+
+      const claimed = await storage.claimMinigameSession(sessionId, userId);
+      if (!claimed) {
+        return res.status(409).json({ error: "Invalid or already-used game session" });
+      }
+
+      // Fixed server-determined rewards. The client-submitted score affects
+      // the displayed result but not the economy — this eliminates fake-score attacks.
+      const xpReward = 5;
+      const coinsReward = 1;
+      const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
       const newXp = user.xp + xpReward;
       const newLevel = calculateLevel(newXp);
-      const updated = await storage.updateUser(req.userId!, {
+      const updated = await storage.updateUser(userId, {
         xp: newXp,
         level: newLevel,
         eduCoins: user.eduCoins + coinsReward,
       });
+
       const { password: _, ...safeUser } = updated;
       res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) }, xpReward, coinsReward });
     } catch {
@@ -752,22 +806,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============ FARM HARVEST ============
-  // Applies equipped-cosmetic farm multiplier (e.g. Dragon avatar +10%,
-  // Tycoon avatar +20%, Aurora frame +10%, Golden frame +5%) on top of
-  // the bank amount. Server validates ownership of the equipped items
-  // implicitly: we read the equipped ids and look up their `icon`,
-  // which maps to perks via shared/cosmetic-perks.ts.
   app.post("/api/farm/harvest", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { coins, skipMult } = req.body;
-      if (!coins || coins <= 0) return res.status(400).json({ error: "Invalid coin amount" });
-      const baseCoins = Math.min(Math.floor(Number(coins)), 500);
-      const user = await storage.getUser(req.userId!);
+      const userId = req.userId!;
+      const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      // Look up equipped cosmetic icons → compute perk multiplier.
-      // Quest reward claims pass skipMult=true so quest payouts aren't
-      // perk-boosted (only the actual farm bank is boosted).
+      const now = Date.now();
+      if (user.lastHarvestAt) {
+        const elapsed = now - user.lastHarvestAt.getTime();
+        if (elapsed < HARVEST_COOLDOWN_MS) {
+          const retryAfter = Math.ceil((HARVEST_COOLDOWN_MS - elapsed) / 1000);
+          return res.status(429).json({ error: "Harvest is on cooldown. Please wait.", retryAfter });
+        }
+      }
+
+      const MAX_FARM_BANK = 500;
+      const elapsedMs = user.lastHarvestAt ? now - user.lastHarvestAt.getTime() : HARVEST_COOLDOWN_MS;
+      const baseCoins = Math.min(MAX_FARM_BANK, Math.ceil(elapsedMs / HARVEST_COOLDOWN_MS * MAX_FARM_BANK));
+
+      const { skipMult } = req.body;
+
       let perks = { xpMult: 1, farmMult: 1, coinMult: 1 } as { xpMult: number; farmMult: number; coinMult: number };
       if (!skipMult) {
         const { combinePerks } = await import("@shared/cosmetic-perks");
@@ -781,17 +840,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const coinsToAdd = Math.floor(baseCoins * perks.farmMult);
       const bonusCoins = coinsToAdd - baseCoins;
 
-      // farmTotalEarned is the leaderboard's authoritative metric — we
-      // increment it here (server-side, where coinsToAdd is verified)
-      // so a tampered client cannot claim #1 by posting an inflated
-      // total to /api/farm/sync. Also bump farmDay so the leaderboard
-      // reflects the new day immediately even before the next sync.
-      const updated = await storage.updateUser(req.userId!, {
+      const updated = await storage.updateUser(userId, {
         eduCoins: user.eduCoins + coinsToAdd,
         farmTotalEarned: (user.farmTotalEarned || 0) + coinsToAdd,
         farmDay: (user.farmDay || 1) + 1,
         farmBank: 0,
+        lastHarvestAt: new Date(now),
       });
+
       const { password: _, ...safeUser } = updated;
       res.json({
         user: { ...safeUser, tier: getTier(safeUser.xp) },
@@ -805,10 +861,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ============ GAME SESSION ============
+  app.post("/api/game-session", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const levelId = typeof req.body?.levelId === "string" ? req.body.levelId : null;
+      const stageIndex = Number(req.body?.stageIndex ?? 0);
+      if (!levelId) return res.status(400).json({ error: "levelId required" });
+      if (!Number.isFinite(stageIndex) || stageIndex < 0) return res.status(400).json({ error: "Invalid stageIndex" });
+
+      const [level, levelQuestions] = await Promise.all([
+        storage.getLevel(levelId),
+        storage.getQuestionsByLevel(levelId),
+      ]);
+      if (!level) return res.status(404).json({ error: "Level not found" });
+
+      const totalStages = Math.max(levelQuestions.length, 1);
+      const flooredIndex = Math.floor(stageIndex);
+      if (flooredIndex >= totalStages) {
+        return res.status(400).json({ error: "stageIndex out of range for this level" });
+      }
+
+      const session = await storage.createGameSession(req.userId!, levelId, flooredIndex);
+      res.json({ sessionId: session.id });
+    } catch {
+      res.status(500).json({ error: "Failed to create game session" });
+    }
+  });
+
   // ============ SPEND COINS ============
   app.post("/api/coins/spend", authMiddleware, async (req: AuthRequest, res) => {
     try {
-      const { amount } = req.body;
+      const amount = Number(req.body?.amount);
+      // Reject non-finite, zero, or negative amounts to prevent coin minting.
+      if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(amount)) {
+        return res.status(400).json({ error: "Amount must be a positive integer" });
+      }
       const user = await storage.getUser(req.userId!);
       if (!user) return res.status(404).json({ error: "User not found" });
       if (user.eduCoins < amount) return res.status(400).json({ error: "Not enough EduCoins" });

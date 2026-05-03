@@ -738,6 +738,7 @@ export default function GamePage() {
 
   const [gameState, setGameState] = useState<"idle" | "playing" | "complete">("idle");
   const [finalScore, setFinalScore] = useState(0);
+  const [gameSessionId, setGameSessionId] = useState<string | null>(null);
 
   // Track active stage from URL (?stage=N). Re-read on URL change.
   const [stageIndex, setStageIndex] = useState<number>(() => readStageFromUrl());
@@ -745,10 +746,16 @@ export default function GamePage() {
     setStageIndex(readStageFromUrl());
     setGameState("idle");
     setFinalScore(0);
+    setGameSessionId(null);
   }, [location]);
 
+  const createSessionMutation = useMutation({
+    mutationFn: (data: { levelId: string; stageIndex: number }) =>
+      apiRequest("POST", "/api/game-session", data),
+  });
+
   const progressMutation = useMutation({
-    mutationFn: (data: { levelId: string; stageIndex: number; score: number; completed: boolean }) =>
+    mutationFn: (data: { levelId: string; stageIndex: number; score: number; completed: boolean; sessionId?: string | null }) =>
       apiRequest("POST", "/api/progress", data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/progress"] });
@@ -757,12 +764,25 @@ export default function GamePage() {
     },
   });
 
+  async function startGame() {
+    const totalQs = level?.questions?.length ?? 0;
+    const totalForLevel = isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
+    const submittedStage = Math.min(Math.max(stageIndex, 0), Math.max(totalForLevel - 1, 0));
+    let sessionId: string | null = null;
+    try {
+      const result = await createSessionMutation.mutateAsync({ levelId: id!, stageIndex: submittedStage });
+      sessionId = result?.sessionId ?? null;
+    } catch {
+      // Proceed without session — server will just not award completion bonus.
+    }
+    setGameSessionId(sessionId);
+    setGameState("playing");
+  }
+
   async function handleGameComplete(score: number) {
     setFinalScore(score);
     setGameState("complete");
 
-    // Clamp stageIndex against the loaded level so we never POST an out-of-range
-    // index (URL tampering, stale state, etc). The server clamps too — defense in depth.
     const totalQs = level?.questions?.length ?? 0;
     const totalForLevel = isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
     const submittedStage = Math.min(Math.max(stageIndex, 0), Math.max(totalForLevel - 1, 0));
@@ -773,6 +793,7 @@ export default function GamePage() {
         stageIndex: submittedStage,
         score,
         completed: score > 0,
+        sessionId: gameSessionId,
       });
 
       if (result.xpGained > 0) {
@@ -791,16 +812,13 @@ export default function GamePage() {
   }
 
   function goToStage(nextStage: number) {
-    // wouter's `useLocation` only watches the pathname, so a pure query-string
-    // change wouldn't fire the [location] effect that resets stage state. We
-    // update the URL directly with history.pushState AND reset local state
-    // ourselves so the new stage actually mounts.
     if (typeof window !== "undefined") {
       window.history.pushState(null, "", `/game/${id}?stage=${nextStage}`);
     }
     setStageIndex(nextStage);
     setGameState("idle");
     setFinalScore(0);
+    setGameSessionId(null);
   }
 
   if (isLoading) {
@@ -975,9 +993,10 @@ export default function GamePage() {
 
                   <Button
                     size="lg"
-                    onClick={() => setGameState("playing")}
+                    onClick={startGame}
                     className="w-full"
                     data-testid="button-start-game"
+                    disabled={createSessionMutation.isPending}
                   >
                     <Sparkles className="w-4 h-4 mr-2" />
                     {prevStageProgress?.completed
@@ -1040,7 +1059,7 @@ export default function GamePage() {
                   </div>
                 )}
 
-                <Button size="lg" onClick={() => setGameState("playing")} className="w-full" data-testid="button-start-game">
+                <Button size="lg" onClick={startGame} className="w-full" data-testid="button-start-game" disabled={createSessionMutation.isPending}>
                   <Zap className="w-4 h-4 mr-2" />
                   {prevStageProgress?.completed ? "Play Again" : "Start Game"}
                 </Button>
@@ -1064,6 +1083,8 @@ export default function GamePage() {
                   difficulty={difficulty}
                   stageIndex={safeStageIndex}
                   totalStages={totalStages}
+                  gameSessionId={gameSessionId}
+                  levelId={id!}
                 />
               )}
               {level.gameType === "wordle" && (

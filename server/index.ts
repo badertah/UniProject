@@ -191,6 +191,45 @@ app.use((req, res, next) => {
       CREATE UNIQUE INDEX IF NOT EXISTS user_badges_user_badge_uniq
         ON user_badges (user_id, badge_id)
     `);
+
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_harvest_at TIMESTAMP`);
+
+    await pool.query(`ALTER TABLE user_progress ADD COLUMN IF NOT EXISTS stage_index INTEGER NOT NULL DEFAULT 0`);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS user_progress_user_level_stage_uniq
+        ON user_progress (user_id, level_id, stage_index)
+    `);
+
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS user_cosmetics_user_cosmetic_uniq
+        ON user_cosmetics (user_id, cosmetic_id)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS minigame_sessions (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR NOT NULL REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        claimed_at TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS game_sessions (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR NOT NULL REFERENCES users(id),
+        level_id VARCHAR NOT NULL REFERENCES levels(id),
+        stage_index INTEGER NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        claimed_at TIMESTAMP,
+        teachback_passed BOOLEAN NOT NULL DEFAULT FALSE
+      )
+    `);
+    await pool.query(`
+      ALTER TABLE game_sessions
+        ADD COLUMN IF NOT EXISTS teachback_passed BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+
     await pool.end();
     log("Database schema ready", "db");
 
