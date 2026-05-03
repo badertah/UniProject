@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap, Truck, BookOpen, Brain } from "lucide-react";
+import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap, Truck, BookOpen, Brain, Move, RotateCcw } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import farmSkyUrl       from "@assets/generated_images/farm_sky.png";
 import farmMountainsUrl from "@assets/generated_images/farm_mountains.png";
@@ -445,6 +445,21 @@ function loadState(uid: string): FarmSave {
 function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [], acknowledgedChapters: [], roads: {} }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
+// === Admin layout editor — per-user position overrides ===
+// Admins can drag building tiles around in editor mode to fix tiles that
+// land on water, paths or each other. Overrides are written into the
+// shared BUILDING_POS map at render-time, so every consumer (sortedBuildings,
+// production-edge roads, animated trucks, the Build Roads modal, the
+// chicken/dairy walkers) automatically follows — no separate code paths.
+// Persisted to localStorage per user; never sent to the server.
+const layoutKey = (uid: string) => `farm_layout_v1_${uid}`;
+function loadLayout(uid: string): Record<string, { x: number; y: number }> {
+  try { const raw = localStorage.getItem(layoutKey(uid)); if (raw) return JSON.parse(raw); } catch {} return {};
+}
+function saveLayout(uid: string, ov: Record<string, { x: number; y: number }>) {
+  try { localStorage.setItem(layoutKey(uid), JSON.stringify(ov)); } catch {}
+}
+
 type CoinPop = { id: string; bId: string; amount: number };
 
 // One-stop helper for net per-tick income calculation. Encapsulates the
@@ -566,6 +581,35 @@ export default function FarmPage() {
   // working world (per reference art). Players can toggle the FLOW
   // overlay off if they want to study terrain alone.
   const [showRoads, setShowRoads] = useState(true);
+
+  // === Admin layout editor ===
+  // editorMode toggles draggable tiles for admins. posOverrides is the
+  // per-user map of custom (x,y) coords. We mutate BUILDING_POS during
+  // render (via useMemo below) so every position consumer — including
+  // production-road routing and the truck animation paths — picks up
+  // the new positions on the next paint.
+  const [editorMode, setEditorMode] = useState(false);
+  const [posOverrides, setPosOverrides] = useState<Record<string, { x: number; y: number }>>({});
+  // Apply overrides to BUILDING_POS synchronously during render so that
+  // sortedBuildings, edges and trucks all see the same coords this paint.
+  useMemo(() => {
+    for (const [id, p] of Object.entries(posOverrides)) {
+      BUILDING_POS[id] = p;
+    }
+  }, [posOverrides]);
+  // Load any saved layout for this user. We only enable editor mode for
+  // admins, but a previously-saved layout is honoured for everyone (so
+  // an admin's tweak persists for them across sessions).
+  useEffect(() => {
+    if (!user) return;
+    const ov = loadLayout(user.id);
+    if (Object.keys(ov).length) setPosOverrides(ov);
+  }, [user?.id]);
+  // Persist whenever overrides change.
+  useEffect(() => {
+    if (!user) return;
+    saveLayout(user.id, posOverrides);
+  }, [posOverrides, user?.id]);
 
   // Debounced sync of farm-leaderboard stats to the server. We only
   // surface the rankable summary (bank / day / total earned) — the
@@ -1509,8 +1553,40 @@ export default function FarmPage() {
                   height: bldgH,
                   // z-index by world-y so further-down buildings render in front
                   zIndex: 100 + Math.round(y),
+                  cursor: editorMode ? "grab" : undefined,
+                  outline: editorMode ? "2px dashed rgba(255,215,0,0.85)" : undefined,
+                  outlineOffset: editorMode ? "-2px" : undefined,
                 }}
-                onClick={tileClickGuard(() => setSelected(b))}
+                onPointerDown={editorMode ? (e) => {
+                  // Drag-to-move handler — only active in admin editor mode.
+                  // Translates client-px deltas to world-px via the camera
+                  // scale, clamps to world bounds, and updates posOverrides
+                  // live as the user drags. After drop, suppresses the
+                  // synthetic click so the building modal doesn't pop open.
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const startX = e.clientX, startY = e.clientY;
+                  const orig = bldgPos(b.id);
+                  const scale = cameraRef.current.scale || 1;
+                  let moved = false;
+                  const onMove = (ev: PointerEvent) => {
+                    const dx = (ev.clientX - startX) / scale;
+                    const dy = (ev.clientY - startY) / scale;
+                    if (!moved && Math.hypot(dx, dy) > 4) moved = true;
+                    if (!moved) return;
+                    const nx = Math.max(80, Math.min(WORLD_W - 80, orig.x + dx));
+                    const ny = Math.max(80, Math.min(WORLD_H - 80, orig.y + dy));
+                    setPosOverrides(p => ({ ...p, [b.id]: { x: Math.round(nx), y: Math.round(ny) } }));
+                  };
+                  const onUp = () => {
+                    window.removeEventListener("pointermove", onMove);
+                    window.removeEventListener("pointerup", onUp);
+                    if (moved) dragRef.current.suppressClickUntil = Date.now() + 350;
+                  };
+                  window.addEventListener("pointermove", onMove);
+                  window.addEventListener("pointerup", onUp);
+                } : undefined}
+                onClick={tileClickGuard(() => { if (!editorMode) setSelected(b); })}
                 data-testid={`tile-${b.id}`}
               >
                 {/* === Ground anchor — TWO layers that together make the
@@ -1911,6 +1987,66 @@ export default function FarmPage() {
           <span>🛣️</span>
           <span>ROADS · +{Math.round((roadBonus - 1) * 100)}%</span>
         </button>
+
+        {/* === Admin-only layout editor toggle ===
+            When ON, every building tile becomes draggable. Roads, trucks
+            and the Build Roads modal automatically follow because they
+            all read from the same BUILDING_POS the drag updates. */}
+        {user?.isAdmin && (
+          <>
+            <button
+              data-no-pan="true"
+              onClick={() => {
+                setEditorMode(v => !v);
+                toast({ title: editorMode ? "Editor mode OFF" : "Editor mode ON · drag any building to move it" });
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+              style={{
+                background: editorMode
+                  ? "linear-gradient(135deg, rgba(180,80,20,0.95), rgba(220,120,30,0.92))"
+                  : "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))",
+                color: "#FFD700",
+                border: editorMode ? "1.5px solid #FFD700" : "1.5px solid rgba(255,215,0,0.4)",
+                backdropFilter: "blur(8px)",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+              }}
+              data-testid="btn-toggle-editor"
+              title={editorMode ? "Exit editor mode" : "Admin: drag buildings to reposition"}
+            >
+              <Move className="w-3.5 h-3.5"/>
+              <span>{editorMode ? "EDITING" : "EDITOR"}</span>
+            </button>
+
+            {editorMode && (
+              <button
+                data-no-pan="true"
+                onClick={() => {
+                  if (!user) return;
+                  if (!window.confirm("Reset all building positions to defaults?")) return;
+                  // Wipe overrides and reload page so BUILDING_POS module
+                  // values (the original defaults) take over cleanly.
+                  setPosOverrides({});
+                  saveLayout(user.id, {});
+                  toast({ title: "Layout reset · reloading" });
+                  setTimeout(() => window.location.reload(), 400);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+                style={{
+                  background: "linear-gradient(135deg, rgba(60,15,15,0.95), rgba(90,25,25,0.92))",
+                  color: "#FFD700",
+                  border: "1.5px solid rgba(255,80,80,0.6)",
+                  backdropFilter: "blur(8px)",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                }}
+                data-testid="btn-reset-layout"
+                title="Reset all building positions to defaults"
+              >
+                <RotateCcw className="w-3.5 h-3.5"/>
+                <span>RESET</span>
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {/* Roads modal */}
