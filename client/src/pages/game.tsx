@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { getDifficultyConfig, getGameTypeConfig } from "@/lib/utils";
-import { SAD_GAMES, isSADGame, SADGameRunner, difficultyLabel } from "@/components/sad-games";
+import { SAD_GAMES, isSADGame, isArcadeSADGame, SADGameRunner, difficultyLabel } from "@/components/sad-games";
 
 // ===================== WORDLE GAME =====================
 type LetterState = "correct" | "present" | "absent" | "empty" | "tbd";
@@ -766,7 +766,8 @@ export default function GamePage() {
 
   async function startGame() {
     const totalQs = level?.questions?.length ?? 0;
-    const totalForLevel = isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
+    const arcade = isArcadeSADGame(level?.gameType);
+    const totalForLevel = !arcade && isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
     const submittedStage = Math.min(Math.max(stageIndex, 0), Math.max(totalForLevel - 1, 0));
     let sessionId: string | null = null;
     try {
@@ -784,7 +785,8 @@ export default function GamePage() {
     setGameState("complete");
 
     const totalQs = level?.questions?.length ?? 0;
-    const totalForLevel = isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
+    const arcade = isArcadeSADGame(level?.gameType);
+    const totalForLevel = !arcade && isSADGame(level?.gameType) ? Math.max(totalQs, 1) : 1;
     const submittedStage = Math.min(Math.max(stageIndex, 0), Math.max(totalForLevel - 1, 0));
 
     try {
@@ -845,11 +847,17 @@ export default function GamePage() {
   const diffConfig = getDifficultyConfig(level.difficulty);
   const gameConfig = getGameTypeConfig(level.gameType);
 
-  // Stage plumbing — only SAD games support multi-stage. Legacy games stay single-shot.
+  // Stage plumbing — most SAD games are multi-stage (one question per stage).
+  // Arcade SAD games (req_sorter, sdlc_sorter) are single-stage and consume the
+  // FULL question pool internally; slicing them down to one question per stage
+  // would let the player win by repeating the same input forever.
   const isSAD = isSADGame(level.gameType);
-  const totalStages = isSAD ? Math.max(questions.length, 1) : 1;
+  const isArcade = isArcadeSADGame(level.gameType);
+  const totalStages = isSAD && !isArcade ? Math.max(questions.length, 1) : 1;
   const safeStageIndex = Math.min(Math.max(stageIndex, 0), Math.max(totalStages - 1, 0));
-  const stageQuestions = isSAD ? [questions[safeStageIndex]].filter(Boolean) : questions;
+  const stageQuestions = isSAD && !isArcade
+    ? [questions[safeStageIndex]].filter(Boolean)
+    : questions;
   const difficulty = totalStages > 1 ? safeStageIndex / (totalStages - 1) : 0;
   const diffPill = difficultyLabel(difficulty);
 

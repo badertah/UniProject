@@ -118,6 +118,16 @@ export function isSADGame(type: string) {
   return type in SAD_GAMES;
 }
 
+// "Arcade" SAD games run a single continuous session that internally cycles
+// through ALL questions (spawning waves, falling cards, etc). They must
+// receive the full question pool — never a single-question slice — otherwise
+// every spawn shares the same answer and the player can win by repeating
+// one input. Non-arcade SAD games are played stage-by-stage (one question
+// per stage) by the outer runner.
+export function isArcadeSADGame(type: string) {
+  return type === "req_sorter" || type === "sdlc_sorter";
+}
+
 interface SADGameProps {
   questions: any[];
   onComplete: (score: number) => void;
@@ -827,13 +837,21 @@ function RequirementHighway({ questions, onComplete, difficulty = 0 }: SADGamePr
   const spawnGap  = Math.max(0.85, startSpawnGap - (wave - 1) * 0.18);
   const fallSpeed = (RH_FLOOR_Y + RH_CARD_H) / fallSec;   // px/sec
 
-  // Build a question pool (we'll cycle infinitely).
-  const pool = useMemo(() => questions.map((q, i) => ({
-    qid: i,
-    content: q.content as string,
-    answer: (q.answer === "functional" ? "functional" : "non_functional") as "functional" | "non_functional",
-    explanation: ((q.options as any)?.explanation || "") as string,
-  })), [questions]);
+  // Build a question pool (we'll cycle infinitely). Shuffled once per mount so
+  // the player can't just memorise the order or spam one direction.
+  const pool = useMemo(() => {
+    const mapped = questions.map((q, i) => ({
+      qid: i,
+      content: q.content as string,
+      answer: (q.answer === "functional" ? "functional" : "non_functional") as "functional" | "non_functional",
+      explanation: ((q.options as any)?.explanation || "") as string,
+    }));
+    for (let i = mapped.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [mapped[i], mapped[j]] = [mapped[j], mapped[i]];
+    }
+    return mapped;
+  }, [questions]);
 
   // Game state
   const [cards, setCards]       = useState<RHCard[]>([]);
