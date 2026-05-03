@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap } from "lucide-react";
+import { Coins, Star, X, ArrowUpCircle, ShoppingCart, ChevronLeft, ChevronDown, ChevronUp, Plus, Minus, Maximize2, Lock, Sparkles, CheckCircle2, GraduationCap, Truck } from "lucide-react";
 import { BuildingSVG, LockedFieldSVG } from "@/components/farm-buildings";
 import imgBarn       from "@/assets/farm/barn.png";
 import imgFarmhouse  from "@/assets/farm/farmhouse.png";
@@ -111,7 +111,7 @@ const BUILDING_POS: Record<string, { x: number; y: number }> = {
   farmhouse:       { x: 1200, y: 970 },
   barn:            { x: 1900, y: 1000 },
   // South fields — crops
-  apple_orchard:   { x: 380,  y: 1200 },
+  apple_orchard:   { x: 310,  y: 1360 },
   wheat_field:     { x: 820,  y: 1140 },
   greenhouse:      { x: 1680, y: 1100 },
   vegetable_patch: { x: 2010, y: 1200 },
@@ -443,6 +443,10 @@ export default function FarmPage() {
   // next render falls through to the legacy hand-drawn BuildingSVG.
   const [failedSprites, setFailedSprites] = useState<Record<string, true>>({});
   const [showDiagrams, setShowDiagrams] = useState(false);
+  // Roads + trucks are hidden by default — players asked for a clean farm
+  // map. Toggle on to reveal the SAD-style production-flow network as an
+  // overlay (input/store/output/power roads with animated trucks).
+  const [showRoads, setShowRoads] = useState(false);
   const [isHarvesting, setIsHarvesting] = useState(false);
   // harvestPulse holds true for ~3s after a harvest click so trucks have time
   // to be visibly faster + carry gold cargo even though the API call resolves
@@ -1045,11 +1049,13 @@ export default function FarmPage() {
             })}
 
             {/* === ROAD NETWORK — physical paths between owned production-chain
-                 endpoints. Roads are drawn as ground-level curves and visually
-                 upgrade with the lower-level endpoint (dirt → gravel → paved).
-                 Endpoints are TRIMMED so the road stops at the edge of each
-                 building's land patch instead of running under the tile. */}
-            {(() => {
+                 endpoints. Hidden by default to keep the map clean; the
+                 player toggles it on via the "FLOW" button to study the
+                 SAD data-flow chain as a concrete infrastructure overlay.
+                 Roads visually upgrade with their lower-level endpoint
+                 (dirt → gravel → paved) and are trimmed so the curve stops
+                 at the patch edge instead of running under the building. */}
+            {showRoads && (() => {
               // Quadratic Bezier sample helper.
               const bez = (t: number, p0: number, p1: number, p2: number) =>
                 (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
@@ -1478,6 +1484,33 @@ export default function FarmPage() {
       >
         <GraduationCap className="w-3.5 h-3.5"/>
         <span>SAD DIAGRAMS</span>
+      </button>
+
+      {/* === FLOW (roads + trucks) overlay toggle ===
+           Lives just below the SAD DIAGRAMS button. When OFF (default)
+           the map shows only buildings on terrain — clean farm look.
+           When ON, the production-chain road network and trucks render
+           so the player can study the data-flow infrastructure. */}
+      <button
+        data-no-pan="true"
+        onClick={() => setShowRoads(v => !v)}
+        className="absolute z-30 flex items-center gap-1.5 px-3 py-2 rounded-lg font-black text-xs transition-all hover:scale-105 active:scale-95"
+        style={{
+          right: 10,
+          top: 158,
+          background: showRoads
+            ? "linear-gradient(135deg, rgba(60,40,15,0.95), rgba(80,55,20,0.92))"
+            : "linear-gradient(135deg, rgba(20,30,15,0.92), rgba(28,40,18,0.88))",
+          color: "#FFD700",
+          border: showRoads ? "1.5px solid rgba(255,215,0,0.7)" : "1.5px solid rgba(255,215,0,0.4)",
+          backdropFilter: "blur(8px)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+        }}
+        data-testid="btn-toggle-roads"
+        title={showRoads ? "Hide production roads" : "Show production roads"}
+      >
+        <Truck className="w-3.5 h-3.5"/>
+        <span>{showRoads ? "FLOW: ON" : "FLOW"}</span>
       </button>
 
       {/* Building modal */}
