@@ -286,11 +286,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       const topicLevels = (await storage.getLevelsByTopic(topic.id))
         .filter(l => SAD_VISIBLE_GAMES.has(l.gameType));
-      const levelsWithQuestions = await Promise.all(topicLevels.map(async (lvl) => {
+      const levelsWithCount = await Promise.all(topicLevels.map(async (lvl) => {
         const qs = await storage.getQuestionsByLevel(lvl.id);
-        return { ...lvl, questions: qs, questionCount: Math.max(qs.length, 1) };
+        return { ...lvl, questionCount: Math.max(qs.length, 1) };
       }));
-      res.json({ ...topic, levels: levelsWithQuestions });
+      res.json({ ...topic, levels: levelsWithCount });
     } catch {
       res.status(500).json({ error: "Failed to fetch topic" });
     }
