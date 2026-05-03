@@ -941,22 +941,105 @@ export default function FarmPage() {
             viewBox={`0 0 ${WORLD_W} ${WORLD_H}`}
             style={{ left: 0, top: 0, zIndex: 1 }}
           >
-            {/* Dirt patch under every plot (owned = warm brown, locked = grey-brown). */}
+            {/* === Defs: feathered patch fills + soft-edge filter ===
+                 Solves the "floating disc" problem: instead of a hard-edged
+                 ellipse sitting on top of the grass, each patch fades into
+                 the terrain via a radial gradient. Three palettes:
+                 - tilled (crops):  warm tilled-soil brown
+                 - grassy (livestock/buildings): mossy green mound that
+                   blends with the world ground
+                 - locked: muted grey-brown so unbought slots stay subtle  */}
+            <defs>
+              <radialGradient id="patch-tilled" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"   stopColor="#8A6428" stopOpacity="0.95"/>
+                <stop offset="55%"  stopColor="#7A5824" stopOpacity="0.78"/>
+                <stop offset="85%"  stopColor="#6B4A1E" stopOpacity="0.30"/>
+                <stop offset="100%" stopColor="#6B4A1E" stopOpacity="0"/>
+              </radialGradient>
+              <radialGradient id="patch-grassy" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"   stopColor="#6FA64A" stopOpacity="0.85"/>
+                <stop offset="55%"  stopColor="#5C8E3F" stopOpacity="0.55"/>
+                <stop offset="85%"  stopColor="#4A7A35" stopOpacity="0.20"/>
+                <stop offset="100%" stopColor="#4A7A35" stopOpacity="0"/>
+              </radialGradient>
+              <radialGradient id="patch-locked" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"   stopColor="#5C5040" stopOpacity="0.55"/>
+                <stop offset="60%"  stopColor="#4D4234" stopOpacity="0.30"/>
+                <stop offset="100%" stopColor="#4D4234" stopOpacity="0"/>
+              </radialGradient>
+              {/* Furrow stripe pattern for tilled crop fields — adds the
+                  agricultural-row texture without needing per-tile art. */}
+              <pattern id="furrows" patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(0)">
+                <rect width="14" height="14" fill="transparent"/>
+                <line x1="0" y1="6"  x2="14" y2="6"  stroke="#6B4A1E" strokeWidth="1.2" opacity="0.35"/>
+                <line x1="0" y1="11" x2="14" y2="11" stroke="#5A3F18" strokeWidth="0.8" opacity="0.25"/>
+              </pattern>
+            </defs>
+
+            {/* === Per-building land patches ===
+                 - Crops:    rectangular tilled-soil plot with furrow rows
+                 - Others:   soft round grassy mound (no hard edge)
+                 - Locked:   small muted patch with surveyor dashes
+                 All patches use feathered gradients so they fade into the
+                 world ground instead of sitting on it like a coaster. */}
             {BUILDINGS.map(b => {
               const { x, y } = bldgPos(b.id);
               const owned = (farmSave.owned[b.id] || 0) > 0;
+              const isCrop = b.category === "crops";
+              if (!owned) {
+                // Locked plot — small, faded, doesn't compete visually
+                return (
+                  <g key={`soil-${b.id}`} opacity={0.7}>
+                    <ellipse cx={x} cy={y + 14} rx={78} ry={26} fill="url(#patch-locked)"/>
+                    <ellipse cx={x} cy={y + 14} rx={62} ry={18} fill="none" stroke="#5a4a3a" strokeWidth="1" strokeDasharray="6 5" opacity="0.55"/>
+                  </g>
+                );
+              }
+              if (isCrop) {
+                // Tilled rectangular plot — large, with furrow rows running
+                // horizontally. The slight downward skew makes it read as
+                // an iso ground plane rather than a flat sticker.
+                const w = 170, h = 70;
+                const cx = x, cy = y + 14;
+                return (
+                  <g key={`soil-${b.id}`}>
+                    {/* Soft soil-shadow halo blends rectangle into grass */}
+                    <ellipse cx={cx} cy={cy + 4} rx={w * 0.62} ry={h * 0.62} fill="url(#patch-tilled)"/>
+                    {/* Tilled-soil rectangle (slightly transparent so the
+                        feathered halo above peeks through at the edges) */}
+                    <rect
+                      x={cx - w / 2} y={cy - h / 2}
+                      width={w} height={h}
+                      rx={6}
+                      fill="#7A5824"
+                      opacity={0.92}
+                    />
+                    {/* Furrow rows (pattern fill, blended on top) */}
+                    <rect
+                      x={cx - w / 2 + 4} y={cy - h / 2 + 4}
+                      width={w - 8} height={h - 8}
+                      rx={4}
+                      fill="url(#furrows)"
+                    />
+                    {/* Subtle lighter highlight on top edge */}
+                    <rect
+                      x={cx - w / 2} y={cy - h / 2}
+                      width={w} height={6}
+                      rx={6}
+                      fill="rgba(255,220,140,0.22)"
+                    />
+                  </g>
+                );
+              }
+              // Buildings/livestock/equipment — soft grassy mound
               return (
                 <g key={`soil-${b.id}`}>
-                  <ellipse cx={x} cy={y + 12} rx={92} ry={28} fill="rgba(0,0,0,0.22)"/>
-                  <ellipse cx={x} cy={y + 8}  rx={88} ry={24} fill={owned ? "#7A5A28" : "#6B5040"} opacity={owned ? 0.78 : 0.55}/>
-                  <ellipse cx={x - 14} cy={y + 4} rx={36} ry={9} fill="rgba(255,255,255,0.08)"/>
-                  <ellipse cx={x} cy={y + 8}  rx={88} ry={24} fill="none" stroke={owned ? "#9A7838" : "#5a4a3a"} strokeWidth="1.5" opacity="0.7"/>
-                  {!owned && (
-                    <>
-                      <line x1={x - 60} y1={y + 2} x2={x + 60} y2={y + 2} stroke="#5a4a3a" strokeWidth="1" opacity="0.3" strokeDasharray="7 5"/>
-                      <line x1={x - 50} y1={y + 14} x2={x + 50} y2={y + 14} stroke="#5a4a3a" strokeWidth="1" opacity="0.3" strokeDasharray="7 5"/>
-                    </>
-                  )}
+                  {/* Wide soft mound that fades into terrain */}
+                  <ellipse cx={x} cy={y + 14} rx={120} ry={42} fill="url(#patch-grassy)"/>
+                  {/* Small inner darker dirt circle directly under the
+                      building foot for a planted feel */}
+                  <ellipse cx={x} cy={y + 14} rx={62} ry={20} fill="#5C7A3A" opacity={0.42}/>
+                  <ellipse cx={x - 12} cy={y + 8} rx={28} ry={6} fill="rgba(255,255,255,0.06)"/>
                 </g>
               );
             })}
@@ -964,8 +1047,17 @@ export default function FarmPage() {
             {/* === ROAD NETWORK — physical paths between owned production-chain
                  endpoints. Roads are drawn as ground-level curves and visually
                  upgrade with the lower-level endpoint (dirt → gravel → paved).
-                 Replaces the abstract DFD arrows with concrete infrastructure. */}
+                 Endpoints are TRIMMED so the road stops at the edge of each
+                 building's land patch instead of running under the tile. */}
             {(() => {
+              // Quadratic Bezier sample helper.
+              const bez = (t: number, p0: number, p1: number, p2: number) =>
+                (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+              // Distance to keep clear from each endpoint. Matches the
+              // widest patch radius (~120 grassy mound) so the road and
+              // truck visibly stop at the patch edge instead of intruding
+              // under the building tile.
+              const PATCH_CLEAR = 120;
               const roads = PRODUCTION_EDGES.map((e, i) => {
                 const fromLv = farmSave.owned[e.from] || 0;
                 const toLv = farmSave.owned[e.to] || 0;
@@ -979,9 +1071,26 @@ export default function FarmPage() {
                 const offset = ((i * 31) % 28) - 14;
                 const mx = (a.x + b.x) / 2;
                 const my = (a.y + b.y) / 2 + offset + 6;
-                const ay = a.y + 6;
-                const by = b.y + 6;
-                const d = `M ${a.x} ${ay} Q ${mx} ${my} ${b.x} ${by}`;
+                const ay = a.y + 14;
+                const by = b.y + 14;
+                // Trim t-range so road begins/ends PATCH_CLEAR px from the
+                // building foot. If the two patches would overlap (very
+                // close neighbours), drop the road entirely — drawing a
+                // tiny stub between two adjacent patches reads as visual
+                // noise rather than infrastructure.
+                const dist = Math.hypot(b.x - a.x, by - ay);
+                if (dist <= 2 * PATCH_CLEAR + 10) return null;
+                // Clamp <0.5 so we never invert. Real-world distances in
+                // the layout are >= ~250px so this rarely binds.
+                const tCut = Math.min(0.49, PATCH_CLEAR / dist);
+                const t1 = tCut, t2 = 1 - tCut;
+                const sx = bez(t1, a.x, mx, b.x);
+                const sy = bez(t1, ay, my, by);
+                const ex = bez(t2, a.x, mx, b.x);
+                const ey = bez(t2, ay, my, by);
+                // New control point keeps the original midpoint flavour for
+                // the trimmed segment.
+                const d = `M ${sx} ${sy} Q ${mx} ${my} ${ex} ${ey}`;
                 return { i, edge: e, d, style, lv };
               }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number } => r !== null);
 
