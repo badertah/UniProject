@@ -130,6 +130,14 @@ function bldgPos(id: string): { x: number; y: number } {
   return BUILDING_POS[id] ?? { x: 1200, y: 1000 };
 }
 
+// === Snap-to-grid ===
+// Editor-mode drags snap to a 40px world grid so buildings line up cleanly
+// and roads (which auto-route between building positions) connect at neat,
+// repeatable angles. 40px is a divisor of the existing default positions
+// (560/700/820/1200/1840 etc.) so existing layouts stay on-grid.
+const GRID = 40;
+const snapToGrid = (v: number) => Math.round(v / GRID) * GRID;
+
 // === Production / data-flow chain (SAD: data flow diagram-style edges) ===
 // Each edge represents a "flow" from a source building to a sink. Visualised
 // as an animated dashed arrow ONLY when both endpoints are owned. Players
@@ -1247,6 +1255,21 @@ export default function FarmPage() {
             viewBox={`0 0 ${WORLD_W} ${WORLD_H}`}
             style={{ left: 0, top: 0, zIndex: 1 }}
           >
+            {/* === Snap-to-grid overlay (admin editor only) ===
+                 Faint dotted gold grid that visualises the 40px snap
+                 lattice while the admin is dragging buildings. Hidden
+                 outside editor mode so regular players never see it. */}
+            {editorMode && (
+              <g opacity={0.35}>
+                {Array.from({ length: Math.floor(WORLD_W / GRID) + 1 }).map((_, i) => (
+                  <line key={`gx${i}`} x1={i * GRID} y1={0} x2={i * GRID} y2={WORLD_H} stroke="#FFD700" strokeWidth={0.8} strokeDasharray="2 6"/>
+                ))}
+                {Array.from({ length: Math.floor(WORLD_H / GRID) + 1 }).map((_, i) => (
+                  <line key={`gy${i}`} x1={0} y1={i * GRID} x2={WORLD_W} y2={i * GRID} stroke="#FFD700" strokeWidth={0.8} strokeDasharray="2 6"/>
+                ))}
+              </g>
+            )}
+
             {/* === Defs: feathered patch fills + soft-edge filter ===
                  Solves the "floating disc" problem: instead of a hard-edged
                  ellipse sitting on top of the grass, each patch fades into
@@ -1383,21 +1406,9 @@ export default function FarmPage() {
                  stick. Tier upgrades widen + repave the road. The FLOW
                  toggle still hides the whole network for a clean view. */}
             {showRoads && (() => {
-              // Cubic Bezier sample helper — gives roads a real S-curve so
-              // they meander like the river instead of reading as straight
-              // sticks. Two control points let parallel roads diverge.
-              const cubic = (t: number, p0: number, p1: number, p2: number, p3: number) => {
-                const u = 1 - t;
-                return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
-              };
               // Distance to keep clear from each endpoint so the road stops
               // at the patch edge instead of intruding under the building.
               const PATCH_CLEAR = 95;
-              // World centroid roughly matches the BUILDING_POS bbox center.
-              // Roads bow AWAY from this point so the network forms a
-              // sweeping ring instead of crossing through the middle.
-              const WORLD_CX = 1200;
-              const WORLD_CY = 1000;
               const builtMap = farmSave.roads || {};
               const allRoads = PRODUCTION_EDGES.map((e, i) => {
                 const fromLv = farmSave.owned[e.from] || 0;
@@ -1415,34 +1426,16 @@ export default function FarmPage() {
                 const dx = b.x - a.x;
                 const dy = by - ay;
                 const len = Math.max(Math.hypot(dx, dy), 1);
-                // Perpendicular unit vectors (two choices). Pick the one
-                // pointing AWAY from the world centroid so curves fan
-                // outward instead of piling up in the middle.
-                const px = -dy / len;
-                const py =  dx / len;
-                const mx = (a.x + b.x) / 2;
-                const my = (ay + by) / 2;
-                const outX = mx - WORLD_CX;
-                const outY = my - WORLD_CY;
-                const outward = (px * outX + py * outY) >= 0 ? 1 : -1;
-                // Magnitude scales with edge length (long roads bend more,
-                // short ones stay tight). Mild ±4 jitter by edge index
-                // separates parallel runs without re-creating crossings.
-                const baseMag = Math.min(60, len * 0.18) + ((i * 7) % 9);
-                const mag = baseMag * outward;
-                // SINGLE outward C-bend (not S) — same sign for both control
-                // points => simple arc, no inflection, no self-overlap.
-                const c1x = a.x + dx * 0.33 + px * mag;
-                const c1y = ay  + dy * 0.33 + py * mag;
-                const c2x = a.x + dx * 0.66 + px * mag;
-                const c2y = ay  + dy * 0.66 + py * mag;
-                // Trim ends so the road stops at the patch edge.
+                // Clean STRAIGHT-LINE roads — like a real tycoon game.
+                // No more meandering Bezier curves. Roads connect endpoints
+                // with a straight diagonal so parallel routes fan out
+                // neatly and intersections meet at clean angles.
                 const tCut = Math.min(0.40, PATCH_CLEAR / len);
-                const sx = cubic(tCut, a.x, c1x, c2x, b.x);
-                const sy = cubic(tCut, ay,  c1y, c2y, by);
-                const ex = cubic(1 - tCut, a.x, c1x, c2x, b.x);
-                const ey = cubic(1 - tCut, ay,  c1y, c2y, by);
-                const d = `M ${sx} ${sy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${ex} ${ey}`;
+                const sx = a.x + dx * tCut;
+                const sy = ay  + dy * tCut;
+                const ex = a.x + dx * (1 - tCut);
+                const ey = ay  + dy * (1 - tCut);
+                const d = `M ${sx} ${sy} L ${ex} ${ey}`;
                 return { i, edge: e, d, style, lv, built };
               }).filter((r): r is { i: number; edge: Edge; d: string; style: RoadStyle; lv: number; built: boolean } => r !== null);
               const roads = allRoads.filter(r => r.built);
@@ -1574,9 +1567,11 @@ export default function FarmPage() {
                     const dy = (ev.clientY - startY) / scale;
                     if (!moved && Math.hypot(dx, dy) > 4) moved = true;
                     if (!moved) return;
-                    const nx = Math.max(80, Math.min(WORLD_W - 80, orig.x + dx));
-                    const ny = Math.max(80, Math.min(WORLD_H - 80, orig.y + dy));
-                    setPosOverrides(p => ({ ...p, [b.id]: { x: Math.round(nx), y: Math.round(ny) } }));
+                    // Clamp to world AABB then snap to the 40px grid so
+                    // buildings always line up and roads connect cleanly.
+                    const nx = snapToGrid(Math.max(80, Math.min(WORLD_W - 80, orig.x + dx)));
+                    const ny = snapToGrid(Math.max(80, Math.min(WORLD_H - 80, orig.y + dy)));
+                    setPosOverrides(p => ({ ...p, [b.id]: { x: nx, y: ny } }));
                   };
                   const onUp = () => {
                     window.removeEventListener("pointermove", onMove);
@@ -1589,6 +1584,35 @@ export default function FarmPage() {
                 onClick={tileClickGuard(() => { if (!editorMode) setSelected(b); })}
                 data-testid={`tile-${b.id}`}
               >
+                {/* === Polished isometric land-plot tile ===
+                    A clean 2:1 diamond under every building gives each one
+                    a designed, on-the-grid footprint (Hay Day / Township
+                    style). Owned plots get a richer earth-green; locked
+                    plots stay faint. Renders BEHIND the shadow layers and
+                    sprite, so the building visually "stands" on the plot.
+                    Pure SVG — no extra DOM nodes per building. */}
+                <svg
+                  className="absolute pointer-events-none"
+                  width={bldgW}
+                  height={bldgH}
+                  viewBox={`0 0 ${bldgW} ${bldgH}`}
+                  style={{ left: 0, top: 0, overflow: "visible" }}
+                >
+                  <polygon
+                    points={`${bldgW / 2},${bldgH - 32} ${bldgW - 6},${bldgH - 6} ${bldgW / 2},${bldgH + 18} 6,${bldgH - 6}`}
+                    fill={isOwned ? "rgba(86,118,52,0.55)" : "rgba(70,80,55,0.30)"}
+                    stroke={isOwned ? "rgba(180,210,120,0.65)" : "rgba(150,160,120,0.35)"}
+                    strokeWidth={1.5}
+                    strokeLinejoin="round"
+                  />
+                  {/* Inner highlight on top facet of the diamond gives
+                      depth and reads as sunlight on the plot. */}
+                  <polygon
+                    points={`${bldgW / 2},${bldgH - 28} ${bldgW - 14},${bldgH - 8} ${bldgW / 2},${bldgH - 2} 14,${bldgH - 8}`}
+                    fill={isOwned ? "rgba(255,235,160,0.10)" : "rgba(255,255,220,0.05)"}
+                  />
+                </svg>
+
                 {/* === Ground anchor — TWO layers that together make the
                     building read as planted on the terrain instead of
                     floating:
