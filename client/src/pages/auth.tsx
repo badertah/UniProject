@@ -261,10 +261,6 @@ export default function AuthPage() {
             ))}
           </div>
 
-          {/* Admin hint */}
-          <p className="text-center text-xs text-muted-foreground/40 font-mono mt-6">
-            admin / admin123 for admin access
-          </p>
         </motion.div>
       </div>
     </div>
