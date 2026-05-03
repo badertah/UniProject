@@ -14,6 +14,11 @@ interface User {
   isAdmin: boolean;
   tier: string;
   lastLoginDate?: string;
+  // Farm Tycoon stats — surfaced server-side for the farm leaderboard
+  // and the dashboard farm-first callout.
+  farmBank?: number;
+  farmDay?: number;
+  farmTotalEarned?: number;
 }
 
 interface AuthContext {

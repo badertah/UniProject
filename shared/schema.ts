@@ -17,6 +17,14 @@ export const users = pgTable("users", {
   equippedTheme: varchar("equipped_theme"),
   isAdmin: boolean("is_admin").notNull().default(false),
   sadConceptMastery: jsonb("sad_concept_mastery").notNull().default(sql`'{}'::jsonb`),
+  // === Farm Tycoon stats ===
+  // Surfaced server-side so the Farm Tycoon leaderboard can rank
+  // players by management performance. Synced from the farm page on
+  // every save (debounced) — full save state still lives in
+  // localStorage; only the rankable summary is persisted here.
+  farmBank: integer("farm_bank").notNull().default(0),
+  farmDay: integer("farm_day").notNull().default(1),
+  farmTotalEarned: integer("farm_total_earned").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -318,6 +318,10 @@ type FarmSave = {
   // and as a stat in the SAD diagram modal).
   wagesPaidTotal: number;
   farmBank: number;
+  // Lifetime coins ever banked from harvests on this farm. Monotonic.
+  // Used as the primary metric on the FARM TYCOONS leaderboard so a
+  // player's all-time management performance is what's ranked.
+  farmTotalEarned: number;
   lastTickTime: number;
   tickCounters: Record<string, number>;
   day: number;
@@ -327,7 +331,7 @@ type FarmSave = {
 function loadState(uid: string): FarmSave {
   try { const raw = localStorage.getItem(farmKey(uid)); if (raw) return { ...defaultState(), ...JSON.parse(raw) }; } catch {} return defaultState();
 }
-function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [] }; }
+function defaultState(): FarmSave { return { owned: {}, employees: {}, wagesPaidTotal: 0, farmBank: 0, farmTotalEarned: 0, lastTickTime: Date.now(), tickCounters: {}, day: 1, completedQuests: [] }; }
 function saveState(s: FarmSave, uid: string) { localStorage.setItem(farmKey(uid), JSON.stringify(s)); }
 
 type CoinPop = { id: string; bId: string; amount: number };
@@ -447,6 +451,26 @@ export default function FarmPage() {
   // map. Toggle on to reveal the SAD-style production-flow network as an
   // overlay (input/store/output/power roads with animated trucks).
   const [showRoads, setShowRoads] = useState(false);
+
+  // Debounced sync of farm-leaderboard stats to the server. We only
+  // surface the rankable summary (bank / day / total earned) — the
+  // full save state stays in localStorage. 1.2s debounce keeps the
+  // request rate well below the harvest cadence even for spam buys.
+  const farmSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    if (farmSyncTimerRef.current) clearTimeout(farmSyncTimerRef.current);
+    farmSyncTimerRef.current = setTimeout(() => {
+      // Only display-only stats are synced. farmTotalEarned is the
+      // authoritative leaderboard metric and is bumped server-side
+      // by /api/farm/harvest, never trusted from the client.
+      apiRequest("POST", "/api/farm/sync", {
+        farmBank: farmSave.farmBank,
+        farmDay: farmSave.day,
+      }).catch(() => { /* sync is best-effort; don't surface errors */ });
+    }, 1200);
+    return () => { if (farmSyncTimerRef.current) clearTimeout(farmSyncTimerRef.current); };
+  }, [user, farmSave.farmBank, farmSave.day]);
   const [isHarvesting, setIsHarvesting] = useState(false);
   // harvestPulse holds true for ~3s after a harvest click so trucks have time
   // to be visibly faster + carry gold cargo even though the API call resolves
@@ -505,7 +529,17 @@ export default function FarmPage() {
         ? ` (+${data.bonusCoins} cosmetic bonus, ×${(data.farmMult || 1).toFixed(2)})`
         : "";
       toast({ title: `🌾 Harvest! +${data.coinsAdded} EduCoins${bonusMsg}`, description: `Day ${farmSave.day + 1} begins!` });
-      setFarmSave(prev => { const ns = { ...prev, farmBank: 0, day: prev.day + 1 }; if (user) saveState(ns, user.id); return ns; });
+      setFarmSave(prev => {
+        const earnedThisRun = Math.max(0, Math.floor(Number(data.coinsAdded) || 0));
+        const ns = {
+          ...prev,
+          farmBank: 0,
+          day: prev.day + 1,
+          farmTotalEarned: (prev.farmTotalEarned || 0) + earnedThisRun,
+        };
+        if (user) saveState(ns, user.id);
+        return ns;
+      });
       setIsHarvesting(false);
     },
     onError: () => { toast({ title: "Harvest failed", variant: "destructive" }); setIsHarvesting(false); },

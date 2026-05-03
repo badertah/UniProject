@@ -15,7 +15,7 @@ import WelcomeTutorial, { TUTORIAL_LS_KEY } from "@/components/welcome-tutorial"
 import OnboardingChecklist from "@/components/onboarding-checklist";
 import {
   Zap, Flame, Coins, Trophy, BookOpen, ChevronRight, Star,
-  TrendingUp, Target, Award, Lock, Hash, Link2, Smile, Gamepad2, Play
+  TrendingUp, Target, Award, Lock, Hash, Link2, Smile, Gamepad2, Play, Tractor, Sparkles
 } from "lucide-react";
 
 const TOPIC_ICONS: Record<string, string> = {
@@ -125,6 +125,62 @@ export default function Dashboard() {
 
       {/* Starter quest checklist — auto-hides once dismissed by the user */}
       <OnboardingChecklist user={user} onReplayTutorial={replayTutorial} />
+
+      {/* === FARM-FIRST CALLOUT ===
+           This is the main game. Courses + mini-games are study aids that
+           feed coins and XP into the farm. The callout is the most
+           prominent CTA on the dashboard so new players know where the
+           action is — and it doubles as a quick link straight to /farm. */}
+      <Link href="/farm">
+        <motion.div
+          className="relative overflow-hidden rounded-xl cursor-pointer group"
+          style={{
+            background: "linear-gradient(135deg, rgba(34,94,40,0.55) 0%, rgba(20,60,30,0.65) 50%, rgba(80,55,15,0.55) 100%)",
+            border: "1.5px solid rgba(132,204,22,0.35)",
+          }}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          whileHover={{ scale: 1.005 }}
+          data-testid="card-farm-cta"
+        >
+          {/* subtle pulse glow */}
+          <motion.div
+            className="absolute -inset-px rounded-xl pointer-events-none"
+            style={{ boxShadow: "0 0 28px rgba(132,204,22,0.18) inset" }}
+            animate={{ opacity: [0.6, 1, 0.6] }}
+            transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <div className="relative p-4 md:p-5 flex items-center gap-4">
+            <div
+              className="w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #65a30d, #4d7c0f)", boxShadow: "0 4px 14px rgba(132,204,22,0.3)" }}
+            >
+              <Tractor className="w-6 h-6 md:w-7 md:h-7 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <h2 className="text-base md:text-lg font-black tracking-wide text-white" style={{ fontFamily: "Oxanium, sans-serif" }}>
+                  FARM TYCOON
+                </h2>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-emerald-200" style={{ background: "rgba(132,204,22,0.18)", border: "1px solid rgba(132,204,22,0.4)" }}>
+                  MAIN GAME
+                </span>
+              </div>
+              <p className="text-xs md:text-sm text-slate-300 leading-snug">
+                Build and upgrade your farm. <span className="text-amber-300">Master SAD diagrams</span> while you play — bad management means you fail and earn less. Courses below are your study aid.
+              </p>
+            </div>
+            <div className="hidden sm:flex flex-col items-end gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-200 group-hover:bg-emerald-500/20 transition-colors" style={{ background: "rgba(132,204,22,0.12)", border: "1px solid rgba(132,204,22,0.4)" }}>
+                Play Now <ChevronRight className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-yellow-400" /> Farm Bank: <span className="text-yellow-300 font-mono font-bold">{user.farmBank ?? 0}🪙</span> · Day {user.farmDay ?? 1}
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      </Link>
 
       {/* Hero Section */}
       <motion.div

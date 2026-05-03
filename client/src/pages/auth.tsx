@@ -8,14 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Zap, User, Lock, ChevronRight, Loader2, BookOpen,
-  Trophy, Flame, Star, Shield, Gamepad2, GraduationCap
+  Trophy, Flame, Star, Shield, Gamepad2, GraduationCap, Tractor
 } from "lucide-react";
 
 const FEATURES = [
-  { icon: BookOpen, title: "Learning Courses", desc: "Gamified modules covering key concepts and skills", color: "text-cyan-400" },
-  { icon: Trophy, title: "Live Leaderboard", desc: "Compete with your team and track your progress", color: "text-yellow-400" },
-  { icon: Gamepad2, title: "Mini-Games", desc: "6 fun game types — Blitz, Bubble Pop, Memory & more", color: "text-purple-400" },
-  { icon: Flame, title: "Daily Streaks", desc: "Log in every day and multiply your rewards", color: "text-orange-400" },
+  { icon: Tractor,  title: "Farm Tycoon (Main Game)", desc: "Build, staff, and grow your farm — master SAD diagrams to keep it profitable", color: "text-emerald-400" },
+  { icon: Trophy,   title: "Farm Leaderboard",        desc: "Compete with other tycoons — best management wins", color: "text-yellow-400" },
+  { icon: BookOpen, title: "Courses & Mini-Games",    desc: "Quick learning modules that earn you coins to fuel your farm", color: "text-cyan-400" },
+  { icon: Flame,    title: "Daily Streaks",           desc: "Log in every day to multiply your farm rewards", color: "text-orange-400" },
 ];
 
 export default function AuthPage() {
@@ -93,14 +93,14 @@ export default function AuthPage() {
         <motion.div className="relative z-10 flex-1 flex flex-col justify-center"
           initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
           <h2 className="text-4xl font-black text-white leading-tight mb-4" style={{ fontFamily: "Oxanium, sans-serif" }}>
-            Level Up Your<br />
+            Build Your<br />
             <span className="text-transparent bg-clip-text"
-              style={{ backgroundImage: "linear-gradient(90deg, #a855f7, #06b6d4)" }}>
-              Knowledge
+              style={{ backgroundImage: "linear-gradient(90deg, #fbbf24, #84cc16)" }}>
+              Farm Empire
             </span>
           </h2>
           <p className="text-slate-400 text-base mb-10 leading-relaxed max-w-sm">
-            The gamified learning platform for teams and learners. Master concepts while earning XP, coins, and climbing the leaderboard.
+            The main game is <span className="text-emerald-300 font-semibold">Farm Tycoon</span> — build, upgrade, and out-manage other players. Courses and mini-games are your study aid: master Systems Analysis &amp; Design diagrams to keep your farm growing.
           </p>
 
           {/* Feature list */}

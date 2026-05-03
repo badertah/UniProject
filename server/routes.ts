@@ -500,6 +500,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Farm Tycoon leaderboard — ranks by farmTotalEarned (lifetime coins
+  // earned from farm production). The farm IS the main game; the XP
+  // leaderboard tracks course completions, this one tracks management.
+  app.get("/api/leaderboard/farm", async (req, res) => {
+    try {
+      const leaders = await storage.getFarmLeaderboard(20);
+      const safe = leaders.map(({ password: _, ...u }) => ({ ...u, tier: getTier(u.xp) }));
+      res.json(safe);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch farm leaderboard" });
+    }
+  });
+
+  // Sync the local farm state's DISPLAY-ONLY stats to the user record.
+  // Called from the farm page (debounced) on every save. We only
+  // accept farmBank (current bank balance, capped at 500 — same cap
+  // as the harvest route) and farmDay (current day, monotonic so a
+  // tampered client cannot rewind). farmTotalEarned is NOT accepted
+  // here — it's the authoritative leaderboard metric and is bumped
+  // server-side in /api/farm/harvest only.
+  app.post("/api/farm/sync", authMiddleware, async (req: AuthRequest, res) => {
+    try {
+      const { farmBank, farmDay } = req.body || {};
+      const user = await storage.getUser(req.userId!);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const nextBank = Math.max(0, Math.min(Math.floor(Number(farmBank) || 0), 500));
+      const reqDay   = Math.max(1, Math.min(Math.floor(Number(farmDay) || 1), 1_000_000));
+      // Day is monotonic too — only allow forward motion.
+      const nextDay  = Math.max(user.farmDay || 1, reqDay);
+      const updated = await storage.updateUser(req.userId!, {
+        farmBank: nextBank,
+        farmDay: nextDay,
+      });
+      const { password: _, ...safeUser } = updated;
+      res.json({ user: { ...safeUser, tier: getTier(safeUser.xp) } });
+    } catch (err) {
+      console.error("Farm sync error:", err);
+      res.status(500).json({ error: "Farm sync failed" });
+    }
+  });
+
   // ============ BADGES ============
   app.get("/api/badges", authMiddleware, async (req: AuthRequest, res) => {
     try {
@@ -740,8 +781,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const coinsToAdd = Math.floor(baseCoins * perks.farmMult);
       const bonusCoins = coinsToAdd - baseCoins;
 
+      // farmTotalEarned is the leaderboard's authoritative metric — we
+      // increment it here (server-side, where coinsToAdd is verified)
+      // so a tampered client cannot claim #1 by posting an inflated
+      // total to /api/farm/sync. Also bump farmDay so the leaderboard
+      // reflects the new day immediately even before the next sync.
       const updated = await storage.updateUser(req.userId!, {
         eduCoins: user.eduCoins + coinsToAdd,
+        farmTotalEarned: (user.farmTotalEarned || 0) + coinsToAdd,
+        farmDay: (user.farmDay || 1) + 1,
+        farmBank: 0,
       });
       const { password: _, ...safeUser } = updated;
       res.json({

@@ -20,6 +20,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User>;
   getLeaderboard(limit?: number): Promise<User[]>;
+  getFarmLeaderboard(limit?: number): Promise<User[]>;
   getAllUsers(): Promise<User[]>;
 
   // Topics
@@ -94,6 +95,15 @@ export class DatabaseStorage implements IStorage {
 
   async getLeaderboard(limit = 50): Promise<User[]> {
     return db.select().from(users).orderBy(desc(users.xp)).limit(limit);
+  }
+
+  async getFarmLeaderboard(limit = 50): Promise<User[]> {
+    // Rank by lifetime farm earnings (best management proxy), with
+    // current-day as tiebreaker so consistent farmers stay ahead of
+    // one-off lucky harvests.
+    return db.select().from(users)
+      .orderBy(desc(users.farmTotalEarned), desc(users.farmDay))
+      .limit(limit);
   }
 
   async getAllUsers(): Promise<User[]> {
